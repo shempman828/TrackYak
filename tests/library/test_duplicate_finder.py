@@ -68,3 +68,37 @@ def test_start_scan_eager_loads_what_the_worker_thread_needs(qapp, monkeypatch, 
         assert fetched.album is None
     finally:
         dialog.deleteLater()
+
+
+def test_fingerprint_scan_submits_every_batch_in_order(qapp, monkeypatch):
+    """Every pair batch is scored exactly once, in FIFO order, and all
+    reported matches are unioned. A thread pool stands in for the process
+    pool so the stubbed scorer can record calls in-process."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src.library import duplicate_finder
+
+    submitted = []
+
+    def fake_score(fp_subset, batch, threshold):
+        submitted.append(list(batch))
+        assert set(fp_subset) == {idx for pair in batch for idx in pair}
+        return [batch[0]]
+
+    monkeypatch.setattr(duplicate_finder, "_FINGERPRINT_BATCH_SIZE", 2)
+    monkeypatch.setattr(duplicate_finder, "score_fingerprint_batch", fake_score)
+    monkeypatch.setattr(duplicate_finder, "recommended_worker_count", lambda: 1)
+    monkeypatch.setattr(duplicate_finder, "ProcessPoolExecutor", lambda max_workers, mp_context: ThreadPoolExecutor(max_workers))
+    monkeypatch.setattr(DuplicateScanWorker, "_decode_fingerprint", lambda self, track: object())
+
+    tracks = [SimpleNamespace(name=f"t{i}") for i in range(4)]
+    track_index = {id(t): i for i, t in enumerate(tracks)}
+    unions = []
+    worker = DuplicateScanWorker(tracks, 0.5, False, False, False, match_mode="fingerprint")
+
+    checked, stopped = worker._find_duplicates_fingerprint({"block": tracks}, track_index, lambda i, j: unions.append((i, j)), total_pairs=6)
+
+    expected = [[(0, 1), (0, 2)], [(0, 3), (1, 2)], [(1, 3), (2, 3)]]
+    assert submitted == expected
+    assert sorted(unions) == sorted(batch[0] for batch in expected)  # completion order may vary
+    assert (checked, stopped) == (6, False)

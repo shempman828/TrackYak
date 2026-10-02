@@ -1,10 +1,7 @@
-"""
-Album-related ORM models: Album, AlbumAlias, and virtual track links.
-"""
+"""Album-related ORM models: Album, AlbumAlias, and virtual track links."""
 
 from sqlalchemy import CheckConstraint, Column, Float, ForeignKey, Integer, String
 from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 
 from src.db.db_tables.base import Base
@@ -38,35 +35,24 @@ class Album(Base):
     album_wikipedia_link = Column(String)
     is_live = Column(Integer, CheckConstraint("is_live IN (0, 1)"))
     is_compilation = Column(Integer, CheckConstraint("is_compilation IN (0, 1)"))
-    art_is_explicit = Column(
-        Integer, CheckConstraint("art_is_explicit IN (0, 1)")
-    )  # Cover/liner art contains explicit imagery
+    art_is_explicit = Column(Integer, CheckConstraint("art_is_explicit IN (0, 1)"))  # Cover/liner art contains explicit imagery
     estimated_sales = Column(Integer)
     status = Column(String)  # official, promotion, bootleg, withdrawn, expunged, cancelled
     discogs_master_url = Column(String)
 
     album_roles = relationship(
-        "AlbumRoleAssociation",
-        back_populates="album",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        order_by="AlbumRoleAssociation.sort_order, AlbumRoleAssociation.association_id",
+        "AlbumRoleAssociation", back_populates="album", cascade="all, delete-orphan", passive_deletes=True, order_by="AlbumRoleAssociation.sort_order, AlbumRoleAssociation.association_id"
     )
     tracks = relationship("Track", back_populates="album")
-    discs = relationship(
-        "Disc", back_populates="album", cascade="all, delete-orphan", passive_deletes=True
-    )
-    publisher_associations = relationship(
-        "AlbumPublisher", back_populates="album", cascade="all, delete-orphan", passive_deletes=True
-    )
+    discs = relationship("Disc", back_populates="album", cascade="all, delete-orphan", passive_deletes=True)
+    publisher_associations = relationship("AlbumPublisher", back_populates="album", cascade="all, delete-orphan", passive_deletes=True)
     publishers = association_proxy("publisher_associations", "publisher")
     # viewonly: writes to place_associations always go through PlaceAssociation
     # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
-        primaryjoin="and_(Album.album_id == PlaceAssociation.entity_id, "
-        "PlaceAssociation.entity_type == 'Album')",
+        primaryjoin="and_(Album.album_id == PlaceAssociation.entity_id, PlaceAssociation.entity_type == 'Album')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
         viewonly=True,
     )
@@ -76,26 +62,19 @@ class Album(Base):
     awards = relationship(
         "Award",
         secondary="award_associations",
-        primaryjoin="and_(Album.album_id == AwardAssociation.entity_id, "
-        "AwardAssociation.entity_type == 'Album')",
+        primaryjoin="and_(Album.album_id == AwardAssociation.entity_id, AwardAssociation.entity_type == 'Album')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
         viewonly=True,
     )
     album_aliases = relationship("AlbumAlias", back_populates="album", cascade="all, delete-orphan")
-    virtual_track_links = relationship(
-        "AlbumVirtualTrack", back_populates="album", cascade="all, delete-orphan"
-    )
+    virtual_track_links = relationship("AlbumVirtualTrack", back_populates="album", cascade="all, delete-orphan")
 
     @property
     def album_artists(self):
         """Return only the artists credited as 'Album Artist'."""
-        return [
-            assoc.artist
-            for assoc in self.album_roles
-            if assoc.role and assoc.role.role_name == "Album Artist"
-        ]
+        return [assoc.artist for assoc in self.album_roles if assoc.role and assoc.role.role_name == "Album Artist"]
 
-    @hybrid_property
+    @property
     def total_duration(self):
         """Calculate total album duration from tracks."""
         if self.tracks:
@@ -105,11 +84,7 @@ class Album(Base):
     @property
     def album_artist_names(self):
         """Return properly formatted album artist names (Oxford comma style)."""
-        names = [
-            assoc.credited_name or "Unknown Artist"
-            for assoc in self.album_roles
-            if assoc.role and assoc.role.role_name == "Album Artist"
-        ]
+        names = [assoc.credited_name or "Unknown Artist" for assoc in self.album_roles if assoc.role and assoc.role.role_name == "Album Artist"]
 
         # Clean whitespace and remove empty values
         names = [name.strip() for name in names if name and name.strip()]
@@ -157,19 +132,15 @@ class Album(Base):
             return "Gold"
         # Multi-Platinum calculation
         platinum_count = sales // 1_000_000
-        return f"{platinum_count}× Platinum" if platinum_count > 1 else "Platinum"
+        return f"{platinum_count}\u00d7 Platinum" if platinum_count > 1 else "Platinum"
 
     @property
     def full_tracklist(self):
         physical = self.tracks  # 1. Get the physical tracks you already have
-        virtual = [
-            link.track for link in self.virtual_track_links
-        ]  # 2. Get the borrowed tracks from the new table
+        virtual = [link.track for link in self.virtual_track_links]  # 2. Get the borrowed tracks from the new table
         combined = physical + virtual
         # Sort by track_number, pushing any tracks with no number to the end
-        return sorted(
-            combined, key=lambda x: (x.track_number is None, x.track_number or 0)
-        )  # 3. Combine them and sort by track number
+        return sorted(combined, key=lambda x: (x.track_number is None, x.track_number or 0))  # 3. Combine them and sort by track number
 
     @property
     def possibly_incomplete(self):
@@ -221,12 +192,8 @@ class AlbumVirtualTrack(Base):
     __tablename__ = "album_virtual_tracks"
 
     virtual_id = Column(Integer, primary_key=True)
-    album_id = Column(
-        Integer, ForeignKey("albums.album_id", ondelete="CASCADE")
-    )  # The album that "borrows" the track
-    track_id = Column(
-        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE")
-    )  # The actual track object
+    album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"))  # The album that "borrows" the track
+    track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"))  # The actual track object
 
     # Context-specific metadata for the "Greatest Hits" appearance
     virtual_track_number = Column(Integer)

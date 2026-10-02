@@ -808,7 +808,9 @@ next/previous · `Ctrl+↑`/`Ctrl+↓` volume · `Shift+→`/`Shift+←` seek ·
 search lyrics for the current track. Media keys on your keyboard work even
 when the app isn't focused, and on Linux desktops (GNOME, KDE) the system's
 media widget/lock screen shows the current track's title, artist, and album,
-and its repeat control stays in sync with the repeat toggle above.*
+and its repeat control stays in sync with the repeat toggle above. The Linux
+media-key and media-widget support needs the optional `dbus-python` and
+`PyGObject` packages; without them the app runs normally, just without it.*
 
 ## Queue Dock
 

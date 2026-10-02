@@ -41,7 +41,7 @@ Architecture:
   - DuplicateFinderDialog: QDialog — UI opened from the File menu
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from difflib import SequenceMatcher
 import multiprocessing
@@ -360,14 +360,14 @@ class DuplicateScanWorker(CancellableWorker):
         # platform default.
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=num_workers, mp_context=ctx) as executor:
-            pending = list(batches)
+            pending = deque(batches)  # popleft() is O(1); list.pop(0) shifts every batch
             in_flight: dict = {}
 
             def submit_more():
                 while pending and len(in_flight) < num_workers * 2:
                     if self.is_cancelled:
                         return
-                    batch = pending.pop(0)
+                    batch = pending.popleft()
                     referenced = {idx for pair in batch for idx in pair}
                     fp_subset = {idx: decoded[idx] for idx in referenced}
                     future = executor.submit(score_fingerprint_batch, fp_subset, batch, self._threshold)

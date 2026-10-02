@@ -1,12 +1,9 @@
-"""
-Track-related ORM models: Samples (self-referential sampling), Track, and TrackUsage.
-"""
+"""Track-related ORM models: Samples (self-referential sampling), Track, and TrackUsage."""
 
 from datetime import date, datetime
 
 from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 
 from src.db.db_tables.base import Base
@@ -23,12 +20,8 @@ def _oxford_join(names: list) -> str:
 
 class Samples(Base):
     __tablename__ = "samples"
-    sampled_by_id = Column(
-        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True
-    )
-    sampled_id = Column(
-        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True
-    )
+    sampled_by_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True)
+    sampled_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True)
     # relationships back to Track
     sampled_by = relationship("Track", foreign_keys=[sampled_by_id], back_populates="samples_used")
     sampled = relationship("Track", foreign_keys=[sampled_id], back_populates="sampled_by_tracks")
@@ -116,9 +109,7 @@ class Track(Base):
     # artist/genre/mood/place/publisher credits, its album/disc, a rename or
     # merge of one of those entities) makes its on-disk tags stale. Cleared
     # by MetadataWriter after a successful write. See src/db/db_helpers/track_dirty.py.
-    needs_tag_write = Column(
-        Integer, CheckConstraint("needs_tag_write IN (0, 1)"), nullable=False, default=1
-    )
+    needs_tag_write = Column(Integer, CheckConstraint("needs_tag_write IN (0, 1)"), nullable=False, default=1)
 
     # User Metadata
     comment = Column(String)
@@ -147,9 +138,7 @@ class Track(Base):
     acousticness = Column(Float)  # 0-1 acoustic vs electric
     liveness = Column(Float)  # 0-1 performed live
     valence = Column(Float)  # 0-1 musical positiveness
-    audiophile_score = Column(
-        Float
-    )  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
+    audiophile_score = Column(Float)  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
 
     album = relationship("Album", back_populates="tracks")
     album_name = association_proxy("album", "album_name")
@@ -160,26 +149,18 @@ class Track(Base):
     genre_names = association_proxy("genres", "genre_name")
     artists = association_proxy("artist_roles", "artist")
     place_names = association_proxy("places", "place_name")
-    artist_roles = relationship(
-        "TrackArtistRole",
-        back_populates="track",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    artist_roles = relationship("TrackArtistRole", back_populates="track", cascade="all, delete-orphan", passive_deletes=True)
 
     # viewonly: writes to mood_track_association always go through
     # MoodTrackAssociation objects directly, never through this collection.
-    moods = relationship(
-        "Mood", secondary="mood_track_association", back_populates="tracks", viewonly=True
-    )
+    moods = relationship("Mood", secondary="mood_track_association", back_populates="tracks", viewonly=True)
 
     # viewonly: writes to place_associations always go through PlaceAssociation
     # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
-        primaryjoin="and_(Track.track_id == PlaceAssociation.entity_id, "
-        "PlaceAssociation.entity_type == 'Track')",
+        primaryjoin="and_(Track.track_id == PlaceAssociation.entity_id, PlaceAssociation.entity_type == 'Track')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
         back_populates="tracks",
         viewonly=True,
@@ -189,43 +170,24 @@ class Track(Base):
     awards = relationship(
         "Award",
         secondary="award_associations",
-        primaryjoin="and_(Track.track_id == AwardAssociation.entity_id, "
-        "AwardAssociation.entity_type == 'Track')",
+        primaryjoin="and_(Track.track_id == AwardAssociation.entity_id, AwardAssociation.entity_type == 'Track')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
         viewonly=True,
     )
 
-    playlists = relationship(
-        "PlaylistTracks", back_populates="track", cascade="all, delete-orphan", passive_deletes=True
-    )
+    playlists = relationship("PlaylistTracks", back_populates="track", cascade="all, delete-orphan", passive_deletes=True)
     # Tracks that this track *samples*
-    samples_used = relationship(
-        "Samples",
-        foreign_keys=[Samples.sampled_by_id],
-        back_populates="sampled_by",
-        cascade="all, delete-orphan",
-    )
+    samples_used = relationship("Samples", foreign_keys=[Samples.sampled_by_id], back_populates="sampled_by", cascade="all, delete-orphan")
 
     # Tracks that *sample* this track
-    sampled_by_tracks = relationship(
-        "Samples",
-        foreign_keys=[Samples.sampled_id],
-        back_populates="sampled",
-        cascade="all, delete-orphan",
-    )
+    sampled_by_tracks = relationship("Samples", foreign_keys=[Samples.sampled_id], back_populates="sampled", cascade="all, delete-orphan")
     virtual_appearances = relationship("AlbumVirtualTrack", back_populates="track")
-    usages = relationship(
-        "TrackUsage", back_populates="track", cascade="all, delete-orphan", passive_deletes=True
-    )
+    usages = relationship("TrackUsage", back_populates="track", cascade="all, delete-orphan", passive_deletes=True)
 
-    @hybrid_property
+    @property
     def primary_artists(self):
         """Return only the artists credited as "Primary" for this track."""
-        return [
-            assoc.artist
-            for assoc in self.artist_roles
-            if assoc.role and assoc.role.role_name == "Primary Artist"
-        ]
+        return [assoc.artist for assoc in self.artist_roles if assoc.role and assoc.role.role_name == "Primary Artist"]
 
     @property
     def primary_artist_names(self):
@@ -235,11 +197,7 @@ class Track(Base):
         """
 
         def _names_for(role_name):
-            names = [
-                assoc.credited_name or "Unknown Artist"
-                for assoc in self.artist_roles
-                if assoc.role and assoc.role.role_name == role_name
-            ]
+            names = [assoc.credited_name or "Unknown Artist" for assoc in self.artist_roles if assoc.role and assoc.role.role_name == role_name]
             return [name.strip() for name in names if name and name.strip()]
 
         primary_names = _names_for("Primary Artist")
@@ -257,11 +215,7 @@ class Track(Base):
     @property
     def composer_names(self):
         """Return list of composer names for this track."""
-        return [
-            assoc.artist.artist_name
-            for assoc in self.artist_roles
-            if assoc.role and assoc.role.role_name == "Composer"
-        ]
+        return [assoc.artist.artist_name for assoc in self.artist_roles if assoc.role and assoc.role.role_name == "Composer"]
 
     @property
     def disc_number(self):
@@ -275,12 +229,12 @@ class Track(Base):
             return []
         return [pub.publisher_name for pub in self.album.publishers]
 
-    @hybrid_property
+    @property
     def sampled_tracks(self):
         """Tracks this track samples (returns a list of Track objects)."""
         return [s.sampled for s in self.samples_used]
 
-    @hybrid_property
+    @property
     def sampling_tracks(self):
         """Tracks that sample this track (returns a list of Track objects)."""
         return [s.sampled_by for s in self.sampled_by_tracks]
@@ -291,21 +245,7 @@ class Track(Base):
         if self.movement_number is None or self.movement_number <= 0:
             return None
 
-        val_map = [
-            (1000, "M"),
-            (900, "CM"),
-            (500, "D"),
-            (400, "CD"),
-            (100, "C"),
-            (90, "XC"),
-            (50, "L"),
-            (40, "XL"),
-            (10, "X"),
-            (9, "IX"),
-            (5, "V"),
-            (4, "IV"),
-            (1, "I"),
-        ]
+        val_map = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
 
         num = int(self.movement_number)
         roman = ""
@@ -347,13 +287,7 @@ class Track(Base):
     @property
     def is_complete(self):
         """Return True if the track has the minimum expected metadata filled in."""
-        return bool(
-            self.track_name
-            and self.duration
-            and self.artist_roles
-            and self.album_id
-            and self.track_number is not None
-        )
+        return bool(self.track_name and self.duration and self.artist_roles and self.album_id and self.track_number is not None)
 
     @property
     def has_audio_analysis(self):
@@ -372,9 +306,7 @@ class Track(Base):
         """Return a short list of context labels for this track's usages."""
         if not self.usages:
             return []
-        return [
-            f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "") for u in self.usages
-        ]
+        return [f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "") for u in self.usages]
 
 
 class TrackUsage(Base):
@@ -384,13 +316,7 @@ class TrackUsage(Base):
 
     usage_id = Column(Integer, primary_key=True)
     track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), nullable=False)
-    usage_type = Column(
-        String,
-        CheckConstraint(
-            "usage_type IN ('Film', 'TV Show', 'Video Game', 'Live Event', 'Commercial', 'Other')"
-        ),
-        nullable=False,
-    )
+    usage_type = Column(String, CheckConstraint("usage_type IN ('Film', 'TV Show', 'Video Game', 'Live Event', 'Commercial', 'Other')"), nullable=False)
     title = Column(String, nullable=False)  # e.g. "Guardians of the Galaxy Vol. 2"
     year = Column(Integer)
     description = Column(Text)  # Extra context, e.g. "Plays during the credits scene"
