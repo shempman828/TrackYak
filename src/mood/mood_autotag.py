@@ -18,10 +18,7 @@ from src.foundation.logger_config import logger
 from src.lyrics.place_matching import detect_known_places
 from src.mood.mood_scoring import known_mood_names, score_moods_detailed
 from src.place import place_song_about_store
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 
 SONG_ABOUT_TYPE_NAME = "Song About"
 
@@ -40,6 +37,9 @@ class AutotagContext:
     # library-wide scan over thousands of tracks doesn't do a JSON
     # read-modify-write per track.
     pending_queue: list = field(default_factory=list)
+    # Tracks whose mood/place write failed, so MoodAutoTagWorker doesn't
+    # record them as scanned and tries them again on the next run.
+    failed_track_ids: set = field(default_factory=set)
 
 
 def build_autotag_context(controller) -> AutotagContext:
@@ -59,14 +59,9 @@ def build_autotag_context(controller) -> AutotagContext:
     missing_mood_names = known_mood_names() - mood_id_by_name.keys()
     if missing_mood_names:
         try:
-            created = controller.add.add_entities(
-                "Mood", [{"mood_name": name} for name in missing_mood_names]
-            )
+            created = controller.add.add_entities("Mood", [{"mood_name": name} for name in missing_mood_names])
             mood_id_by_name.update({m.mood_name: m.mood_id for m in created})
-            logger.info(
-                f"Created {len(created)} Mood row(s) missing for keyword-listed "
-                f"moods: {', '.join(m.mood_name for m in created)}"
-            )
+            logger.info(f"Created {len(created)} Mood row(s) missing for keyword-listed moods: {', '.join(m.mood_name for m in created)}")
         except SQLAlchemyError as e:
             logger.error(f"Failed to create missing Mood row(s): {e}")
 
@@ -79,12 +74,7 @@ def build_autotag_context(controller) -> AutotagContext:
 
     existing_place_pairs = set()
     if song_about_type_id is not None:
-        existing = (
-            controller.get.get_all_entities(
-                "PlaceAssociation", entity_type="Track", association_type_id=song_about_type_id
-            )
-            or []
-        )
+        existing = controller.get.get_all_entities("PlaceAssociation", entity_type="Track", association_type_id=song_about_type_id) or []
         existing_place_pairs = {(a.place_id, a.entity_id) for a in existing}
 
     return AutotagContext(
@@ -96,8 +86,11 @@ def build_autotag_context(controller) -> AutotagContext:
     )
 
 
-def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
+def auto_tag_track(controller, track_id, lyrics, context: AutotagContext, *, moods=None, place_names=None):
     """Score `lyrics` and write any newly-matching mood/place associations for `track_id`."""
+    # `moods` / `place_names` limit the scan to those names (None = all of
+    # them) -- MoodAutoTagWorker uses this to test an already-scanned track
+    # against only newly-added keywords and places.
     # Returns (moods_added, places_added, places_queued) -- only the names
     # newly touched by this call, NOT the full matched set (already-existing
     # associations, manual or previously auto-added, are never touched or
@@ -110,26 +103,22 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
     if not lyrics or not lyrics.strip():
         return [], [], []
 
-    moods_matched = score_moods_detailed(lyrics)
+    moods_matched = score_moods_detailed(lyrics, moods)
     mood_name_by_id = {v: k for k, v in context.mood_id_by_name.items()}
-    mood_rows = [
-        {"mood_id": context.mood_id_by_name[name], "track_id": track_id, "score": match.density}
-        for name, match in moods_matched.items()
-        if name in context.mood_id_by_name
-    ]
+    mood_rows = [{"mood_id": context.mood_id_by_name[name], "track_id": track_id, "score": match.density} for name, match in moods_matched.items() if name in context.mood_id_by_name]
     moods_added = []
     if mood_rows:
         try:
-            added_entities, _failed = controller.add.add_entities_with_fallback(
-                "MoodTrackAssociation", mood_rows
-            )
-            moods_added = [
-                mood_name_by_id[e.mood_id] for e in added_entities if e.mood_id in mood_name_by_id
-            ]
+            added_entities, failed = controller.add.add_entities_with_fallback("MoodTrackAssociation", mood_rows)
+            if failed:
+                context.failed_track_ids.add(track_id)
+            moods_added = [mood_name_by_id[e.mood_id] for e in added_entities if e.mood_id in mood_name_by_id]
         except SQLAlchemyError as e:
             logger.error(f"Failed to write mood associations for track {track_id}: {e}")
+            context.failed_track_ids.add(track_id)
 
-    places_matched = detect_known_places(lyrics, list(context.place_id_by_name.keys()))
+    candidate_places = context.place_id_by_name.keys() if place_names is None else place_names
+    places_matched = detect_known_places(lyrics, [name for name in candidate_places if name in context.place_id_by_name])
     place_rows = []
     places_added = []
     places_queued = []
@@ -141,9 +130,7 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
                 continue
             decision = context.place_decisions.get(name)
             if decision is None:
-                context.pending_queue.append(
-                    {"track_id": track_id, "place_name": name, "place_id": place_id}
-                )
+                context.pending_queue.append({"track_id": track_id, "place_name": name, "place_id": place_id})
                 places_queued.append(name)
                 continue
             if decision.get("decision") == place_song_about_store.DECISION_REJECTED:
@@ -151,14 +138,7 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
             write_place_id = place_id
             if decision.get("decision") == place_song_about_store.DECISION_REMAPPED:
                 write_place_id = decision.get("place_id") or place_id
-            place_rows.append(
-                {
-                    "place_id": write_place_id,
-                    "entity_id": track_id,
-                    "entity_type": "Track",
-                    "association_type_id": context.song_about_type_id,
-                }
-            )
+            place_rows.append({"place_id": write_place_id, "entity_id": track_id, "entity_type": "Track", "association_type_id": context.song_about_type_id})
             context.existing_place_pairs.add(pair)
             places_added.append(name)
     if place_rows:
@@ -166,6 +146,7 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
             controller.add.add_entities("PlaceAssociation", place_rows)
         except SQLAlchemyError as e:
             logger.error(f"Failed to write place associations for track {track_id}: {e}")
+            context.failed_track_ids.add(track_id)
             places_added = []
             for pair in [(r["place_id"], r["entity_id"]) for r in place_rows]:
                 context.existing_place_pairs.discard(pair)

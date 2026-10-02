@@ -936,7 +936,11 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   name-drop is never linked right away — it's queued for **Review
   Song-About Places…** instead, since a common word or name (e.g. "Bath",
   "England") can match a place in your library without the lyric actually
-  being about it.
+  being about it. Tag Library Now remembers what it already scanned: a
+  re-run only scans tracks whose lyrics are new or changed, and checks
+  other tracks only against keywords and places you added since the last
+  complete run. If you cancel a run, the next run continues the remaining
+  tracks.
 - **Review Song-About Places…** — approve, change, or reject each place
   lyric detection queued by Mood Tagging, grouped by place name so one
   decision covers every track currently waiting on that name. Your choice

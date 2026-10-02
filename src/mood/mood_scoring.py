@@ -1,6 +1,7 @@
 """Score a track's lyrics against assets/mood_keywords.json and return which moods it clears."""
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -113,17 +114,44 @@ def known_mood_names() -> set[str]:
     return set(patterns.keys()) if patterns else set()
 
 
-def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
+def mood_keyword_fingerprints() -> dict[str, str]:
+    """Return {mood_name: hash of its keyword list}, so a caller can tell
+    which moods' keyword lists changed since it last looked."""
+    patterns = _get_keyword_patterns() or {}
+    return {mood_name: hashlib.sha1(json.dumps(sorted(kw for kw, _pattern in keyword_patterns)).encode("utf-8")).hexdigest() for mood_name, keyword_patterns in patterns.items()}
+
+
+def opposite_pairs() -> list[tuple[str, str]]:
+    """Every declared opposite-mood pair from assets/mood_opposites.json."""
+    return list(_get_opposite_pairs())
+
+
+def score_moods_detailed(lyrics, moods=None) -> dict[str, MoodMatch]:
     """Return {mood_name: MoodMatch} for every mood whose keywords clear the tagging threshold."""
     # Empty/whitespace-only lyrics score no moods. Insertion order matches
     # assets/mood_keywords.json's key order, so
     # `list(score_moods_detailed(x))` is exactly `score_moods(x)`.
+    # `moods` limits the result to those mood names (None = every mood).
+    # Their declared opposites are still scored, so the opposite-pair
+    # tiebreak below gives the same answer as a full score.
     if not lyrics or not lyrics.strip():
         return {}
 
     patterns = _get_keyword_patterns()
     if not patterns:
         return {}
+
+    if moods is not None:
+        wanted = set(moods)
+        if not wanted:
+            return {}
+        scored = set(wanted)
+        for mood_a, mood_b in _get_opposite_pairs():
+            if mood_a in wanted:
+                scored.add(mood_b)
+            if mood_b in wanted:
+                scored.add(mood_a)
+        patterns = {name: kws for name, kws in patterns.items() if name in scored}
 
     total_tokens = len(_tokenize(lyrics))
     if total_tokens == 0:
@@ -140,9 +168,7 @@ def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
                 raw_hits += occurrences
 
         density = raw_hits / total_tokens
-        if (distinct_hits >= MIN_DISTINCT_KEYWORDS or raw_hits >= MIN_RAW_HITS) and (
-            density >= MIN_DENSITY
-        ):
+        if (distinct_hits >= MIN_DISTINCT_KEYWORDS or raw_hits >= MIN_RAW_HITS) and (density >= MIN_DENSITY):
             matched[mood_name] = MoodMatch(density, distinct_hits, raw_hits)
 
     # A few incidental/ironic keyword hits for a mood's tonal opposite
@@ -160,6 +186,8 @@ def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
             elif matched[mood_b].density > matched[mood_a].density:
                 del matched[mood_a]
 
+    if moods is not None:
+        matched = {name: match for name, match in matched.items() if name in wanted}
     return matched
 
 

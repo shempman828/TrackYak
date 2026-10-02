@@ -18,9 +18,7 @@ from src.mood import mood_scoring
 @pytest.fixture(autouse=True)
 def _isolated_keywords(tmp_path, monkeypatch):
     keywords_path = tmp_path / "mood_keywords.json"
-    keywords_path.write_text(
-        json.dumps({"Happy": ["happy", "sunshine", "joyful"], "Sad": ["crying", "tears", "lonely"]})
-    )
+    keywords_path.write_text(json.dumps({"Happy": ["happy", "sunshine", "joyful"], "Sad": ["crying", "tears", "lonely"]}))
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
@@ -127,10 +125,7 @@ def _isolated_opposites(tmp_path, monkeypatch):
 def test_opposite_pair_suppresses_the_lower_density_mood(_isolated_opposites):
     # Overwhelmingly Sad, with just enough incidental Happy hits (2 distinct
     # keywords) to clear Happy's own threshold on its own merits.
-    lyrics = (
-        "crying tears lonely crying tears lonely crying tears lonely "
-        "crying tears lonely crying tears lonely happy sunshine"
-    )
+    lyrics = "crying tears lonely crying tears lonely crying tears lonely crying tears lonely crying tears lonely happy sunshine"
     result = mood_scoring.score_moods(lyrics)
     assert "Sad" in result
     assert "Happy" not in result
@@ -192,9 +187,7 @@ def test_detailed_keys_match_score_moods(lyrics):
 def test_detailed_values_expose_positive_density_and_hit_counts():
     # AC1: every matched mood carries a MoodMatch with density > 0 and the
     # hit counts that cleared the threshold.
-    detail = mood_scoring.score_moods_detailed(
-        "the sunshine feels joyful this morning as I walk outside"
-    )
+    detail = mood_scoring.score_moods_detailed("the sunshine feels joyful this morning as I walk outside")
     assert set(detail) == {"Happy"}
     match = detail["Happy"]
     assert match.density > 0
@@ -205,11 +198,17 @@ def test_detailed_values_expose_positive_density_and_hit_counts():
 def test_detailed_multi_label_and_opposite_suppression(_isolated_opposites):
     # AC1: opposite-pair resolution applies to the detailed result too --
     # the suppressed mood is absent from the dict, not just zeroed.
-    lyrics = (
-        "crying tears lonely crying tears lonely crying tears lonely "
-        "crying tears lonely crying tears lonely happy sunshine"
-    )
+    lyrics = "crying tears lonely crying tears lonely crying tears lonely crying tears lonely crying tears lonely happy sunshine"
     detail = mood_scoring.score_moods_detailed(lyrics)
     assert "Sad" in detail
     assert "Happy" not in detail
     assert detail["Sad"].density > 0
+
+
+def test_detailed_mood_subset_still_applies_opposite_tiebreak(_isolated_opposites):
+    # Scoring only "Happy" must still score its opposite "Sad" behind the
+    # scenes, so a stronger Sad match still suppresses Happy.
+    lyrics = "crying tears lonely crying tears lonely crying tears lonely crying tears lonely crying tears lonely happy sunshine"
+    assert mood_scoring.score_moods_detailed(lyrics, moods={"Happy"}) == {}
+    assert set(mood_scoring.score_moods_detailed(lyrics, moods={"Sad"})) == {"Sad"}
+    assert mood_scoring.score_moods_detailed(lyrics, moods=set()) == {}
