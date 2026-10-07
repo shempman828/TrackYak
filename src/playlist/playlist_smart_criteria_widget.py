@@ -1,27 +1,7 @@
-"""
-playlist_smart_criteria_widget.py
-
-Widget for a single smart playlist criteria row.
-"""
+"""Widget for a single smart playlist criteria row."""
 
 from PySide6.QtCore import QDate, QDateTime, Qt, Signal
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QDateEdit,
-    QDateTimeEdit,
-    QDoubleSpinBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QPushButton,
-    QSizePolicy,
-    QSpinBox,
-    QStyle,
-    QToolButton,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QComboBox, QDateEdit, QDateTimeEdit, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QSizePolicy, QSpinBox, QStyle, QToolButton, QWidget
 
 from src.foundation.logger_config import logger
 from src.playlist.playlist_smart_criteria_fields import CRITERIA_FIELDS, OPERATORS_BY_GROUP
@@ -45,14 +25,13 @@ def _parse_datetime(text: str) -> QDateTime:
 NO_VALUE_OPERATORS = {"isnull", "notnull"}
 
 
-# ---------------------------------------------------------------------------
-# _DateRangeEdit — compound value widget for the Datetime "between" operator.
-#
-# Uses two date-only pickers (no time-of-day input) so users can just pick
-# calendar days. The range is expanded internally to cover the full first
-# day through the full last day (00:00:00 .. 23:59:59), inclusive.
-# ---------------------------------------------------------------------------
+# Separator between the two bounds of a stored "between" value.
+RANGE_SEPARATOR = "|"
+
+
 class _DateRangeEdit(QWidget):
+    """Two date-only pickers for the Datetime "between" operator."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
@@ -75,6 +54,7 @@ class _DateRangeEdit(QWidget):
 
     def get_value(self) -> str:
         """Return 'start|end' with the range widened to whole-day bounds."""
+        # Whole days: 00:00:00 on the first day through 23:59:59 on the last.
         start_date = self.start_edit.date()
         end_date = self.end_edit.date()
         if start_date > end_date:
@@ -86,9 +66,10 @@ class _DateRangeEdit(QWidget):
         return f"{start}|{end}"
 
     def set_value(self, value):
+        """Pre-fill both pickers from a stored 'start|end' value."""
         if not value:
             return
-        parts = str(value).split("|", 1)
+        parts = str(value).split(RANGE_SEPARATOR, 1)
         if len(parts) != 2:
             return
         start_day = parts[0].strip().split(" ")[0].split("T")[0]
@@ -101,9 +82,63 @@ class _DateRangeEdit(QWidget):
             self.end_edit.setDate(end_date)
 
 
-# ---------------------------------------------------------------------------
-# CriteriaWidget
-# ---------------------------------------------------------------------------
+class _NumberRangeEdit(QWidget):
+    """Two spin boxes for the Integer/Float "between" operator."""
+
+    def __init__(self, is_float: bool, lo: float, hi: float, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self._is_float = is_float
+        self.start_edit = _make_spin_box(is_float, lo, hi)
+        self.end_edit = _make_spin_box(is_float, lo, hi)
+        layout.addWidget(self.start_edit)
+        layout.addWidget(QLabel("to"))
+        layout.addWidget(self.end_edit)
+
+    def get_value(self) -> str:
+        """Return 'low|high', swapping an inverted range."""
+        low, high = sorted((self.start_edit.value(), self.end_edit.value()))
+        return f"{low}{RANGE_SEPARATOR}{high}"
+
+    def set_value(self, value):
+        """Pre-fill both spin boxes from a stored 'low|high' value."""
+        parts = str(value).split(RANGE_SEPARATOR, 1)
+        if len(parts) != 2:
+            return
+        for edit, text in zip((self.start_edit, self.end_edit), parts, strict=True):
+            try:
+                number = float(text)
+            except ValueError:
+                logger.warning(f"Could not restore range bound {text!r}")
+                continue
+            edit.setValue(number if self._is_float else int(number))
+
+
+def _make_spin_box(is_float: bool, lo: float, hi: float) -> QSpinBox | QDoubleSpinBox:
+    """Build an Integer or Float spin box limited to [lo, hi]."""
+    if not is_float:
+        widget = QSpinBox()
+        widget.setRange(int(lo), int(hi))
+        return widget
+    widget = QDoubleSpinBox()
+    widget.setRange(lo, hi)
+    # Finer steps for 0-1 range fields (audio analysis); coarser for ratings
+    if hi <= 1.0:
+        widget.setDecimals(4)
+        widget.setSingleStep(0.01)
+    else:
+        widget.setDecimals(1)
+        widget.setSingleStep(0.5)
+    return widget
+
+
+def _spin_bounds(is_float: bool, field_min, field_max) -> tuple[float, float]:
+    """Return the spin-box range for a field, with wide defaults when unbounded."""
+    if is_float:
+        return (float(field_min) if field_min is not None else -999_999.0, float(field_max) if field_max is not None else 999_999.0)
+    return (int(field_min) if field_min is not None else -999_999_999, int(field_max) if field_max is not None else 999_999_999)
 
 
 class CriteriaWidget(QWidget):
@@ -114,12 +149,11 @@ class CriteriaWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         # Lookup: field_name → (op_group, display, tooltip, min, max)
-        self._field_meta = {
-            name: (grp, disp, tip, mn, mx) for name, grp, disp, tip, mn, mx, cat in CRITERIA_FIELDS
-        }
+        self._field_meta = {name: (grp, disp, tip, mn, mx) for name, grp, disp, tip, mn, mx, cat in CRITERIA_FIELDS}
         self.init_ui()
 
     def init_ui(self):
+        """Build the field button, operator combo, value input and delete button."""
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(5)
@@ -143,9 +177,7 @@ class CriteriaWidget(QWidget):
             action = submenu.addAction(display)
             if tooltip:
                 action.setToolTip(tooltip)
-            action.triggered.connect(
-                lambda checked=False, fn=field_name, disp=display: self._on_field_selected(fn, disp)
-            )
+            action.triggered.connect(lambda checked=False, fn=field_name, disp=display: self._on_field_selected(fn, disp))
             if first_field_name is None:
                 first_field_name, first_display = field_name, display
 
@@ -160,10 +192,11 @@ class CriteriaWidget(QWidget):
         self.value_widget.setPlaceholderText("Enter value...")
 
         # Delete button
-        delete_btn = QPushButton()
+        self.delete_btn = delete_btn = QPushButton()
         delete_btn.setIcon(QApplication.style().standardIcon(QStyle.SP_DialogCloseButton))
         delete_btn.setFixedSize(24, 24)
         delete_btn.setToolTip("Remove this criteria")
+        delete_btn.setAccessibleName("Remove this criteria")
         delete_btn.clicked.connect(lambda: self.delete_requested.emit(self))
 
         layout.addWidget(self.field_button, 2)
@@ -179,6 +212,7 @@ class CriteriaWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _current_field_name(self) -> str:
+        """Return the selected field name, or "" before one is set."""
         return self._field_name or ""
 
     def _current_meta(self):
@@ -214,24 +248,10 @@ class CriteriaWidget(QWidget):
 
         op_group, _, tooltip, field_min, field_max = self._current_meta()
 
-        if op_group == "Integer":
-            widget = QSpinBox()
-            lo = int(field_min) if field_min is not None else -999_999_999
-            hi = int(field_max) if field_max is not None else 999_999_999
-            widget.setRange(lo, hi)
-
-        elif op_group == "Float":
-            widget = QDoubleSpinBox()
-            lo = float(field_min) if field_min is not None else -999_999.0
-            hi = float(field_max) if field_max is not None else 999_999.0
-            widget.setRange(lo, hi)
-            # Finer steps for 0-1 range fields (audio analysis); coarser for ratings
-            if hi <= 1.0:
-                widget.setDecimals(4)
-                widget.setSingleStep(0.01)
-            else:
-                widget.setDecimals(1)
-                widget.setSingleStep(0.5)
+        if op_group in ("Integer", "Float"):
+            is_float = op_group == "Float"
+            lo, hi = _spin_bounds(is_float, field_min, field_max)
+            widget = _NumberRangeEdit(is_float, lo, hi) if self.operator_combo.currentData() == "range" else _make_spin_box(is_float, lo, hi)
 
         elif op_group == "Bool":
             widget = QComboBox()
@@ -285,6 +305,7 @@ class CriteriaWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_field_selected(self, field_name, display):
+        """Switch the row to `field_name` and rebuild its operator and value inputs."""
         # Rebuilding here keeps the operator list and value widget always
         # matched to the selected field's type, so an invalid combination
         # (e.g. a text operator against a date field) can never be picked.
@@ -294,13 +315,20 @@ class CriteriaWidget(QWidget):
         self._rebuild_value_widget()
 
     def _on_operator_changed(self, index=None):
-        # Datetime operators each need a differently-shaped value widget
-        # (a moment picker, a date-only picker, two date pickers, or a
-        # day-count spinner), so rebuild rather than just toggling visibility.
-        if self._current_meta()[0] == "Datetime":
+        """Rebuild or show/hide the value input to match the new operator."""
+        op_group = self._current_meta()[0]
+        # Datetime operators each need a differently-shaped value widget, so
+        # always rebuild; numeric fields only change shape for "between".
+        is_range_widget = isinstance(self.value_widget, _NumberRangeEdit)
+        wants_range_widget = self.operator_combo.currentData() == "range"
+        if op_group == "Datetime" or (op_group in ("Integer", "Float") and is_range_widget != wants_range_widget):
             self._rebuild_value_widget()
         else:
             self._apply_value_widget_visibility()
+
+    def set_delete_enabled(self, enabled: bool) -> None:
+        """Enable or disable this row's delete button."""
+        self.delete_btn.setEnabled(enabled)
 
     # ------------------------------------------------------------------
     # Public API
@@ -314,16 +342,13 @@ class CriteriaWidget(QWidget):
 
         if operator in NO_VALUE_OPERATORS:
             value = None
-        elif isinstance(self.value_widget, _DateRangeEdit):
+        elif isinstance(self.value_widget, (_DateRangeEdit, _NumberRangeEdit)):
             value = self.value_widget.get_value()
         elif isinstance(self.value_widget, QComboBox):
             value = self.value_widget.currentData()  # Bool: True/False
         elif isinstance(self.value_widget, QLineEdit):
             text = self.value_widget.text().strip()
-            if op_group == "List":
-                value = [v.strip() for v in text.split(",") if v.strip()] if text else []
-            else:
-                value = text if text else None
+            value = [v.strip() for v in text.split(",") if v.strip()] if op_group == "List" else (text or None)
         elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
             value = self.value_widget.value()
         elif isinstance(self.value_widget, QDateEdit):
@@ -359,7 +384,7 @@ class CriteriaWidget(QWidget):
 
         op_group = self._current_meta()[0]
 
-        if isinstance(self.value_widget, _DateRangeEdit):
+        if isinstance(self.value_widget, (_DateRangeEdit, _NumberRangeEdit)):
             self.value_widget.set_value(value)
         elif isinstance(self.value_widget, QComboBox):
             for i in range(self.value_widget.count()):
@@ -373,7 +398,8 @@ class CriteriaWidget(QWidget):
                 self.value_widget.setText(str(value))
         elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
             try:
-                self.value_widget.setValue(float(value))
+                number = float(value)
+                self.value_widget.setValue(number if isinstance(self.value_widget, QDoubleSpinBox) else int(number))
             except (ValueError, TypeError) as e:
                 logger.warning(f"Could not restore numeric criteria value {value!r}: {e}")
         elif isinstance(self.value_widget, QDateEdit):

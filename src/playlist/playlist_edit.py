@@ -1,13 +1,6 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-)
+"""Dialog for editing a normal playlist's name and description."""
+
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTextEdit, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
@@ -17,14 +10,9 @@ from src.foundation.status_utility import show_status_message
 class EditPlaylist(QDialog):
     """Dialog for editing playlist name and description (normal playlists only)."""
 
-    def __init__(self, controller, playlist):
-        """
-        Initialize the edit dialog.
-
-        :param controller: The controller for database operations
-        :param playlist: The playlist object to edit
-        """
-        super().__init__()
+    def __init__(self, controller, playlist, parent=None):
+        """Build the dialog pre-filled from `playlist`."""
+        super().__init__(parent)
         self.controller = controller
         self.playlist = playlist
         self.playlist_id = playlist.playlist_id
@@ -70,6 +58,9 @@ class EditPlaylist(QDialog):
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
 
+        # Nothing is editable here for a smart playlist.
+        self.btn_save.setEnabled(not self.is_smart_playlist)
+
         button_layout.addStretch()
         button_layout.addWidget(self.btn_save)
         button_layout.addWidget(self.btn_cancel)
@@ -81,14 +72,8 @@ class EditPlaylist(QDialog):
     def save_changes(self):
         """Save the changes to the playlist."""
         if self.is_smart_playlist:
-            logger.debug(
-                f"Edit blocked for smart playlist {self.playlist_id}; "
-                "use Smart Playlist Editor instead"
-            )
-            show_status_message(
-                self,
-                "Smart playlists cannot be edited here. Use the Smart Playlist Editor instead.",
-            )
+            logger.debug(f"Edit blocked for smart playlist {self.playlist_id}; use Smart Playlist Editor instead")
+            show_status_message(self, "Smart playlists cannot be edited here. Use the Smart Playlist Editor instead.")
             return
 
         name = self.name_edit.text().strip()
@@ -102,9 +87,7 @@ class EditPlaylist(QDialog):
 
         try:
             # Update playlist in database
-            self.controller.update.update_entity(
-                "Playlist", self.playlist_id, playlist_name=name, playlist_description=description
-            )
+            self.controller.update.update_entity("Playlist", self.playlist_id, playlist_name=name, playlist_description=description)
 
             logger.info(f"Updated playlist {self.playlist_id}: {name}")
             self.accept()

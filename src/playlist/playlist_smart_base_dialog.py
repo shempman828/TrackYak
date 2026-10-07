@@ -1,20 +1,6 @@
 """Shared UI scaffold for the smart-playlist create/edit dialogs."""
 
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTextEdit, QVBoxLayout, QWidget
 
 from src.foundation.logger_config import logger
 from src.playlist.playlist_smart_criteria_widget import NO_VALUE_OPERATORS, CriteriaWidget
@@ -41,6 +27,7 @@ class BaseSmartPlaylistDialog(QDialog):
         return "Playlist name"
 
     def init_ui(self):
+        """Build the name, logic, auto-refresh, criteria and button sections."""
         layout = QVBoxLayout(self)
 
         # --- Name and description ---
@@ -111,12 +98,7 @@ class BaseSmartPlaylistDialog(QDialog):
     # ------------------------------------------------------------------
 
     def add_criteria_widget(self, criteria_dict: dict | None = None):
-        """
-        Add a criteria row to the dialog.
-
-        If criteria_dict is given, the row is pre-filled with those values.
-        Otherwise a blank row is added.
-        """
+        """Add a criteria row, pre-filled from `criteria_dict` when given."""
         widget = CriteriaWidget()
         widget.delete_requested.connect(self.remove_criteria_widget)
 
@@ -127,6 +109,7 @@ class BaseSmartPlaylistDialog(QDialog):
 
         if criteria_dict:
             widget.set_criteria(criteria_dict)
+        self._update_delete_buttons()
 
         logger.debug(f"Added smart playlist criteria row (total={len(self.criteria_widgets)})")
 
@@ -138,9 +121,14 @@ class BaseSmartPlaylistDialog(QDialog):
             self.criteria_widgets.remove(widget)
             widget.setParent(None)
             widget.deleteLater()
-            logger.debug(
-                f"Removed smart playlist criteria row (total={len(self.criteria_widgets)})"
-            )
+            self._update_delete_buttons()
+            logger.debug(f"Removed smart playlist criteria row (total={len(self.criteria_widgets)})")
+
+    def _update_delete_buttons(self) -> None:
+        """Disable the delete button when only one criteria row is left."""
+        can_delete = len(self.criteria_widgets) > 1
+        for widget in self.criteria_widgets:
+            widget.set_delete_enabled(can_delete)
 
     # ------------------------------------------------------------------
     # Form data
@@ -156,8 +144,7 @@ class BaseSmartPlaylistDialog(QDialog):
         return name, description, logic, criteria_list, auto_refresh
 
     def _validate_criteria(self) -> bool:
-        """Reject rows whose operator needs a value but has none, so a typo
-        can't silently turn into a playlist that matches nothing."""
+        """Reject rows whose operator needs a value but has none."""
         for row, widget in enumerate(self.criteria_widgets, start=1):
             criteria = widget.get_criteria()
             if criteria["comparison"] in NO_VALUE_OPERATORS:
@@ -169,6 +156,7 @@ class BaseSmartPlaylistDialog(QDialog):
         return True
 
     def _on_ok_clicked(self):
+        """Validate and accept the form; each subclass implements this."""
         # Create returns raw form data for the caller to save; edit saves
         # directly to the database -- each subclass overrides this instead.
         raise NotImplementedError

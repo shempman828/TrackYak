@@ -1,12 +1,12 @@
-"""
-playlist_smart_criteria_fields.py
-
-Static field/operator configuration for smart playlist criteria rows.
-"""
+"""Static field/operator configuration for smart playlist criteria rows."""
 
 from datetime import datetime
 
+from sqlalchemy.ext.associationproxy import AssociationProxyInstance
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.db.db_tables.track import Track
 from src.db.field_spec import FieldSpec
 
 # ---------------------------------------------------------------------------
@@ -28,20 +28,22 @@ _EXCLUDED_FIELDS = {
 # These aren't in TRACK_FIELDS (they're relationships, not scalar columns)
 # but are very useful for smart playlist filtering.
 # ---------------------------------------------------------------------------
-_LIST_FIELDS = [
-    ("genre_names", "Genre Names", "Filter by genre, e.g.: Rock, Jazz"),
-    ("artist_names", "Artist Names", "Filter by any associated artist name"),
-    # "primary_artist_names" is intentionally omitted here — it's already in
-    # TRACK_FIELDS (category "Basic") as "Primary Artist(s)".
-    ("place_names", "Place Names", "Filter by associated place"),
-    ("mood_name", "Mood", "Filter by mood"),
-]
+_LIST_FIELDS = [("genre_names", "Genre Names", "Filter by genre, e.g.: Rock, Jazz"), ("place_names", "Place Names", "Filter by associated place")]
+
+
+def is_queryable_track_field(field_name: str) -> bool:
+    """Return True if `field_name` is a mapped column or association proxy on Track."""
+    # Python @property fields (e.g. primary_artist_names, disc_number) can't be
+    # filtered in SQL -- the query layer skips them, which would make an AND
+    # rule on them match every track.
+    return isinstance(getattr(Track, field_name, None), (InstrumentedAttribute, AssociationProxyInstance))
 
 
 # ---------------------------------------------------------------------------
 # Map a FieldSpec's Python type → our operator-group key
 # ---------------------------------------------------------------------------
 def _field_to_group(field: FieldSpec) -> str:
+    """Map a FieldSpec's Python type to its operator-group key."""
     t = field.type
     if t is int:
         return "Integer"
@@ -61,24 +63,17 @@ def _field_to_group(field: FieldSpec) -> str:
 # Each entry: (field_name, op_group, display_name, tooltip, min, max, category)
 # ---------------------------------------------------------------------------
 def _build_criteria_fields():
+    """Build the ordered (name, group, display, tooltip, min, max, category) field list."""
     entries = []
 
     # Preferred category order for the most commonly filtered fields; any
     # other categories present in TRACK_FIELDS are appended alphabetically
     # after these, followed by an "Other" catch-all.
-    category_order = [
-        "Basic",
-        "Properties",
-        "Date",
-        "User",
-        "Advanced",
-        "Classical",
-        "Identification",
-    ]
+    category_order = ["Basic", "Properties", "Date", "User", "Advanced", "Classical", "Identification"]
 
     buckets: dict[str, list] = {}
     for field_name, field in TRACK_FIELDS.items():
-        if field_name in _EXCLUDED_FIELDS:
+        if field_name in _EXCLUDED_FIELDS or not is_queryable_track_field(field_name):
             continue
         cat = field.category or "Other"
         buckets.setdefault(cat, []).append((field_name, field))
@@ -90,20 +85,12 @@ def _build_criteria_fields():
 
     for cat in ordered_categories:
         for field_name, field in buckets[cat]:
-            entries.append(
-                (
-                    field_name,
-                    _field_to_group(field),
-                    field.friendly or field_name,
-                    field.tooltip or "",
-                    field.min,
-                    field.max,
-                    cat,
-                )
-            )
+            entries.append((field_name, _field_to_group(field), field.friendly or field_name, field.tooltip or "", field.min, field.max, cat))
 
     # Append relationship / list fields under their own "Related" group
     for field_name, display, tooltip in _LIST_FIELDS:
+        if not is_queryable_track_field(field_name):
+            continue
         entries.append((field_name, "List", display, tooltip, None, None, "Related"))
 
     return entries
@@ -115,15 +102,7 @@ CRITERIA_FIELDS = _build_criteria_fields()
 # Operators available per group — only logically valid operators are shown
 # ---------------------------------------------------------------------------
 OPERATORS_BY_GROUP = {
-    "String": [
-        ("eq", "equals"),
-        ("not", "does not equal"),
-        ("contains", "contains"),
-        ("startswith", "starts with"),
-        ("endswith", "ends with"),
-        ("isnull", "is empty"),
-        ("notnull", "has a value"),
-    ],
+    "String": [("eq", "equals"), ("not", "does not equal"), ("contains", "contains"), ("startswith", "starts with"), ("endswith", "ends with"), ("isnull", "is empty"), ("notnull", "has a value")],
     "Integer": [
         ("eq", "equals"),
         ("not", "does not equal"),
@@ -158,11 +137,5 @@ OPERATORS_BY_GROUP = {
         ("isnull", "is empty"),
         ("notnull", "has a value"),
     ],
-    "List": [
-        ("in", "is one of"),
-        ("not_in", "is not one of"),
-        ("contains", "contains"),
-        ("isnull", "is empty"),
-        ("notnull", "has a value"),
-    ],
+    "List": [("in", "is one of"), ("not_in", "is not one of"), ("contains", "contains"), ("isnull", "is empty"), ("notnull", "has a value")],
 }

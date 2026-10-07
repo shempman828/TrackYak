@@ -349,7 +349,10 @@ and start dragging tracks into it from the Tracks view or anywhere else.
 Pick whether tracks need to match *all* your rules or *any* of them, then add
 criteria rows — e.g. "Genre contains Jazz" and "Rating is greater than 4."
 The value control adapts to whatever field you pick, so a date field gives
-you a date picker, a rating field gives you a number range, and so on. Once
+you a date picker, a number field gives you a number box ("between" gives you
+two: a low and a high value), and so on. For Genre Names and Place Names, type
+several values separated by commas. You can't remove the last criteria row,
+so its delete button is greyed out. Once
 saved, the playlist keeps itself up to date — use Refresh Playlist any time
 you want to force a recheck, or tick "Refresh automatically when the app
 starts" so it re-checks itself every time you open the Playlists view. You
@@ -357,13 +360,26 @@ can't drag tracks into a smart playlist by hand; its membership is always
 computed from the rules.
 
 **Organizing your playlists**: drag one onto another to nest it underneath,
-or onto empty space to pull it back to the top level. Toggle Flat View if you
-just want an alphabetical list instead of the hierarchy. Double-click (or
-press F2 on) a playlist's name to rename it in place.
+drop it between two rows to place it next to them at that level, or onto
+empty space to pull it back to the top level. Select several playlists
+(Ctrl/Shift-click) to move them all in one drag. A move that would nest a
+playlist more than 8 levels deep is refused with a message. Toggle Flat View
+if you just want an alphabetical list instead of the hierarchy. Double-click
+(or press F2 on) a playlist's name to rename it in place.
+
+**Deleting playlists**: select one or more playlists and press Delete, or
+right-click and choose Delete. One confirmation covers the whole selection.
+Sub-playlists that you did not select move to the top level. An open track
+window for a deleted playlist closes.
 
 **Getting tracks out**: right-click a playlist for Open Track Editor (or
 View Tracks for a smart one) to see everything in it, or Export to write it
-out as a standard `.m3u` file you can hand to another player.
+out as a standard `.m3u` file you can hand to another player. The file keeps
+the playlist's track order. Tracks stored outside the playlist folder are
+written with their full path, so other players can find them. Characters that
+are not allowed in file names (such as `/` or `?`) become `_` in the file name.
+Track counts in the tree update as soon as you add or remove tracks in a track
+window, and an open track window reloads after its smart playlist refreshes.
 
 ## Genres
 

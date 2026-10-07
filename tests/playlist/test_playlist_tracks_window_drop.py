@@ -75,11 +75,7 @@ def test_drop_skips_existing_and_ignores_intra_drop_duplicates(qapp, session, co
     session.commit()
     already_in_playlist, new_track, also_new = tracks
 
-    session.add(
-        PlaylistTracks(
-            playlist_id=playlist.playlist_id, track_id=already_in_playlist.track_id, position=1
-        )
-    )
+    session.add(PlaylistTracks(playlist_id=playlist.playlist_id, track_id=already_in_playlist.track_id, position=1))
     session.commit()
 
     window = PlaylistTracksWindow(playlist.playlist_id, controller)
@@ -94,3 +90,45 @@ def test_drop_skips_existing_and_ignores_intra_drop_duplicates(qapp, session, co
     # The repeated new_track.track_id in the payload must only be inserted once.
     assert len(rows) == 3
     assert event.accepted is True
+
+
+def test_drop_emits_tracks_changed(qapp, session, controller, monkeypatch):
+    monkeypatch.setattr("src.playlist.playlist_tracks_window.show_status_message", lambda *a: None)
+    playlist = Playlist(playlist_name="Test")
+    track = Track(track_name="T")
+    session.add_all([playlist, track])
+    session.commit()
+    window = PlaylistTracksWindow(playlist.playlist_id, controller)
+    changed = []
+    window.tracks_changed.connect(changed.append)
+
+    window.handle_drop(_FakeDropEvent(str(track.track_id)))
+
+    assert changed == [playlist.playlist_id]
+
+
+def test_smart_playlist_window_has_no_remove_action(qapp, session, controller):
+    playlist = Playlist(playlist_name="Smart", is_smart=1)
+    session.add(playlist)
+    session.commit()
+
+    window = PlaylistTracksWindow(playlist.playlist_id, controller)
+
+    assert not hasattr(window, "remove_from_playlist_action")
+
+
+def test_close_saves_geometry_and_deletes_the_window(qapp, session, controller):
+    from PySide6.QtCore import Qt
+
+    saved = {}
+    controller.settings = SimpleNamespace(value=lambda key: None, setValue=lambda key, value: saved.__setitem__(key, value))
+    playlist = Playlist(playlist_name="Test")
+    session.add(playlist)
+    session.commit()
+    window = PlaylistTracksWindow(playlist.playlist_id, controller)
+    # Qt clears the attribute itself when close() schedules the delete.
+    assert window.testAttribute(Qt.WA_DeleteOnClose)
+
+    window.close()
+
+    assert f"playlist_window_{playlist.playlist_id}_geometry" in saved

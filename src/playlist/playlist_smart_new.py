@@ -13,11 +13,11 @@ class SmartPlaylistCreateDialog(BaseSmartPlaylistDialog):
         self.add_criteria_widget()  # start with one blank row
 
     def name_placeholder(self) -> str:
+        """Return the placeholder text for the name field."""
         return "My Smart Playlist"
 
     def _on_ok_clicked(self):
-        """Validate before accepting so a blank name or missing criteria
-        value never silently discards the form the user just filled in."""
+        """Accept only when the name and every needed criteria value are present."""
         if not self.name_edit.text().strip():
             QMessageBox.warning(self, "Input Error", "Playlist name cannot be empty.")
             return

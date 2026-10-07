@@ -1,32 +1,24 @@
-"""playlist_view.py"""
+"""Main playlist tree view: browse, create, edit, nest, export and delete playlists."""
 
 from collections import defaultdict
 import datetime
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QTreeWidgetItemIterator,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QHeaderView, QMenu, QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from src.common.widgets.hierarchy_tree_style import configure_hierarchy_tree, icon_for_depth
+from src.db.db_tables import Playlist
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog
 from src.playlist.playlist_refresh_controller import PlaylistRefreshController
+from src.playlist.playlist_smart_builder import condition_to_row_fields
 from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
@@ -42,11 +34,7 @@ class PlaylistView(QWidget):
     MAX_HIERARCHY_DEPTH = 8
 
     def __init__(self, controller: Any) -> None:
-        """
-        Initialize the playlist view.
-
-        :param controller: The controller providing database and update functionalities.
-        """
+        """Build the view, load the tree and start any auto-refresh smart playlists."""
         super().__init__()
         self.controller = controller
         self.open_playlist_windows = {}
@@ -66,10 +54,7 @@ class PlaylistView(QWidget):
         except SQLAlchemyError as e:
             logger.error(f"Failed to load auto-refresh smart playlists: {e}")
             return
-        for smart_playlist in smart_playlists or []:
-            self.refresh_controller.start_refresh(
-                smart_playlist.playlist_id, self.refresh_controller.on_startup_playlist_refreshed
-            )
+        self.refresh_controller.refresh_on_startup([sp.playlist_id for sp in smart_playlists or []])
 
     def init_ui(self) -> None:
         """Initialize UI components with a modern layout and styling."""
@@ -89,9 +74,7 @@ class PlaylistView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
 
         button_layout.addWidget(self.btn_new)
@@ -122,15 +105,15 @@ class PlaylistView(QWidget):
         # Persist in-place renames (the tree items are editable via double-click/F2)
         self.tree.itemChanged.connect(self._on_item_renamed)
 
+        delete_shortcut = QShortcut(QKeySequence.Delete, self.tree)
+        delete_shortcut.setContext(Qt.WidgetShortcut)
+        delete_shortcut.activated.connect(self.delete_selected)
+
         main_layout.addWidget(self.tree)
         self.setLayout(main_layout)
 
     def _get_expanded_ids(self) -> set:
-        """Walk the current tree and return the playlist IDs of all expanded items.
-
-        This is called just before clearing the tree so we can restore the same
-        expanded state after rebuilding it.
-        """
+        """Return the playlist IDs of all expanded tree items."""
         expanded = set()
         iterator = QTreeWidgetItemIterator(self.tree)
         while iterator.value():
@@ -164,8 +147,9 @@ class PlaylistView(QWidget):
 
             self.tree.clear()
 
-            # Fetch all playlists with their relationships
-            playlists = self.controller.get.get_all_entities("Playlist") or []
+            # Eager-load tracks and children: the count column reads both for
+            # every row, which would otherwise lazy-load one query per playlist.
+            playlists = self.controller.get.get_all_entities("Playlist", load_options=[selectinload(Playlist.tracks), selectinload(Playlist.children)]) or []
 
             if not playlists:
                 self._add_empty_state_item()
@@ -235,11 +219,30 @@ class PlaylistView(QWidget):
         window = PlaylistTracksWindow(playlist_id, self.controller, self)
         # Save the reference so we can reuse it if the user opens this playlist again
         self.open_playlist_windows[playlist_id] = window
-        # Remove the reference when the window is closed so it can be garbage collected
+        # The window deletes itself on close; drop the reference with it.
         window.destroyed.connect(lambda: self.open_playlist_windows.pop(playlist_id, None))
+        window.tracks_changed.connect(self._on_playlist_tracks_changed)
         window.show()
 
+    def _on_playlist_tracks_changed(self, playlist_id: int) -> None:
+        """Refresh tree counts after tracks are added to or removed from a playlist window."""
+        self.load_playlists()
+        self.playlist_updated.emit()
+
+    def reload_playlist_window(self, playlist_id: int) -> None:
+        """Reload the open track window for `playlist_id`, if there is one."""
+        window = self.open_playlist_windows.get(playlist_id)
+        if window is not None:
+            window.load_playlist_tracks()
+
+    def _close_playlist_window(self, playlist_id: int) -> None:
+        """Close the open track window for `playlist_id`, if there is one."""
+        window = self.open_playlist_windows.pop(playlist_id, None)
+        if window is not None:
+            window.close()
+
     def show_context_menu(self, pos):
+        """Show the single- or multi-selection context menu for the item at `pos`."""
         item = self.tree.itemAt(pos)
         if not item:
             return
@@ -252,6 +255,8 @@ class PlaylistView(QWidget):
         # whole selection (standard Qt behavior); otherwise it's just this item.
         selected_items = self.tree.selectedItems()
         if item not in selected_items:
+            # Make the clicked item the selection, so Edit/Delete act on it.
+            self.tree.setCurrentItem(item)
             selected_items = [item]
 
         if len(selected_items) > 1:
@@ -275,10 +280,7 @@ class PlaylistView(QWidget):
             if is_smart_playlist:
                 # Smart playlist options
                 menu.addAction("Edit Smart Playlist", lambda: self.edit_smart_playlist(item_id))
-                menu.addAction(
-                    "Refresh Playlist",
-                    lambda: self.refresh_controller.refresh_smart_playlist(item_id),
-                )
+                menu.addAction("Refresh Playlist", lambda: self.refresh_controller.refresh_smart_playlist(item_id))
                 menu.addAction("View Tracks", lambda: self.open_playlist_editor(item_id))
             else:
                 # Normal playlist options
@@ -293,49 +295,30 @@ class PlaylistView(QWidget):
 
     def _show_multi_select_context_menu(self, selected_items, pos) -> None:
         """Context menu shown when more than one tree item is selected."""
-        playlist_items = [
-            it
-            for it in selected_items
-            if (data := it.data(0, Qt.UserRole)) and len(data) == 2 and data[0] == "playlist"
-        ]
+        playlist_items = [it for it in selected_items if (data := it.data(0, Qt.UserRole)) and len(data) == 2 and data[0] == "playlist"]
         # Only playlists that have a parent can have their tracks folded upward.
         playlists_with_parent = [it for it in playlist_items if it.parent() is not None]
 
         menu = QMenu()
 
         if len(playlist_items) > 1:
-            menu.addAction(
-                f"View Tracks ({len(playlist_items)} playlists)",
-                lambda: self.view_tracks_for_selected_playlists(playlist_items),
-            )
-            menu.addAction(
-                f"Shuffle ({len(playlist_items)} playlists)",
-                lambda: self.shuffle_playlists(playlist_items),
-            )
+            menu.addAction(f"View Tracks ({len(playlist_items)} playlists)", lambda: self.view_tracks_for_selected_playlists(playlist_items))
+            menu.addAction(f"Shuffle ({len(playlist_items)} playlists)", lambda: self.shuffle_playlists(playlist_items))
             menu.addSeparator()
 
         if playlists_with_parent:
-            menu.addAction(
-                "Add All Tracks to Parent Playlist",
-                lambda: self._add_tracks_to_parent_playlists(playlists_with_parent),
-            )
+            menu.addAction("Add All Tracks to Parent Playlist", lambda: self._add_tracks_to_parent_playlists(playlists_with_parent))
             menu.addSeparator()
 
-        menu.addAction("Delete", self.delete_selected)
+        menu.addAction(f"Delete ({len(playlist_items)} playlists)" if len(playlist_items) > 1 else "Delete", self.delete_selected)
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
 
     def _load_tracks_for_playlists(self, playlist_ids: list) -> list | None:
         """Fetch the deduplicated tracks for one or more playlists, or None on error."""
         try:
-            playlist_tracks = self.controller.get.get_all_entities(
-                "PlaylistTracks", playlist_id__in=playlist_ids
-            )
+            playlist_tracks = self.controller.get.get_all_entities("PlaylistTracks", playlist_id__in=playlist_ids)
             track_ids = list({pt.track_id for pt in playlist_tracks})
-            return (
-                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
-                if track_ids
-                else []
-            )
+            return self.controller.get.get_all_entities("Track", track_id__in=track_ids) if track_ids else []
         except SQLAlchemyError as e:
             logger.error(f"Error loading tracks for playlists {playlist_ids}: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to load tracks for playlists")
@@ -349,11 +332,7 @@ class PlaylistView(QWidget):
             return
 
         names = ", ".join(it.text(0) for it in items)
-        tracks_window = BaseTrackView(
-            controller=self.controller,
-            tracks=tracks,
-            title=f"Tracks in {len(playlist_ids)} playlists: {names}",
-        )
+        tracks_window = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks in {len(playlist_ids)} playlists: {names}")
         tracks_window.exec_()
 
     def shuffle_playlist(self, playlist_id: int) -> None:
@@ -370,12 +349,8 @@ class PlaylistView(QWidget):
             shuffle_and_play(self, self.controller, tracks)
 
     def _add_tracks_to_parent_playlists(self, items: list) -> None:
-        """Add every track in each selected playlist to that playlist's parent.
-
-        Selected playlists are grouped by parent so e.g. selecting "sleepy jazz"
-        and "sleepy indie" (both children of "sleepy") copies both playlists'
-        tracks into "sleepy" in one go.
-        """
+        """Add every track in each selected playlist to that playlist's parent."""
+        # Grouped by parent, so sibling children fill their shared parent in one pass.
         groups = defaultdict(list)
         for item in items:
             parent_item = item.parent()
@@ -387,12 +362,7 @@ class PlaylistView(QWidget):
 
         child_names = ", ".join(item.text(0) for children in groups.values() for item in children)
         parent_names = ", ".join(parent_item.text(0) for parent_item in groups)
-        confirm = QMessageBox.question(
-            self,
-            "Add Tracks to Parent Playlist",
-            f"Add all tracks from {child_names} to {parent_names}?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        confirm = QMessageBox.question(self, "Add Tracks to Parent Playlist", f"Add all tracks from {child_names} to {parent_names}?", QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
 
@@ -401,26 +371,17 @@ class PlaylistView(QWidget):
             for parent_item, children in groups.items():
                 parent_id = parent_item.data(0, Qt.UserRole)[1]
 
-                existing_tracks = self.controller.get.get_entity_links(
-                    "PlaylistTracks", playlist_id=parent_id
-                )
+                existing_tracks = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=parent_id)
                 existing_track_ids = {t.track_id for t in existing_tracks}
                 next_position = max((t.position for t in existing_tracks), default=0) + 1
 
                 for child_item in children:
                     child_id = child_item.data(0, Qt.UserRole)[1]
-                    child_tracks = self.controller.get.get_entity_links(
-                        "PlaylistTracks", playlist_id=child_id
-                    )
+                    child_tracks = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=child_id)
                     for pt in child_tracks:
                         if pt.track_id in existing_track_ids:
                             continue
-                        if self.controller.add.add_entity_link(
-                            "PlaylistTracks",
-                            playlist_id=parent_id,
-                            track_id=pt.track_id,
-                            position=next_position,
-                        ):
+                        if self.controller.add.add_entity_link("PlaylistTracks", playlist_id=parent_id, track_id=pt.track_id, position=next_position):
                             existing_track_ids.add(pt.track_id)
                             next_position += 1
                             total_added += 1
@@ -436,10 +397,7 @@ class PlaylistView(QWidget):
 
     @staticmethod
     def _format_playlist_name(playlist_obj) -> str:
-        """Build the raw (depth-prefix-free) display name for a playlist,
-        including its smart-playlist symbol. Track counts are rendered
-        separately — see `_format_track_count` — so the name column stays
-        readable instead of a run-on string of words and numbers."""
+        """Build a playlist's display name, with the smart-playlist marker."""
         display_name = playlist_obj.playlist_name
         if getattr(playlist_obj, "is_smart", False):
             display_name = f"🔍 {display_name}"
@@ -447,10 +405,7 @@ class PlaylistView(QWidget):
 
     @staticmethod
     def _format_track_count(playlist_obj) -> str:
-        """Build the compact track-count text for the tree's count column.
-
-        Use the playlist's own properties — no recalculation needed here.
-        """
+        """Build the compact track-count text for the tree's count column."""
         own_count = getattr(playlist_obj, "track_count", 0) or 0
         recursive_total = getattr(playlist_obj, "recursive_track_count", own_count) or own_count
         if recursive_total != own_count:
@@ -461,8 +416,7 @@ class PlaylistView(QWidget):
 
     @staticmethod
     def _style_count_cell(item: QTreeWidgetItem) -> None:
-        """Right-align and de-emphasize the count column so it reads as a
-        secondary detail rather than competing with the playlist name."""
+        """Right-align and de-emphasize an item's count column."""
         item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
         font = item.font(1)
         font.setItalic(True)
@@ -480,13 +434,19 @@ class PlaylistView(QWidget):
 
         playlist_id = item_data[1]
         new_name = item.text(0).strip()
-        if new_name.startswith("🔍"):
+        if item.data(0, Qt.UserRole + 1) and new_name.startswith("🔍"):
             # Strip the smart-playlist marker -- it's a display-only prefix,
-            # not part of the stored name.
+            # not part of the stored name. A normal playlist keeps a typed "🔍".
             new_name = new_name[1:].strip()
 
         if not new_name:
             show_status_message(self, "Playlist name cannot be empty.")
+            self.tree_dnd.refresh_item_display(item)
+            return
+
+        current = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
+        if current is not None and current.playlist_name == new_name:
+            # Nothing changed -- just restore the canonical display text.
             self.tree_dnd.refresh_item_display(item)
             return
 
@@ -531,9 +491,7 @@ class PlaylistView(QWidget):
         """Recursively build playlist tree with smart playlist symbols."""
         parent_id = parent_item.data(0, Qt.UserRole)[1] if parent_item else None
 
-        children = sorted(
-            children_map.get(parent_id, []), key=lambda x: getattr(x, "playlist_name", "").lower()
-        )
+        children = sorted(children_map.get(parent_id, []), key=lambda x: getattr(x, "playlist_name", "").lower())
 
         for child in children:
             item = self._make_playlist_item(child, depth)
@@ -550,9 +508,7 @@ class PlaylistView(QWidget):
                 # Deeper descendants exist but the tree stops here -- warn
                 # instead of silently hiding them with no way to reach them.
                 logger.warning(
-                    f"Playlist '{child.playlist_name}' (id={child.playlist_id}) has "
-                    f"sub-playlists beyond the max hierarchy depth "
-                    f"({self.MAX_HIERARCHY_DEPTH}); they are not shown in the tree."
+                    f"Playlist '{child.playlist_name}' (id={child.playlist_id}) has sub-playlists beyond the max hierarchy depth ({self.MAX_HIERARCHY_DEPTH}); they are not shown in the tree."
                 )
 
     def _build_flat(self, playlists) -> None:
@@ -573,9 +529,7 @@ class PlaylistView(QWidget):
 
             try:
                 # Add to database using your controller's create method
-                self.controller.add.add_entity(
-                    "Playlist", playlist_name=name, playlist_description=description
-                )
+                self.controller.add.add_entity("Playlist", playlist_name=name, playlist_description=description)
 
                 # Refresh the UI
                 self.load_playlists()
@@ -599,39 +553,24 @@ class PlaylistView(QWidget):
             playlist = None
             try:
                 # Create the Playlist record
-                playlist = self.controller.add.add_entity(
-                    "Playlist", playlist_name=name, playlist_description=description, is_smart=1
-                )
+                # add_entity logs and returns None on failure instead of raising.
+                playlist = self.controller.add.add_entity("Playlist", playlist_name=name, playlist_description=description, is_smart=1)
+                if playlist is None:
+                    raise RuntimeError("Could not save the playlist")
 
                 # Create the SmartPlaylist record (stores logic = AND/OR)
-                smart_playlist = self.controller.add.add_entity(
-                    "SmartPlaylist",
-                    playlist_id=playlist.playlist_id,
-                    logic=logic,
-                    auto_refresh=int(auto_refresh),
-                    last_refreshed=datetime.datetime.now(),
-                )
+                smart_playlist = self.controller.add.add_entity("SmartPlaylist", playlist_id=playlist.playlist_id, logic=logic, auto_refresh=int(auto_refresh), last_refreshed=datetime.datetime.now())
+                if smart_playlist is None:
+                    raise RuntimeError("Could not save the smart playlist rules")
 
                 # Add each criterion as a separate SmartPlaylistCriteria row
-                if criteria:
-                    for criterion in criteria:
-                        self.controller.add.add_entity(
-                            "SmartPlaylistCriteria",
-                            smart_playlist_id=smart_playlist.playlist_id,
-                            field_name=criterion.get("field", ""),
-                            comparison=criterion.get("comparison", ""),
-                            value=criterion.get("value", ""),
-                            type=criterion.get("type", "String"),
-                        )
+                for criterion in criteria or []:
+                    if self.controller.add.add_entity("SmartPlaylistCriteria", smart_playlist_id=smart_playlist.playlist_id, **condition_to_row_fields(criterion)) is None:
+                        raise RuntimeError(f"Could not save criterion {criterion}")
 
                 # Immediately populate the playlist with matching tracks,
                 # off the UI thread — a large library can make this slow.
-                self.refresh_controller.start_refresh(
-                    playlist.playlist_id,
-                    lambda success, pid: self.refresh_controller.on_created_playlist_refreshed(
-                        success, pid, name
-                    ),
-                )
+                self.refresh_controller.start_refresh(playlist.playlist_id, lambda success, pid: self.refresh_controller.on_created_playlist_refreshed(success, pid, name))
 
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Failed to create smart playlist: {e!s}")
@@ -644,71 +583,81 @@ class PlaylistView(QWidget):
                         self.controller.delete.delete_entity("Playlist", playlist.playlist_id)
                         self.load_playlists()
                     except SQLAlchemyError as cleanup_exc:
-                        logger.error(
-                            f"Failed to remove orphaned playlist after error: {cleanup_exc}"
-                        )
+                        logger.error(f"Failed to remove orphaned playlist after error: {cleanup_exc}")
                 QMessageBox.critical(self, "Error", f"Could not create smart playlist: {e}")
 
+    def _selected_playlist_items(self) -> list[QTreeWidgetItem]:
+        """Return the selected playlist items, or the current item if nothing is selected."""
+        items = self.tree.selectedItems() or ([self.tree.currentItem()] if self.tree.currentItem() else [])
+        return [it for it in items if (data := it.data(0, Qt.UserRole)) and len(data) == 2 and data[0] == "playlist"]
+
     def delete_selected(self) -> None:
-        item = self.tree.currentItem()
-        if not item:
+        """Delete every selected playlist after one confirmation."""
+        items = self._selected_playlist_items()
+        if not items:
             return
-        item_data = item.data(0, Qt.UserRole)
-        if not item_data or len(item_data) != 2:
-            return
-        item_type, item_id = item_data
 
+        if len(items) == 1:
+            name = self._stored_playlist_name(items[0])
+            question = f"Delete the playlist '{name}' and its track list?"
+        else:
+            question = f"Delete {len(items)} playlists and their track lists?"
+        # Sub-playlists that are not deleted lose their parent (parent_id is set to NULL).
+        question += "\nSub-playlists that are not deleted move to the top level."
+
+        confirm = QMessageBox.question(self, "Confirm Delete", question, QMessageBox.Yes | QMessageBox.No)
+        if confirm != QMessageBox.Yes:
+            return
+
+        deleted = 0
         try:
-            playlist_obj = self.controller.get.get_entity_object("Playlist", playlist_id=item_id)
-            name = playlist_obj.playlist_name if playlist_obj else item.text(0)
+            for item in items:
+                playlist_id = item.data(0, Qt.UserRole)[1]
+                self._close_playlist_window(playlist_id)
+                if self.controller.delete.delete_entity("Playlist", playlist_id):
+                    deleted += 1
         except SQLAlchemyError as e:
-            logger.warning(f"Could not load playlist name for delete confirmation: {e}")
-            name = item.text(0)
+            logger.error(f"Deletion failed: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to delete playlist:\n{e!s}")
 
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Delete this {item_type} '{name}' and all its contents?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        self.load_playlists()
+        self.playlist_updated.emit()
+        logger.info(f"Deleted {deleted} of {len(items)} playlist(s)")
+        if deleted < len(items):
+            show_status_message(self, f"Deleted {deleted} of {len(items)} playlists. Check the log for details.")
 
-        if confirm == QMessageBox.Yes:
-            try:
-                # Always delete from Playlist table
-                self.controller.delete.delete_entity("Playlist", item_id)
-
-                self.load_playlists()
-                self.playlist_updated.emit()
-                logger.info(f"Deleted {item_type}: {name}")
-
-            except SQLAlchemyError as e:
-                logger.error(f"Deletion failed: {e!s}")
-                QMessageBox.critical(self, "Error", f"Failed to delete {item_type}:\n{e!s}")
+    def _stored_playlist_name(self, item: QTreeWidgetItem) -> str:
+        """Return the stored name of the playlist behind `item`, or its display text."""
+        playlist_obj = self.controller.get.get_entity_object("Playlist", playlist_id=item.data(0, Qt.UserRole)[1])
+        return playlist_obj.playlist_name if playlist_obj else item.text(0)
 
     def handle_drop(self, event: Any) -> None:
+        """Reparent the dragged playlist(s); delegates to PlaylistTreeDnD."""
         # Kept as a PlaylistView method (delegating to PlaylistTreeDnD) so
         # QTreeWidget's dropEvent override and external callers can keep
         # calling view.handle_drop(event) directly.
         self.tree_dnd.handle_drop(event)
 
     def edit_playlist(self) -> None:
-        """
-        Open the selected playlist for editing.
-        Only available when a playlist item is selected.
-        """
+        """Open the selected normal playlist in the metadata edit dialog."""
         item = self.tree.currentItem()
-        if not item or item.data(0, Qt.UserRole)[0] != "playlist":
+        item_data = item.data(0, Qt.UserRole) if item else None
+        if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
             return
 
-        playlist_id = item.data(0, Qt.UserRole)[1]
+        playlist_id = item_data[1]
         try:
             playlist = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to fetch playlist object: {e!s}")
             QMessageBox.critical(self, "Error", "Unable to load playlist details.")
             return
+        if playlist is None:
+            show_status_message(self, "This playlist no longer exists.")
+            self.load_playlists()
+            return
 
-        dialog = EditPlaylist(self.controller, playlist)
+        dialog = EditPlaylist(self.controller, playlist, parent=self)
         if dialog.exec_():
             self.load_playlists()
             self.playlist_updated.emit()
@@ -719,6 +668,4 @@ class PlaylistView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             # Dialog saved changes — now re-evaluate which tracks match,
             # off the UI thread.
-            self.refresh_controller.start_refresh(
-                playlist_id, self.refresh_controller.on_edited_playlist_refreshed
-            )
+            self.refresh_controller.start_refresh(playlist_id, self.refresh_controller.on_edited_playlist_refreshed)

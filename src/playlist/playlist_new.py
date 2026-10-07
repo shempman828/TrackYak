@@ -1,17 +1,13 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLineEdit,
-    QMessageBox,
-    QTextEdit,
-)
+"""Dialog for entering a new normal playlist's name and description."""
+
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox, QTextEdit
 
 
 class PlaylistCreateDialog(QDialog):
     """Dialog for entering new playlist details."""
 
     def __init__(self, parent=None):
+        """Build the name/description form."""
         super().__init__(parent)
         self.setWindowTitle("Create New Playlist")
         self.setMinimumWidth(300)
@@ -40,4 +36,5 @@ class PlaylistCreateDialog(QDialog):
         self.accept()
 
     def get_data(self):
+        """Return the stripped (name, description) the user entered."""
         return self.name_input.text().strip(), self.desc_input.toPlainText().strip()
