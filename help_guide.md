@@ -851,13 +851,6 @@ Double-click any queued track to jump to it immediately.
   glance: health, top artists/albums/genres, audio characteristics, and more,
   split across tabs. See [Library Statistics](#library-statistics) below for
   what each tab holds.
-- **Find Duplicate Tracks** — run this after a big import if you suspect
-  you've picked up copies of things you already had. It can match by
-  metadata or by actual audio fingerprint if you want to catch re-encodes
-  that don't share filenames or tags.
-- **Find Missing Tracks** — checks for library entries whose file no longer
-  exists on disk (moved, renamed outside the app, deleted) so you can clean
-  up dangling entries.
 - **General Settings** — display, audio device, and general app preferences,
   all in one dialog. The **Developer** tab holds an "Enable developer mode"
   toggle that unlocks experimental/diagnostic options (currently the
@@ -968,6 +961,13 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   thumbnail and track count; **Use for all tracks** re-embeds that version
   (or, for the "No artwork" option, strips art) into every track of the
   album.
+- **Find Duplicate Tracks** — run this after a big import if you suspect
+  you've picked up copies of things you already had. It can match by
+  metadata or by actual audio fingerprint if you want to catch re-encodes
+  that don't share filenames or tags.
+- **Find Missing Tracks** — checks for library entries whose file no longer
+  exists on disk (moved, renamed outside the app, deleted) so you can clean
+  up dangling entries.
 
 ## View Menu
 

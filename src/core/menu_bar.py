@@ -26,19 +26,7 @@ from src.statistics.statistics_dialog import MusicStatsDialog
 
 
 class MenuBar:
-    def add_action(
-        self,
-        menu,
-        text,
-        icon_name=None,
-        slot=None,
-        shortcut=None,
-        *,
-        tooltip=None,
-        checkable=False,
-        checked=False,
-        shortcut_context=None,
-    ):
+    def add_action(self, menu, text, icon_name=None, slot=None, shortcut=None, *, tooltip=None, checkable=False, checked=False, shortcut_context=None):
         """Build a QAction, wire it up, and append it to `menu` in one call."""
         action = QAction(text, self)
         if icon_name and self._icon_exists(icon_name):
@@ -65,28 +53,12 @@ class MenuBar:
         file_menu = menu_bar.addMenu("File")
 
         self.add_action(file_menu, "Import Directory", "import.svg", self.show_import_dialog)
-        self.add_action(
-            file_menu, "View Library Statistics", "statistics.svg", self.show_statistics_dialog
-        )
-        self.add_action(
-            file_menu,
-            "Find Duplicate Tracks",
-            slot=self.show_duplicate_finder,
-            tooltip="Scan library for possible duplicate tracks",
-        )
-        self.add_action(
-            file_menu,
-            "Find Missing Tracks",
-            slot=self.show_missing_tracks,
-            tooltip="Scan library for missing tracks",
-        )
+        self.add_action(file_menu, "View Library Statistics", "statistics.svg", self.show_statistics_dialog)
 
         file_menu.addSeparator()
 
         # General Settings — opens the full ConfigDialog
-        self.add_action(
-            file_menu, "General Settings", "settings.svg", self.show_general_settings_dialog
-        )
+        self.add_action(file_menu, "General Settings", "settings.svg", self.show_general_settings_dialog)
 
         file_menu.addSeparator()
 
@@ -95,95 +67,53 @@ class MenuBar:
         # Audio Menu
         audio_menu = menu_bar.addMenu("Audio")
 
-        self.add_action(
-            audio_menu, "Equalizer Settings", "equalizer.svg", self.show_equalizer_dialog
-        )
-        self.add_action(
-            audio_menu, "Audio File Analysis", "audio_analysis.svg", self.show_audio_properties
-        )
+        self.add_action(audio_menu, "Equalizer Settings", "equalizer.svg", self.show_equalizer_dialog)
+        self.add_action(audio_menu, "Audio File Analysis", "audio_analysis.svg", self.show_audio_properties)
 
         # Tools menu
         tools_menu = menu_bar.addMenu("Tools")
 
         self.add_action(
-            tools_menu,
-            "Organize Files…",
-            icon_name="manage_library.svg",
-            slot=self.show_organize_files,
-            tooltip="Reorganize library files into a consistent "
-            "AlbumArtist/Album/Track folder structure",
+            tools_menu, "Organize Files…", icon_name="manage_library.svg", slot=self.show_organize_files, tooltip="Reorganize library files into a consistent AlbumArtist/Album/Track folder structure"
         )
-        self.add_action(
-            tools_menu,
-            "Write Metadata…",
-            icon_name="write.svg",
-            slot=self.show_metadata_writer,
-            tooltip="Push database metadata edits back into the audio files' embedded tags",
-        )
+        self.add_action(tools_menu, "Write Metadata…", icon_name="write.svg", slot=self.show_metadata_writer, tooltip="Push database metadata edits back into the audio files' embedded tags")
 
         tools_menu.addSeparator()
 
+        self.add_action(tools_menu, "Manage Aliases…", slot=self.show_alias_management_dialog, tooltip="View and edit merge/split aliases and skipped genres")
         self.add_action(
-            tools_menu,
-            "Manage Aliases…",
-            slot=self.show_alias_management_dialog,
-            tooltip="View and edit merge/split aliases and skipped genres",
+            tools_menu, "Recalculate Explicit Flags…", slot=self.show_explicit_recalc, tooltip="Scan every track with lyrics but no Explicit setting yet, and flag it against assets/explicit_words.txt"
         )
         self.add_action(
-            tools_menu,
-            "Recalculate Explicit Flags…",
-            slot=self.show_explicit_recalc,
-            tooltip="Scan every track with lyrics but no Explicit setting yet, "
-            "and flag it against assets/explicit_words.txt",
-        )
-        self.add_action(
-            tools_menu,
-            "Mood Tagging…",
-            slot=self.show_mood_autotag_dialog,
-            tooltip="Auto-tag tracks with moods and known places from their "
-            "lyrics, and review lyrics words not yet assigned to a mood",
+            tools_menu, "Mood Tagging…", slot=self.show_mood_autotag_dialog, tooltip="Auto-tag tracks with moods and known places from their lyrics, and review lyrics words not yet assigned to a mood"
         )
         self.add_action(
             tools_menu,
             "Review Song-About Places…",
             slot=self.show_place_song_about_review_dialog,
-            tooltip="Approve, change, or reject places lyric-detected in tracks' "
-            "lyrics before they're linked -- your choice is remembered per place",
+            tooltip="Approve, change, or reject places lyric-detected in tracks' lyrics before they're linked -- your choice is remembered per place",
         )
         self.add_action(
-            tools_menu,
-            "Artwork Conflicts…",
-            slot=self.show_artwork_consistency_dialog,
-            tooltip="Scan for albums whose tracks disagree on embedded artwork "
-            "and re-embed one version into every track",
+            tools_menu, "Artwork Conflicts…", slot=self.show_artwork_consistency_dialog, tooltip="Scan for albums whose tracks disagree on embedded artwork and re-embed one version into every track"
         )
+
+        tools_menu.addSeparator()
+
+        self.add_action(tools_menu, "Find Duplicate Tracks", slot=self.show_duplicate_finder, tooltip="Scan library for possible duplicate tracks")
+        self.add_action(tools_menu, "Find Missing Tracks", slot=self.show_missing_tracks, tooltip="Scan library for missing tracks")
 
         # View menu
         self.view_menu = menu_bar.addMenu("View")
 
         self.toggle_queue_action = self.add_action(
-            self.view_menu,
-            "Show Queue",
-            "toggle_queue.svg",
-            self.toggle_queue_visibility,
-            shortcut="Shift+Q",
-            checkable=True,
-            checked=False,
-            shortcut_context=Qt.ApplicationShortcut,
+            self.view_menu, "Show Queue", "toggle_queue.svg", self.toggle_queue_visibility, shortcut="Shift+Q", checkable=True, checked=False, shortcut_context=Qt.ApplicationShortcut
         )
 
-        self.add_action(
-            self.view_menu, "Full Screen", "fullscreen.svg", self.toggle_fullscreen, shortcut="F11"
-        )
+        self.add_action(self.view_menu, "Full Screen", "fullscreen.svg", self.toggle_fullscreen, shortcut="F11")
         self.add_action(self.view_menu, "Mini Player", slot=self.open_miniplayer, shortcut="Ctrl+M")
 
         self.view_menu.addSeparator()
-        self.add_action(
-            self.view_menu,
-            "Reset Layout",
-            slot=self._reset_ui_layout,
-            tooltip="Restore the navigation, queue, and player panels to their default positions",
-        )
+        self.add_action(self.view_menu, "Reset Layout", slot=self._reset_ui_layout, tooltip="Restore the navigation, queue, and player panels to their default positions")
 
         # Help menu
         help_menu = menu_bar.addMenu("Help")
@@ -192,11 +122,7 @@ class MenuBar:
         self.add_action(help_menu, "Support this Project")
 
         wikipedia_url = "https://wikimediafoundation.org/give/?rdfrom=%2F%2Fdonate.wikimedia.org%2Fw%2Findex.php%3Ftitle%3DWays_to_Give%26redirect%3Dno#ways-to-give"
-        self.add_action(
-            help_menu,
-            "Support Wikipedia",
-            slot=lambda: QDesktopServices.openUrl(QUrl(wikipedia_url)),
-        )
+        self.add_action(help_menu, "Support Wikipedia", slot=lambda: QDesktopServices.openUrl(QUrl(wikipedia_url)))
 
         # --- Menu bar auto-hide setup ---
         # A timer is used to add a small delay before hiding so the bar doesn't
@@ -312,11 +238,7 @@ class MenuBar:
                 menu_bar.show()
         else:
             # Mouse moved away — start the grace-period timer.
-            if (
-                menu_bar.isVisible()
-                and not menu_bar.activeAction()
-                and not self._menu_bar_hide_timer.isActive()
-            ):
+            if menu_bar.isVisible() and not menu_bar.activeAction() and not self._menu_bar_hide_timer.isActive():
                 self._menu_bar_hide_timer.start()
 
     # ------------------------------------------------------------------
@@ -326,9 +248,7 @@ class MenuBar:
     def show_equalizer_dialog(self):
         """Show the equalizer configuration dialog."""
         if not hasattr(self, "equalizer_dialog"):
-            self.equalizer_dialog = EqualizerDialog(
-                self.controller.mediaplayer.equalizer, app_config, self
-            )
+            self.equalizer_dialog = EqualizerDialog(self.controller.mediaplayer.equalizer, app_config, self)
         self.equalizer_dialog.show()
         self.equalizer_dialog.raise_()
         self.equalizer_dialog.activateWindow()
@@ -361,9 +281,7 @@ class MenuBar:
 
         if display_settings is not None:
             try:
-                display_settings.menu_bar_auto_hide_changed.disconnect(
-                    self._apply_menu_bar_auto_hide
-                )
+                display_settings.menu_bar_auto_hide_changed.disconnect(self._apply_menu_bar_auto_hide)
             except RuntimeError:
                 logger.debug("menu_bar_auto_hide_changed signal was already disconnected")
 
@@ -398,10 +316,7 @@ class MenuBar:
         self._explicit_recalc_worker.start()
 
     def _on_explicit_recalc_finished(self, scanned: int, flagged: int):
-        show_status_message(
-            self,
-            f"Explicit flags recalculated: {scanned} track(s) scanned, {flagged} flagged explicit",
-        )
+        show_status_message(self, f"Explicit flags recalculated: {scanned} track(s) scanned, {flagged} flagged explicit")
         self._explicit_recalc_worker.wait()
         self._explicit_recalc_worker = None
 
@@ -441,9 +356,7 @@ class MenuBar:
         self.duplicate_finder_dialog.activateWindow()
 
     def show_about_dialog(self):
-        description = (
-            """TrackYak is a powerful application for tracking and managing your music library."""
-        )
+        description = """TrackYak is a powerful application for tracking and managing your music library."""
 
         about_box = QMessageBox(self)
         about_box.setWindowTitle("About TrackYak")
@@ -527,9 +440,7 @@ class MenuBar:
 
         main_window_pos = self.pos()
         main_window_size = self.size()
-        self._mini_player.move(
-            main_window_pos.x() + main_window_size.width() - 350, main_window_pos.y() + 50
-        )
+        self._mini_player.move(main_window_pos.x() + main_window_size.width() - 350, main_window_pos.y() + 50)
 
         player = self.controller.mediaplayer
         player.track_changed.connect(self._mini_player._on_track_changed)
