@@ -38,3 +38,21 @@ def test_empty_lyrics_matches_nothing():
 
 def test_no_known_places_matches_nothing():
     assert detect_known_places("Paris Tokyo London", []) == []
+
+
+def test_name_ending_in_punctuation_matches():
+    lyrics = "we drove all night to Washington, D.C. and back"
+    assert detect_known_places(lyrics, ["Washington, D.C."]) == ["Washington, D.C."]
+
+
+def test_name_ending_in_punctuation_still_needs_a_word_boundary():
+    assert detect_known_places("St. Louisville is far", ["St. Louis"]) == []
+
+
+def test_blank_place_names_never_match():
+    assert detect_known_places("any lyrics at all", ["", "   "]) == []
+
+
+def test_duplicate_place_names_are_reported_once_in_order():
+    lyrics = "from Tokyo to Paris and Tokyo again"
+    assert detect_known_places(lyrics, ["Tokyo", "Paris", "Tokyo"]) == ["Tokyo", "Paris"]

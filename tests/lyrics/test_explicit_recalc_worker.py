@@ -106,12 +106,8 @@ def test_second_run_is_idempotent_and_reports_zero(session, controller):
 
 # AC10 ------------------------------------------------------------------------
 def test_never_overwrites_a_track_with_existing_is_explicit(session, controller):
-    manually_cleared = _make_track(
-        session, lyrics="this shit is real", is_explicit=False
-    )
-    manually_flagged = _make_track(
-        session, lyrics="a perfectly clean line", is_explicit=True
-    )
+    manually_cleared = _make_track(session, lyrics="this shit is real", is_explicit=False)
+    manually_flagged = _make_track(session, lyrics="a perfectly clean line", is_explicit=True)
 
     ExplicitRecalcWorker(controller).run()
 
@@ -122,9 +118,7 @@ def test_never_overwrites_a_track_with_existing_is_explicit(session, controller)
 
 
 # AC11 ------------------------------------------------------------------------
-def test_cancellation_stops_further_writes_leaving_remaining_tracks_null(
-    session, controller
-):
+def test_cancellation_stops_further_writes_leaving_remaining_tracks_null(session, controller):
     t1 = _make_track(session, lyrics="this shit is real", is_explicit=None)
     t2 = _make_track(session, lyrics="another shit line", is_explicit=None)
 
@@ -157,11 +151,49 @@ def test_skips_tracks_with_null_or_empty_lyrics(session, controller):
 
 def test_run_releases_db_session_without_error(session, controller, monkeypatch):
     calls = []
-    monkeypatch.setattr(
-        "src.db.db_engine.Session.remove", lambda: calls.append(True)
-    )
+    monkeypatch.setattr("src.db.db_engine.Session.remove", lambda: calls.append(True))
     _make_track(session, lyrics="this shit is real", is_explicit=None)
 
     ExplicitRecalcWorker(controller).run()
 
     assert calls == [True]
+
+
+def test_failed_writes_are_not_counted(session, controller, monkeypatch):
+    bad = _make_track(session, lyrics="this shit is real", is_explicit=None)
+    _make_track(session, lyrics="a perfectly clean line", is_explicit=None)
+
+    def _fail_bad_row(model_name, updates):
+        failed = [row for row in updates if row["track_id"] == bad.track_id]
+        return len(updates) - len(failed), failed
+
+    monkeypatch.setattr(controller.update, "update_entities_bulk_with_fallback", _fail_bad_row)
+    worker = ExplicitRecalcWorker(controller)
+    results = []
+    worker.finished.connect(lambda scanned, flagged: results.append((scanned, flagged)))
+    worker.run()
+
+    assert results == [(1, 0)]
+
+
+def test_writes_in_batches_and_reports_progress_per_batch(session, controller, monkeypatch):
+    from src.lyrics import explicit_recalc_worker
+
+    monkeypatch.setattr(explicit_recalc_worker, "PROGRESS_INTERVAL", 2)
+    for _ in range(5):
+        _make_track(session, lyrics="this shit is real", is_explicit=None)
+    batches = []
+    real_bulk = controller.update.update_entities_bulk_with_fallback
+
+    def _spy(model_name, updates):
+        batches.append(len(updates))
+        return real_bulk(model_name, updates)
+
+    monkeypatch.setattr(controller.update, "update_entities_bulk_with_fallback", _spy)
+    worker = ExplicitRecalcWorker(controller)
+    progress = []
+    worker.progress.connect(lambda done, total: progress.append((done, total)))
+    worker.run()
+
+    assert batches == [2, 2, 1]
+    assert progress == [(2, 5), (4, 5), (5, 5)]

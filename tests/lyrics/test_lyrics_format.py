@@ -12,16 +12,7 @@ from src.lyrics.lyrics_format import format_lyrics_for_storage
 
 
 def _lyrics(synced: str, plain: str) -> Lyrics:
-    return Lyrics.from_dict(
-        {
-            "id": 1,
-            "trackName": "T",
-            "artistName": "A",
-            "syncedLyrics": synced,
-            "plainLyrics": plain,
-            "instrumental": False,
-        }
-    )
+    return Lyrics.from_dict({"id": 1, "trackName": "T", "artistName": "A", "syncedLyrics": synced, "plainLyrics": plain, "instrumental": False})
 
 
 def test_plain_only_result_is_stored_without_fabricated_timestamps():
@@ -58,3 +49,25 @@ def test_bare_dict_with_real_timestamps_is_rendered_as_lrc():
     out = format_lyrics_for_storage(real)
 
     assert out == "[00:08.33] one\n[00:14.01] two\n[00:24.39] three"
+
+
+def test_bare_dict_with_over_100_fabricated_lines_keeps_numeric_order():
+    fabricated = {(f"0{i}" if i < 10 else str(i)) + ".00": f"line {i}" for i in range(120)}
+
+    out = format_lyrics_for_storage(fabricated)
+
+    assert out.splitlines() == [f"line {i}" for i in range(120)]
+    assert "[" not in out
+
+
+def test_bare_dict_with_one_or_two_fabricated_lines_is_plain():
+    assert format_lyrics_for_storage({"00.00": "only"}) == "only"
+    assert format_lyrics_for_storage({"00.00": "a", "01.00": "b"}) == "a\nb"
+
+
+def test_bare_dict_with_gap_in_index_run_is_not_treated_as_fabricated():
+    assert format_lyrics_for_storage({"00.00": "a", "05.00": "b"}) == "[00.00] a\n[05.00] b"
+
+
+def test_none_is_stored_as_empty_string():
+    assert format_lyrics_for_storage(None) == ""

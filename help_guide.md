@@ -816,7 +816,11 @@ the current track/album/artist, searching for lyrics, or adding the track to
 a playlist or mood without leaving whatever view you're in. A found lyrics
 search is saved automatically and scanned for [moods](#moods) on the spot,
 with the status bar naming whatever matched. `Ctrl+Shift+L` kicks off the
-same lyrics search from the keyboard.
+same lyrics search from the keyboard. The search looks up the track's title,
+primary artist, album and length together, then retries with just title and
+artist if that finds nothing. It runs in the background, so closing the
+player or the track edit dialog mid-search never freezes the app; a result
+that arrives after you close it is simply dropped.
 
 *Quick reference: `Space` play/pause · `Ctrl+.` stop · `Ctrl+→`/`Ctrl+←`
 next/previous · `Ctrl+↑`/`Ctrl+↓` volume · `Shift+→`/`Shift+←` seek ·
