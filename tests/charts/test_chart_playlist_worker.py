@@ -1,5 +1,5 @@
 """
-Tests for ChartPlaylistWorker (src/charts/chart_playlist_worker.py) against
+Tests for ChartPlaylistWorker (src/charts/workers/chart_playlist_worker.py) against
 a scratch in-memory SQLite session -- never music_library.db. Covers signal
 wiring (finished/progress/error) and that the worker's DB session gets
 released, following tests/charts/test_chart_import_worker.py's pattern of
@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.charts.chart_playlist_builder import ChartPlaylistStats
-from src.charts.chart_playlist_worker import ChartPlaylistWorker
+from src.charts.workers.chart_playlist_worker import ChartPlaylistWorker
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB

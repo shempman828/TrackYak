@@ -1,7 +1,7 @@
 """Regression test: negative spacing used to be accepted unvalidated, which
 overlaps items instead of spacing them. h_spacing/v_spacing now clamp to 0."""
 
-from src.album.album_flowlayout import FlowLayout
+from src.common.widgets.flow_layout import FlowLayout
 
 
 def test_negative_spacing_clamps_to_zero(qapp):

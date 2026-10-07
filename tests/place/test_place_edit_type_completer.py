@@ -1,13 +1,13 @@
 """Tests for the place edit dialog's Type field autocompletion.
 
-Covers PlaceEditDialog (src/place/place_edit.py): the Type field should
+Covers PlaceEditDialog (src/place/dialogs/place_edit.py): the Type field should
 suggest existing place types (case-insensitive, unique, title-cased, blanks
 excluded) while still accepting free-form text.
 """
 
 from PySide6.QtCore import Qt
 
-from src.place.place_edit import PlaceEditDialog
+from src.place.dialogs.place_edit import PlaceEditDialog
 
 
 class _StubPlace:

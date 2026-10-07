@@ -31,7 +31,7 @@ from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.mood import MoodTrackAssociation
 from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
-from src.mood.mood_scoring import score_moods_detailed
+from src.lyrics.autotag.mood_scoring import score_moods_detailed
 
 DB_PATH = "music_library.db"
 PROGRESS_EVERY = 2000

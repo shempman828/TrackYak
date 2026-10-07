@@ -4,14 +4,14 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.edit.base_album_edit import AlbumEditor
-from src.artist.artist_edit import ArtistEditor
+from src.artist.edit.artist_edit import ArtistEditor
 from src.common.widgets.entity_submenu import populate_entity_submenu
 from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
+from src.lyrics.autotag.mood_autotag import auto_tag_lyrics_safe
 from src.lyrics.lyrics_format import format_lyrics_for_storage
-from src.mood.mood_autotag import auto_tag_lyrics_safe
-from src.track.track_edit import TrackEditDialog
+from src.track.edit.track_edit import TrackEditDialog
 
 
 class PlayerContextMenuMixin:

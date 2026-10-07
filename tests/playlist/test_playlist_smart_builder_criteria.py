@@ -15,9 +15,9 @@ from src.db.db_tables.genre import Genre
 from src.db.db_tables.playlist import Playlist, PlaylistTracks, SmartPlaylist, SmartPlaylistCriteria
 from src.db.db_tables.track import Track
 from src.playlist import playlist_track_sync
-from src.playlist.playlist_smart_builder import SmartPlaylistBuilder, condition_to_row_fields
-from src.playlist.playlist_smart_criteria_fields import CRITERIA_FIELDS, is_queryable_track_field
-from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
+from src.playlist.smart.playlist_smart_builder import SmartPlaylistBuilder, condition_to_row_fields
+from src.playlist.smart.playlist_smart_criteria_fields import CRITERIA_FIELDS, is_queryable_track_field
+from src.playlist.smart.playlist_smart_edit import SmartPlaylistEditDialog
 
 
 class StubController:
@@ -123,7 +123,7 @@ def test_no_criteria_refresh_reports_sync_failure(controller, monkeypatch, sessi
     session.commit()
     session.add(SmartPlaylist(playlist_id=playlist.playlist_id, logic="AND"))
     session.commit()
-    monkeypatch.setattr("src.playlist.playlist_smart_builder.sync_playlist_tracks", lambda *a: None)
+    monkeypatch.setattr("src.playlist.smart.playlist_smart_builder.sync_playlist_tracks", lambda *a: None)
 
     assert SmartPlaylistBuilder(controller).refresh_playlist(playlist.playlist_id) is False
 

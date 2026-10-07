@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import soundfile as sf
 
-from src.player.core import player_track_loading
-from src.player.core.player_track_loading import PlayerTrackLoadingMixin
+from src.player.engine import player_track_loading
+from src.player.engine.player_track_loading import PlayerTrackLoadingMixin
 
 
 class _Sig:

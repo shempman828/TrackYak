@@ -2,7 +2,7 @@
 and marks them via Track.needs_tag_write, so tag-writing can query "what
 changed" instead of rescanning the whole library every time.
 
-Scope is driven by what TrackDataAssembler (src/metadata/metadata_track_data.py)
+Scope is driven by what TrackDataAssembler (src/metadata/writers/metadata_track_data.py)
 actually reads for a tag write: Track, Album, Disc, TrackArtistRole,
 AlbumRoleAssociation, TrackGenre, MoodTrackAssociation, AlbumPublisher,
 PlaceAssociation (Track/Album only), and non-smart Playlist/PlaylistTracks
@@ -19,7 +19,7 @@ from src.db.db_tables.mood import MoodTrackAssociation
 from src.db.db_tables.place import PlaceAssociation
 from src.db.db_tables.playlist import PlaylistTracks
 from src.db.db_tables.track import Track
-from src.metadata.metadata_mapping import (
+from src.metadata.readers.metadata_mapping import (
     ID3_DATE_MAPPINGS,
     ID3_TRACK_MAPPINGS,
     MP4_DATE_MAPPINGS,

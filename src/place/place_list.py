@@ -24,13 +24,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.widgets.hierarchy_tree_style import collect_expanded_ids, restore_expanded_ids
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.place.dialogs.place_edit import PlaceEditDialog
+from src.place.dialogs.place_merge_dialog import PlaceMergeDialog
+from src.place.map.place_map_filter import MultiSelectWidget
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_detail import PlaceDetailView
-from src.place.place_edit import PlaceEditDialog
 from src.place.place_fuzzy_match import CHAIN_THRESHOLD, NAME_THRESHOLD, FuzzyMatchDialog, PlaceFuzzyMatchWorker
 from src.place.place_html import HtmlDelegate
-from src.place.place_map_filter import MultiSelectWidget
-from src.place.place_merge_dialog import PlaceMergeDialog
 
 # Pseudo-type bucket for places with no place_type set, so they can still be
 # included/excluded via the type filter instead of always being shown.

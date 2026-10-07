@@ -8,13 +8,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from src.album.release_type_utils import normalize_release_type
+from src.analysis.album_gain_peak import compute_album_gain_peak
 from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
 from src.db.db_tables.place import PlaceAssociation
 from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
-from src.statistics.album_gain_peak import compute_album_gain_peak
 
 _DEFAULT_DB_PATH = "sqlite:///music_library.db"
 
@@ -238,7 +238,7 @@ class MusicDatabase:
         title/artist search over chart_entries (~975K rows at full scale)
         uses a leading wildcard LIKE that can't use a B-tree index; FTS5
         gives that search an actual index instead of a table scan. See
-        src/charts/chart_search_tab.py.
+        src/charts/ui/chart_search_tab.py.
         """
         try:
             with self.engine.begin() as conn:
@@ -382,7 +382,7 @@ class MusicDatabase:
 
     def _backfill_album_gain_peak(self) -> None:
         """One-time catch-up for albums analyzed before album_gain/album_peak
-        became a computed field (see src/statistics/album_gain_peak.py).
+        became a computed field (see src/analysis/album_gain_peak.py).
         Only touches albums that have never been computed (album_gain IS
         NULL), so it's a no-op on every startup after the first, and it
         never overwrites a value produced by the normal analysis pipeline.

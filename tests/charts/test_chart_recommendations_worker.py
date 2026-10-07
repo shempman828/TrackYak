@@ -1,5 +1,5 @@
 """
-Tests for ChartRecommendationsWorker (src/charts/chart_recommendations_worker.py)
+Tests for ChartRecommendationsWorker (src/charts/workers/chart_recommendations_worker.py)
 and the ChartRecommendationsTab reload plumbing that drives it, against a
 scratch in-memory SQLite session + offscreen Qt -- never music_library.db.
 
@@ -17,17 +17,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_recommendations import (
-    chart_week_years,
-    get_missing_gap_fills,
-    get_missing_popular,
-)
-from src.charts.chart_recommendations_tab import ChartRecommendationsTab
-from src.charts.chart_recommendations_worker import (
-    MODE_GAP_FILLS,
-    MODE_POPULAR,
-    ChartRecommendationsWorker,
-)
+from src.charts.chart_recommendations import chart_week_years, get_missing_gap_fills, get_missing_popular
+from src.charts.ui.chart_recommendations_tab import ChartRecommendationsTab
+from src.charts.workers.chart_recommendations_worker import MODE_GAP_FILLS, MODE_POPULAR, ChartRecommendationsWorker
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB

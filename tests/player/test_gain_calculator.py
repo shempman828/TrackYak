@@ -8,8 +8,8 @@ over-amplifying audio instead of being bounded like every other track.
 
 from types import SimpleNamespace
 
-from src.player.core import gain_calculator
-from src.player.core.gain_calculator import REPLAYGAIN_REFERENCE_LUFS, calculate_gain_factor
+from src.player.engine import gain_calculator
+from src.player.engine.gain_calculator import REPLAYGAIN_REFERENCE_LUFS, calculate_gain_factor
 
 
 def _controller(track_gain, track_peak):

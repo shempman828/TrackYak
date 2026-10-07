@@ -8,7 +8,7 @@ of the Pos / Peak / Weeks on Chart columns.
 
 from PySide6.QtCore import Qt
 
-from src.charts.chart_entry_table import ChartEntryTable
+from src.charts.ui.chart_entry_table import ChartEntryTable
 from src.db.db_tables.chart import ChartEntry
 
 

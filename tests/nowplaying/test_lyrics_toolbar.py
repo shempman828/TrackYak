@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from PySide6.QtCore import QObject, Signal
 import pytest
 
-from src.nowplaying import nowplaying_lyrics
+from src.nowplaying.lyrics import nowplaying_lyrics
 from src.nowplaying.nowplaying_view import NowPlayingView
 
 _SYNCED_LYRICS = "[00:02.00] one\n[00:04.00] two"

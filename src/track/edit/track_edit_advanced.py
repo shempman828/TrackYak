@@ -20,22 +20,13 @@ AdvancedTab — wraps FieldFormTab("Advanced") and adds four action buttons:
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
+from src.analysis.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.metadata.metadata_writer import MetadataWriter
-from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
+from src.metadata.writers.metadata_writer import MetadataWriter
 from src.track.edit.track_edit_basetab import _BaseTab
 from src.track.edit.track_edit_fieldform import FieldFormTab
 

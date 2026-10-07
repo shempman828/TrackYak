@@ -16,8 +16,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-import src.album.album_context_menu as album_context_menu_module
-from src.album.album_context_menu import AlbumContextMenuMixin
+import src.album.view.album_context_menu as album_context_menu_module
+from src.album.view.album_context_menu import AlbumContextMenuMixin
 
 
 class _StubDialog:

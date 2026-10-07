@@ -37,9 +37,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_byte_utils import id3_tag_end
-from src.metadata.writers.metadata_mp3_file_writer import MP3FileWriter
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
+from src.metadata.writers.id3.metadata_mp3_file_writer import MP3FileWriter
 from src.metadata.writers.metadata_writer_backup import atomic_write, backup_file, discard_backup
 
 DB_PATH = "music_library.db"

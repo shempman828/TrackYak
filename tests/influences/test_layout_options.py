@@ -8,7 +8,7 @@ stretched 2200ms tween from a random scatter, standing in for an even
 older per-tick Python physics simulation).
 """
 
-from src.influences.influence_graph_render import InfluenceGraphRenderMixin
+from src.influences.graph.influence_graph_render import InfluenceGraphRenderMixin
 
 
 def test_layout_options_do_not_animate():

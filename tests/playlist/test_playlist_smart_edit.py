@@ -12,7 +12,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.playlist import Playlist, SmartPlaylist
-from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
+from src.playlist.smart.playlist_smart_edit import SmartPlaylistEditDialog
 
 
 @pytest.fixture(autouse=True)

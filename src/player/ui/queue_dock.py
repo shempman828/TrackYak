@@ -4,22 +4,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListView,
-    QMenu,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QLabel, QListView, QMenu, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from src.foundation.logger_config import logger
 from src.player.ui.track_info_widget import _ElidingLabel
-from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
+from src.track.edit.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # How many upcoming rows are visible / loaded at a time before the user scrolls
 PAGE_SIZE = 100

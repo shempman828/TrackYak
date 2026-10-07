@@ -11,8 +11,8 @@ import json
 
 import pytest
 
-from src.influences.cluster_name_dialog import ClusterNamesDialog
-from src.influences.influence_graph_legend import InfluenceGraphLegendMixin
+from src.influences.graph.cluster_name_dialog import ClusterNamesDialog
+from src.influences.graph.influence_graph_legend import InfluenceGraphLegendMixin
 
 
 class _Host(InfluenceGraphLegendMixin):
@@ -50,7 +50,7 @@ def isolated_app_config(monkeypatch, tmp_path):
     """Point community naming's legacy-migration check at a throwaway ini
     instead of the real config.ini, so these tests never touch the user's
     actual config file."""
-    import src.influences.influence_graph_legend as legend_module
+    import src.influences.graph.influence_graph_legend as legend_module
 
     fake_config = configparser.ConfigParser()
     monkeypatch.setattr(legend_module.app_config, "config", fake_config)
@@ -62,7 +62,7 @@ def isolated_app_config(monkeypatch, tmp_path):
 def isolated_identity_path(monkeypatch, tmp_path):
     """Redirect community_identity's default persistence path so tests
     never touch the real community_identity.json."""
-    import src.influences.community_identity as identity_module
+    import src.influences.graph.community_identity as identity_module
 
     path = tmp_path / "community_identity.json"
     monkeypatch.setattr(identity_module, "_default_path", lambda: path)
@@ -121,7 +121,7 @@ def test_level_change_shows_loading_scrim_before_relayout(
 
 
 def test_set_level_count_labels_buttons_by_group_count(qapp):
-    from src.influences.influence_legend import LegendPanel
+    from src.influences.graph.influence_legend import LegendPanel
 
     panel = LegendPanel()
 

@@ -5,18 +5,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_ogg_pages import build_pages, iter_pages, replace_comment_packet
-from src.metadata.metadata_properties import AudioPropertiesExtractor
-from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.metadata_text import TextMetadataExtractor, flatten_text_metadata
-from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
-from src.metadata.writers.metadata_id3_frame_builder import ID3FrameBuilder
-from src.metadata.writers.metadata_id3_writer import ID3TagWriter
-from src.metadata.writers.metadata_mp3_file_writer import MP3FileWriter
-from src.metadata.writers.metadata_vorbis_comment_builder import VorbisCommentBuilder
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
+from src.metadata.readers.metadata_properties import AudioPropertiesExtractor
+from src.metadata.readers.metadata_raw_tags import RawTagExtractor
+from src.metadata.readers.metadata_text import TextMetadataExtractor, flatten_text_metadata
+from src.metadata.writers.id3.metadata_id3_frame_builder import ID3FrameBuilder
+from src.metadata.writers.id3.metadata_id3_writer import ID3TagWriter
+from src.metadata.writers.id3.metadata_mp3_file_writer import MP3FileWriter
 from src.metadata.writers.metadata_writer_merge import id3_frame_key, merge_id3_frames, merge_vorbis_comments
 from src.metadata.writers.metadata_writer_types import WriteMode
+from src.metadata.writers.vorbis.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.vorbis.metadata_vorbis_comment_builder import VorbisCommentBuilder
 
 _TRACK_FIELDS = [
     "play_count",

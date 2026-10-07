@@ -6,9 +6,9 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QPixmap
 import pytest
 
-from src.nowplaying.nowplaying_art import _ArtCard
-from src.nowplaying.nowplaying_art_column import _ArtColumn, _SlideDots
-from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop, _tint_from
+from src.nowplaying.art.nowplaying_art import _ArtCard
+from src.nowplaying.art.nowplaying_art_column import _ArtColumn, _SlideDots
+from src.nowplaying.art.nowplaying_backdrop import _BlurredBackdrop, _tint_from
 from src.nowplaying.nowplaying_progress import _ProgressStrip, format_ms
 from src.nowplaying.nowplaying_view import NowPlayingView
 

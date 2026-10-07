@@ -17,10 +17,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_manual_match_actions import handle_bulk_manual_match_requested
-from src.charts.chart_manual_match_dialog import ChartManualMatchDialog
-from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import get_missing_popular
+from src.charts.ui.chart_manual_match_actions import handle_bulk_manual_match_requested
+from src.charts.ui.chart_manual_match_dialog import ChartManualMatchDialog
+from src.charts.ui.chart_recommendation_table import ChartRecommendationTable
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB

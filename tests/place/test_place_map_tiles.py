@@ -10,7 +10,7 @@ provider instead.
 
 from pathlib import Path
 
-from src.place.place_map import MapView
+from src.place.map.place_map import MapView
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "assets" / "place_map_template.html"
 

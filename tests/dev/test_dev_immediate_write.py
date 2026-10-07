@@ -25,8 +25,8 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.genre import Genre
 from src.db.db_tables.track import Track
 from src.dev import dev_immediate_write, dev_mode as dev_mode_module
-from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.readers.metadata_raw_tags import RawTagExtractor
+from src.metadata.writers.vorbis.metadata_flac_file_writer import FlacFileWriter
 
 _STREAMINFO = b"\x00" * 34
 
@@ -204,7 +204,7 @@ def test_non_tag_field_update_does_not_write(session, tmp_path, dev_config, monk
     dev_immediate_write.patch()
 
     calls = []
-    from src.metadata.metadata_writer import MetadataWriter
+    from src.metadata.writers.metadata_writer import MetadataWriter
 
     monkeypatch.setattr(MetadataWriter, "write_metadata_to_track", lambda self, tid, mode: calls.append(tid) or True)
 
@@ -253,7 +253,7 @@ def test_no_recursive_double_write(session, tmp_path, dev_config, monkeypatch):
     dev_immediate_write.set_enabled(dev_config, True)
     dev_immediate_write.patch()
 
-    from src.metadata.metadata_writer import MetadataWriter
+    from src.metadata.writers.metadata_writer import MetadataWriter
 
     calls = []
     original = MetadataWriter.write_metadata_to_track

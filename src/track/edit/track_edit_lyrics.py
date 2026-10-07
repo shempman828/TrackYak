@@ -11,15 +11,10 @@ from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import text_contains_explicit_words
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.lyrics.autotag.mood_autotag import auto_tag_lyrics_safe
 from src.lyrics.lyrics_format import format_lyrics_for_storage
-from src.mood.mood_autotag import auto_tag_lyrics_safe
 from src.track.edit.track_edit_basetab import _BaseTab
-from src.track.edit.track_edit_fieldform import (
-    _coerce,
-    _make_widget_for_field,
-    _read_widget,
-    _write_widget,
-)
+from src.track.edit.track_edit_fieldform import _coerce, _make_widget_for_field, _read_widget, _write_widget
 
 
 class LyricsTab(_BaseTab):

@@ -4,20 +4,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_context import track_context_map
@@ -373,7 +360,7 @@ class SamplesTab(_BaseTab):
         track = self.controller.get.get_entity_object("Track", track_id=track_id)
         if track is None:
             return
-        from src.track.track_edit import TrackEditDialog
+        from src.track.edit.track_edit import TrackEditDialog
 
         dialog = TrackEditDialog(track, self.controller, self)
         dialog.accepted.connect(self._reload_and_refresh)

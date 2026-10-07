@@ -1,6 +1,6 @@
 """navigation_customization.py — dialog for reordering the nav bar and
 hiding entries the user doesn't want. Structurally a copy of
-ColumnCustomizationDialog (src/track/track_columns.py): same drag-to-reorder,
+ColumnCustomizationDialog (src/track/view/track_columns.py): same drag-to-reorder,
 checkbox-to-hide QListWidget interaction, applied to nav_tree entries instead
 of track columns.
 """

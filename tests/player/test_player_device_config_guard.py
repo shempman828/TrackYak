@@ -8,7 +8,7 @@ unset. `_get_device_config()` and `_prepare_exclusive_device()` used the
 unguarded form; this exercises the fixed, guarded behavior.
 """
 
-from src.player.core.player_device import OUTPUT_LATENCY, PlayerDeviceMixin
+from src.player.engine.player_device import OUTPUT_LATENCY, PlayerDeviceMixin
 
 
 class _PortAudioError(Exception):

@@ -19,7 +19,7 @@ Picking "the album's representative track" (any single embeddable track
 whose embedded art speaks for the whole album) assumes every track in an
 album agrees on its embedded art per role. Nothing enforces that
 invariant here; it is checked only on demand, by the Tools -> "Artwork
-Conflicts…" tool (src/library/library_artwork_consistency.py +
+Conflicts…" tool (src/library/artwork/library_artwork_consistency.py +
 artwork_consistency_dialog.py), which also lets the user re-embed one
 version into every track to fix an album that has drifted.
 """
@@ -39,7 +39,7 @@ from PySide6.QtWidgets import QApplication
 from src.foundation.asset_paths import IMAGECACHE_DIR
 from src.foundation.logger_config import logger
 from src.image.image_blur import _blur_enabled, blur_pixmap
-from src.metadata.metadata_artwork import ArtworkExtractor
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
 
 DEFAULT_MAX_DIMENSION = 1024
 DEFAULT_JPEG_QUALITY = 95

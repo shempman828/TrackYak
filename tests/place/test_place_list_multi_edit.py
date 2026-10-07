@@ -1,15 +1,16 @@
 """Tests for bulk-editing several places at once (docs/specs/place-list-multi-edit.md).
 
 Covers the "Edit N Places…" context-menu action in src/place/place_list.py
-and PlaceEditDialog's multi-place mode in src/place/place_edit.py.
+and PlaceEditDialog's multi-place mode in src/place/dialogs/place_edit.py.
 """
 
 from pathlib import Path
 
 from PySide6.QtWidgets import QMenu
 
-from src.place import place_edit, place_list
-from src.place.place_edit import PlaceEditDialog
+from src.place import place_list
+from src.place.dialogs import place_edit
+from src.place.dialogs.place_edit import PlaceEditDialog
 from src.place.place_list import ListView
 
 

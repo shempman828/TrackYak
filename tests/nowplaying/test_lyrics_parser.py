@@ -1,9 +1,9 @@
-"""Tests for src/nowplaying/nowplaying_lyrics_parser.py::parse_lyrics.
+"""Tests for src/nowplaying/lyrics/nowplaying_lyrics_parser.py::parse_lyrics.
 
 Focus: fabricated / placeholder timing must not be treated as real sync.
 """
 
-from src.nowplaying.nowplaying_lyrics_parser import build_lrc, format_timestamp_ms, parse_lyrics
+from src.nowplaying.lyrics.nowplaying_lyrics_parser import build_lrc, format_timestamp_ms, parse_lyrics
 
 
 def test_real_synced_lyrics_parse_as_synced():

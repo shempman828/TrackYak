@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.foundation.logger_config import logger
-from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
+from src.track.edit.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
 class TrackViewEditingMixin:

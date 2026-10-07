@@ -27,7 +27,7 @@ from src.db.db_helpers.update import UpdateDB
 from src.dev import dev_mode
 from src.foundation.config_setup import Config
 from src.foundation.logger_config import logger
-from src.metadata.metadata_writer import MetadataWriter, WriteMode
+from src.metadata.writers.metadata_writer import MetadataWriter, WriteMode
 
 SECTION = "developer"
 KEY = "immediate_tag_write"

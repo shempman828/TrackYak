@@ -12,7 +12,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QGraphicsDropShadowEffect
 import pytest
 
-from src.nowplaying.nowplaying_lyric_column import _LyricColumn
+from src.nowplaying.lyrics.nowplaying_lyric_column import _LyricColumn
 from src.nowplaying.nowplaying_view import NowPlayingView
 
 _SYNCED_LYRICS = "\n".join(["[00:03.00] line zero", "[00:05.00] line one", "[00:07.00] line two", "[00:09.00] line three", "[00:11.00] line four", "[00:13.00] line five"])

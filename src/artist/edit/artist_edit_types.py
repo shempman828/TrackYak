@@ -5,9 +5,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_flowlayout import ChipArea, FlowLayout
-from src.artist.artist_type_manager import ArtistTypeManagerDialog
+from src.artist.dialogs.artist_type_manager import ArtistTypeManagerDialog
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.widgets.flow_layout import ChipArea, FlowLayout
 from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 

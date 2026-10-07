@@ -7,7 +7,7 @@ See docs/specs/tiered_community_naming.md, acceptance criteria 5-7.
 
 import json
 
-from src.influences import community_identity
+from src.influences.graph import community_identity
 
 
 def test_match_and_resolve_names_stable_across_noop_recompute(tmp_path):

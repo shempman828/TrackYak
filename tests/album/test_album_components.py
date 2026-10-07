@@ -12,7 +12,7 @@ from PySide6.QtCore import QLocale
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import QLineEdit
 
-from src.album.album_components import AlbumUIComponents
+from src.album.edit.album_components import AlbumUIComponents
 from src.db.field_spec import FieldSpec
 
 

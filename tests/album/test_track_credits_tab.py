@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QPushButton, QTabWidget, QVBoxLayout, QWidget
 
-from src.album.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.edit.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.edit.base_album_edit import AlbumEditor
 from src.album.edit.base_album_edit_tabs import TrackCreditsTab
 from src.track.edit.track_edit_roles import RolesTab
@@ -139,7 +139,7 @@ def test_convert_credit_to_album_level_creates_album_credit_and_removes_track_ro
 
 def test_convert_credit_to_album_level_noop_when_already_album_level(qapp, monkeypatch):
     status_calls = []
-    monkeypatch.setattr("src.album.album_editing_relationship_helpers.show_status_message", lambda widget, msg: status_calls.append(msg))
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.show_status_message", lambda widget, msg: status_calls.append(msg))
 
     tracks = [_StubTrack(1)]
     already_there = _StubRoleAssoc(artist_id=10, role_id=5)
@@ -160,7 +160,7 @@ def test_convert_credit_to_album_level_does_not_delete_tracks_when_add_fails(qap
     """If creating the album-level credit fails, the per-track credit must
     be left alone -- otherwise the artist loses the credit everywhere."""
     critical_calls = []
-    monkeypatch.setattr("src.album.album_editing_relationship_helpers.QMessageBox.critical", lambda *args, **kwargs: critical_calls.append(args))
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.QMessageBox.critical", lambda *args, **kwargs: critical_calls.append(args))
 
     tracks = [_StubTrack(1), _StubTrack(2)]
     album = _StubAlbum(tracks, album_roles=[])

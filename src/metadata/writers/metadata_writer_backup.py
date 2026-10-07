@@ -15,7 +15,7 @@ from typing import Any
 from PIL import Image
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_artwork import ArtworkExtractor
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
 
 _TMP_PREFIX = ".tmp-"
 

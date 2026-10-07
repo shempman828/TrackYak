@@ -11,7 +11,7 @@ Regressions covered:
 from PySide6.QtWidgets import QDialog, QMessageBox
 import pytest
 
-from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
+from src.playlist.smart.playlist_smart_new import SmartPlaylistCreateDialog
 
 
 @pytest.fixture(autouse=True)

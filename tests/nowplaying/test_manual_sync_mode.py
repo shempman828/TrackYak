@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QDialog
 import pytest
 
 from src.foundation.config_setup import app_config
-from src.nowplaying.nowplaying_lyrics_parser import parse_lyrics
-from src.nowplaying.nowplaying_lyrics_sync_dialog import LyricSyncDialog
+from src.nowplaying.lyrics.nowplaying_lyrics_parser import parse_lyrics
+from src.nowplaying.lyrics.nowplaying_lyrics_sync_dialog import LyricSyncDialog
 from src.nowplaying.nowplaying_view import NowPlayingView
 
 _PLAIN_LYRICS = "line one\nline two\nline three"

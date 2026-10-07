@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.artist.artist_delete_orphans import OrphanArtistDialog
+from src.artist.dialogs.artist_delete_orphans import OrphanArtistDialog
 from src.artist.view.artist_view_dedup import ArtistDedupMixin
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB

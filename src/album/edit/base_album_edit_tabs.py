@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from src.album.disc_tab.disc_view import DiscTabView
+from src.album.disc.disc_view import DiscTabView
 from src.common.widgets.detail_card import DetailCard
 from src.track.edit.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.edit.track_edit_roles import RolesTab as TrackRolesTab

@@ -179,7 +179,7 @@ def test_reconnect_retry_recovers_without_degrading(cache, tmp_path, monkeypatch
 
 
 def test_warmer_stops_when_cache_is_read_only(tmp_path):
-    from src.album.album_art_worker import ArtCacheWorker
+    from src.image.album_art_worker import ArtCacheWorker
 
     seen = []
 

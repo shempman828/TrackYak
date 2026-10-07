@@ -13,7 +13,7 @@ to read, a blur instead of useful feedback.
 
 from unittest.mock import MagicMock
 
-from src.metadata.metadata_writer import MetadataWriter, WriteMode
+from src.metadata.writers.metadata_writer import MetadataWriter, WriteMode
 
 
 def _make_writer(tmp_path, monkeypatch, exists: bool = True):

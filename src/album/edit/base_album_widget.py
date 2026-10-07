@@ -134,7 +134,7 @@ class AlbumWidget(QWidget):
     def _create_placeholder(self):
         """Paint a rounded gradient tile with a music-note glyph -- the same
         "no art" language as the Now Playing art card (see
-        src/nowplaying/nowplaying_art.py::_paint_placeholder_in_rect)."""
+        src/nowplaying/art/nowplaying_art.py::_paint_placeholder_in_rect)."""
         canvas_size = 256
         pixmap = QPixmap(canvas_size, canvas_size)
         pixmap.fill(Qt.transparent)

@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 from PySide6.QtGui import QCloseEvent
 
-from src.library.organize_files_dialog import OrganizeFilesDialog
+from src.library.organize.organize_files_dialog import OrganizeFilesDialog
 
 
 def test_dialog_has_no_metadata_section(qapp):
@@ -81,7 +81,7 @@ def test_completion_with_moves_signals_library_modified(qapp):
 
 def test_cancel_after_committed_moves_still_signals_library_modified(qapp, monkeypatch):
     """A mid-run cancel still committed the moves done so far, so the views must reload (regression)."""
-    monkeypatch.setattr("src.library.organize_files_dialog.QMessageBox.warning", Mock())
+    monkeypatch.setattr("src.library.organize.organize_files_dialog.QMessageBox.warning", Mock())
     dlg, emitted = _dialog_with_signal_spy()
     try:
         dlg._organization_complete(False, 2)

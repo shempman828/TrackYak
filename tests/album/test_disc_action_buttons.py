@@ -13,8 +13,8 @@ selected in the track list rather than popping a QInputDialog picker.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 
-from src.album.disc_tab import disc_view
-from src.album.disc_tab.disc_view import DiscTabView
+from src.album.disc import disc_view
+from src.album.disc.disc_view import DiscTabView
 
 
 class _StubAlbum:

@@ -27,10 +27,10 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.exc import DetachedInstanceError
 
-from src.album.album_components import AlbumUIComponents
-from src.album.album_cover_art_mixin import AlbumCoverArtMixin
-from src.album.album_editing_relationship_helpers import RelationshipHelpers
-from src.album.album_tab import AlbumTabBuilder
+from src.album.edit.album_components import AlbumUIComponents
+from src.album.edit.album_cover_art_mixin import AlbumCoverArtMixin
+from src.album.edit.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.edit.album_tab import AlbumTabBuilder
 from src.album.edit.base_album_edit_tabs import AdvancedTab, AliasesTab, ArtworkTab, DetailsTab, GenresTab, TrackCreditsTab, TracksTab
 from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_release_type
@@ -40,7 +40,7 @@ from src.common.widgets.nullable_numeric_field import create_nullable_int_field
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.foundation.config_setup import Config
 from src.foundation.logger_config import logger
-from src.metadata.metadata_writer import MetadataWriter
+from src.metadata.writers.metadata_writer import MetadataWriter
 from src.track.edit.track_edit_roles import RolesTab
 
 # Fallback suggestions used if the controller can't supply distinct values

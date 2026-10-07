@@ -1,5 +1,5 @@
 """
-Tests for ChartImportWorker (src/charts/chart_import_worker.py) against a
+Tests for ChartImportWorker (src/charts/workers/chart_import_worker.py) against a
 scratch in-memory SQLite session -- never the real music_library.db, per the
 project's Charts feature plan (see prior DB-wipe incident in project memory).
 
@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_import_worker import ChartImportWorker
+from src.charts.workers.chart_import_worker import ChartImportWorker
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
@@ -54,7 +54,7 @@ def patch_csv_path(monkeypatch):
     """Point chart_data_path() at the fixture CSV regardless of chart_key,
     so the worker's normal file-lookup path is exercised unchanged."""
     monkeypatch.setattr(
-        "src.charts.chart_import_worker.chart_data_path",
+        "src.charts.workers.chart_import_worker.chart_data_path",
         lambda name: str(FIXTURE_CSV),
     )
 

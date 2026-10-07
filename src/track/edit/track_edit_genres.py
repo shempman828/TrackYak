@@ -3,8 +3,8 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from src.common.alias.tag_association_tab import _BaseTrackAssociationTab
 from src.common.widgets.entity_completer_edit import find_or_create_by_name
+from src.track.edit.tag_association_tab import _BaseTrackAssociationTab
 
 
 class GenresTab(_BaseTrackAssociationTab):

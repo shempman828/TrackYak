@@ -17,13 +17,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_entry_table import ChartEntryTable
-from src.charts.chart_manual_match_actions import (
-    handle_clear_match_requested,
-    handle_manual_match_requested,
-)
-from src.charts.chart_manual_match_dialog import ChartManualMatchDialog
 from src.charts.chart_matching import match_chart
+from src.charts.ui.chart_entry_table import ChartEntryTable
+from src.charts.ui.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
+from src.charts.ui.chart_manual_match_dialog import ChartManualMatchDialog
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB

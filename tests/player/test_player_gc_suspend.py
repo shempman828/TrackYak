@@ -12,7 +12,7 @@ import gc
 
 import pytest
 
-from src.player.core.player_realtime import PlayerRealtimeMixin
+from src.player.engine.player_realtime import PlayerRealtimeMixin
 
 
 class _Bare(PlayerRealtimeMixin):

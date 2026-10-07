@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from src.player.core import player_realtime
-from src.player.core.player_realtime import PlayerRealtimeMixin, demote_thread_from_realtime
+from src.player.engine import player_realtime
+from src.player.engine.player_realtime import PlayerRealtimeMixin, demote_thread_from_realtime
 
 _LINUX_SCHED = hasattr(os, "sched_setscheduler")
 

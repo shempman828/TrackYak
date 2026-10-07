@@ -11,19 +11,16 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_edit import ArtistEditor
-from src.artist.artist_group_dialog import AddGroupDialog, AddMemberDialog
 from src.artist.artist_image_manager import move_to_artist_images_dir
-from src.artist.artist_place import PlaceSelectionDialog
+from src.artist.dialogs.artist_group_dialog import AddGroupDialog, AddMemberDialog
+from src.artist.dialogs.artist_place import PlaceSelectionDialog
+from src.artist.edit.artist_edit import ArtistEditor
 from src.award.award_new import AddAwardDialog
 from src.common.dialogs.base_merge_dialog import MergeDBDialog
 from src.common.dialogs.base_split_dialog import SplitDBDialog
 from src.foundation.status_utility import show_status_message
 from src.influences.influences_dialog import AddInfluenceDialog
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 
 
 class ArtistActionsMixin:

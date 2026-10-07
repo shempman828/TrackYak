@@ -7,14 +7,14 @@ from PySide6.QtGui import QAction, QDrag, QKeySequence, QShortcut, QStandardItem
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.charts.chart_table_placeholder import install_empty_placeholder
+from src.charts.ui.chart_table_placeholder import install_empty_placeholder
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
+from src.track.edit.track_edit import MultiTrackEditDialog, TrackEditDialog
 from src.track.track_shuffle import shuffle_and_play
 from src.track.view.track_view_columns import TrackViewColumnsMixin
 from src.track.view.track_view_data import TrackViewDataMixin

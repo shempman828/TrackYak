@@ -1,17 +1,9 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
-from src.place.place_edit import PlaceEditDialog
+from src.place.dialogs.place_edit import PlaceEditDialog
 
 
 class PlaceDetailView(QDialog):

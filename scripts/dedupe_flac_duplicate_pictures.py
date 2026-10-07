@@ -36,9 +36,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_artwork import ArtworkExtractor
-from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
 from src.metadata.writers.metadata_writer_backup import atomic_write, backup_file, discard_backup
+from src.metadata.writers.vorbis.metadata_flac_file_writer import FlacFileWriter
 
 DB_PATH = "music_library.db"
 

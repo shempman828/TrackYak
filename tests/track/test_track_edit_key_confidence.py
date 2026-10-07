@@ -15,10 +15,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.analysis.analysis_cache import REQUIRED_ANALYSIS_FIELDS, track_needs_analysis
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
-from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
-from src.statistics.analysis_cache import REQUIRED_ANALYSIS_FIELDS, track_needs_analysis
+from src.metadata.readers.metadata_mapping import VORBIS_TRACK_MAPPINGS
 from src.statistics.stats.audio import AudioStats
 from src.track.edit.track_edit_fieldform import FieldFormTab
 
@@ -184,7 +184,7 @@ def test_forced_reanalysis_still_overwrites_manual_key_confidence(session):
     # AnalysisDialog._on_track_done on a lightweight stand-in exposing only
     # what that method touches, so this pins actual production behavior
     # rather than a re-description of it.
-    from src.statistics.analysis_dialog import AudioAnalysisDialog
+    from src.analysis.analysis_dialog import AudioAnalysisDialog
 
     track = _make_track(session, key="C", mode="Major", key_confidence=1.0)
 

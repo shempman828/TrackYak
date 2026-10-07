@@ -3,12 +3,12 @@ though Place already stores it (populated automatically by MusicBrainz
 place-chain resolution). Users had no way to view or manually set/correct
 a place's MBID.
 
-Covers PlaceEditDialog (src/place/place_edit.py): the MBID field must be
+Covers PlaceEditDialog (src/place/dialogs/place_edit.py): the MBID field must be
 prefilled when editing an existing place and must round-trip through
 get_place_data().
 """
 
-from src.place.place_edit import PlaceEditDialog
+from src.place.dialogs.place_edit import PlaceEditDialog
 
 
 class _StubPlace:

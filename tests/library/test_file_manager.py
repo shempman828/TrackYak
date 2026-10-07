@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from src.library.file_manager import FileOrganizer
+from src.library.organize.file_manager import FileOrganizer
 
 
 def test_analyze_progress_reports_counts_not_track_names(qapp):

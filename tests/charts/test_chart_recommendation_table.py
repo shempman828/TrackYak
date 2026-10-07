@@ -10,8 +10,8 @@ columns.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHeaderView
 
-from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import MissingChartItem
+from src.charts.ui.chart_recommendation_table import ChartRecommendationTable
 
 
 def _make_items():

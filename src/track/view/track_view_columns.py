@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QHeaderView, QMenu, QTableView
 
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.track.track_columns import ColumnCustomizationDialog
+from src.track.view.track_columns import ColumnCustomizationDialog
 
 
 class TrackViewColumnsMixin:

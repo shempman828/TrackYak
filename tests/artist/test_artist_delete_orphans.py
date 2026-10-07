@@ -4,7 +4,7 @@ order (Artist.sort_name) while the checkbox labels still show artist_name.
 See docs/specs/artist_sort_name_ordering.md.
 """
 
-from src.artist.artist_delete_orphans import OrphanArtistDialog
+from src.artist.dialogs.artist_delete_orphans import OrphanArtistDialog
 
 
 class StubArtist:

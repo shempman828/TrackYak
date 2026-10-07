@@ -9,8 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
-from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_sort import artist_sort_key
+from src.artist.detail.artist_detail import ArtistDetailTab
 from src.artist.view.artist_view_actions import ArtistActionsMixin
 from src.artist.view.artist_view_dedup import ArtistDedupMixin
 from src.artist.view.artist_view_tracks import ArtistViewTracksMixin

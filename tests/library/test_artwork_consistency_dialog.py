@@ -23,9 +23,9 @@ from PySide6.QtWidgets import QMessageBox
 import pytest
 import soundfile as sf
 
-from src.library import artwork_consistency_dialog as acd
-from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
-from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
+from src.library.artwork import artwork_consistency_dialog as acd
+from src.library.artwork.artwork_consistency_dialog import ArtworkConsistencyDialog
+from src.metadata.writers.vorbis.metadata_flac_file_writer import FlacFileWriter
 
 _WRITER = FlacFileWriter()
 

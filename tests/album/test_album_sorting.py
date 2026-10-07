@@ -4,7 +4,7 @@ name (Artist.sort_name), with the plain-string / dict fallbacks intact.
 See docs/specs/artist_sort_name_ordering.md.
 """
 
-from src.album.album_sorting import AlbumSortingMixin
+from src.album.view.album_sorting import AlbumSortingMixin
 
 
 class _SortHost(AlbumSortingMixin):

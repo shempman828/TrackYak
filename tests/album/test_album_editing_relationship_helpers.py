@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-from src.album.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.edit.album_editing_relationship_helpers import RelationshipHelpers
 
 
 class _Add:
@@ -89,7 +89,7 @@ def test_add_publisher_none_from_add_entity_does_not_raise(qapp, monkeypatch):
     helper, refreshed = _helper(controller)
 
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
+        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
         staticmethod(lambda *a, **k: {"publisher_name": "New Publisher"}),
     )
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
@@ -106,11 +106,11 @@ def test_add_place_none_from_add_entity_does_not_raise(qapp, monkeypatch):
     helper, refreshed = _helper(controller)
 
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
+        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
         staticmethod(lambda *a, **k: {"place_name": "New Place", "association_type": ""}),
     )
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: []
+        "src.album.edit.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: []
     )
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
 
@@ -126,7 +126,7 @@ def test_add_album_award_none_from_add_entity_does_not_raise(qapp, monkeypatch):
     helper, refreshed = _helper(controller)
 
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
+        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
         staticmethod(lambda *a, **k: {"award_name": "New Award"}),
     )
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
@@ -210,7 +210,7 @@ def test_add_artist_credit_ignores_matched_id_when_multiple_names_typed(qapp, mo
     helper, refreshed = _helper(controller, album=album)
 
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.RelationshipHelpers._prompt_credited_alias",
+        "src.album.edit.album_editing_relationship_helpers.RelationshipHelpers._prompt_credited_alias",
         lambda self, artist, current_alias_id=None: (True, None),
     )
 

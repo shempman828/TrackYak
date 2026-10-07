@@ -6,7 +6,7 @@ See docs/specs/artist_sort_name_ordering.md.
 
 from PySide6.QtWidgets import QComboBox
 
-from src.artist.artist_group_dialog import _populate_individual_artist_combo
+from src.artist.dialogs.artist_group_dialog import _populate_individual_artist_combo
 
 
 class StubArtist:

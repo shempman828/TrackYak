@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
-from src.album.disc_tab.disc_sorting import TrackSortingDisplay, _side_sort_key
+from src.album.disc.disc_sorting import TrackSortingDisplay, _side_sort_key
 
 
 def _track(track_id, name="Track", disc_id=None, track_number=1, side=None, duration="3:00"):
@@ -82,7 +82,7 @@ def test_delete_tracks_does_not_emit_or_delete_files_when_batch_delete_fails(qap
     controller = _FakeController([track], delete_ok=False)
     view = TrackSortingDisplay([track], controller=controller)
 
-    monkeypatch.setattr("src.album.disc_tab.disc_sorting.confirm_delete_with_file_option", lambda *a, **k: "db_only")
+    monkeypatch.setattr("src.album.disc.disc_sorting.confirm_delete_with_file_option", lambda *a, **k: "db_only")
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
 
     emitted = []
@@ -98,7 +98,7 @@ def test_delete_tracks_emits_when_batch_delete_succeeds(qapp, monkeypatch):
     controller = _FakeController([track], delete_ok=True)
     view = TrackSortingDisplay([track], controller=controller)
 
-    monkeypatch.setattr("src.album.disc_tab.disc_sorting.confirm_delete_with_file_option", lambda *a, **k: "db_only")
+    monkeypatch.setattr("src.album.disc.disc_sorting.confirm_delete_with_file_option", lambda *a, **k: "db_only")
 
     emitted = []
     view.track_deleted.connect(lambda: emitted.append(True))

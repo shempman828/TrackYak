@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QGroupBox, QLabel
 import pytest
 
-from src.album.album_tab import AlbumTabBuilder
+from src.album.edit.album_tab import AlbumTabBuilder
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 from src.track.edit.track_edit_places import PlacesTab as TrackPlacesTab
 

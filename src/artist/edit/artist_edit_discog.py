@@ -6,23 +6,9 @@ import sqlite3
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor, QFontMetrics, QPixmap
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QScrollArea,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget
 
-from src.album.album_flowlayout import FlowLayout
+from src.common.widgets.flow_layout import FlowLayout
 from src.common.widgets.qt_text import esc_amp
 from src.common.widgets.style_utils import set_style_property
 from src.foundation.logger_config import logger

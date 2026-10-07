@@ -10,21 +10,21 @@ from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
-from src.album.album_art_worker import ArtCacheWorker
 from src.common.widgets.style_utils import set_style_property
 from src.foundation.asset_paths import asset
 from src.foundation.censor import censor_text
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
+from src.image.album_art_worker import ArtCacheWorker
+from src.nowplaying.art.nowplaying_art import _ArtCard
+from src.nowplaying.art.nowplaying_art_column import _ArtColumn, _SlideDots
+from src.nowplaying.art.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
+from src.nowplaying.art.nowplaying_backdrop import _BlurredBackdrop
+from src.nowplaying.lyrics.nowplaying_lyric_column import _LyricColumn
+from src.nowplaying.lyrics.nowplaying_lyrics import NowPlayingLyricsMixin
 from src.nowplaying.nowplaying_about import _AboutPanel
-from src.nowplaying.nowplaying_art import _ArtCard
-from src.nowplaying.nowplaying_art_column import _ArtColumn, _SlideDots
-from src.nowplaying.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
-from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
-from src.nowplaying.nowplaying_lyric_column import _LyricColumn
-from src.nowplaying.nowplaying_lyrics import NowPlayingLyricsMixin
 from src.nowplaying.nowplaying_marquee import MarqueeLabel
 from src.nowplaying.nowplaying_progress import _ProgressStrip
 from src.player.core.track_display_formatter import format_classical_title

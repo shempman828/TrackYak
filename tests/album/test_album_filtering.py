@@ -11,7 +11,7 @@ the year" cases behaved inconsistently.
 
 from types import SimpleNamespace
 
-from src.album.album_filtering import AlbumFilteringMixin
+from src.album.view.album_filtering import AlbumFilteringMixin
 
 
 class _FilterHost(AlbumFilteringMixin):
@@ -86,7 +86,7 @@ class _FakeAppConfig:
 
 
 def test_save_filter_state_does_not_raise_on_io_error(monkeypatch):
-    import src.album.album_filtering as album_filtering_module
+    import src.album.view.album_filtering as album_filtering_module
 
     fake_config = _FakeAppConfig(raise_on_save=True)
     monkeypatch.setattr(album_filtering_module, "app_config", fake_config)
@@ -98,7 +98,7 @@ def test_save_filter_state_does_not_raise_on_io_error(monkeypatch):
 
 
 def test_restore_filter_state_does_not_raise_on_io_error(monkeypatch):
-    import src.album.album_filtering as album_filtering_module
+    import src.album.view.album_filtering as album_filtering_module
 
     fake_config = _FakeAppConfig(raise_on_get=True)
     monkeypatch.setattr(album_filtering_module, "app_config", fake_config)

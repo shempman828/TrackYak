@@ -9,8 +9,8 @@ import time
 
 import pytest
 
-from src.track.track_view import TrackView
 from src.track.view.base_track_view import BaseTrackView
+from src.track.view.track_view import TrackView
 import src.track.view.track_view_data as data_mod
 from src.track.view.track_view_data import TrackViewDataMixin, session_shuffled
 import src.track.view.track_view_search as search_mod

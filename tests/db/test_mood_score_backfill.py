@@ -16,7 +16,7 @@ from scripts.backfill_mood_association_scores import backfill_scores
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.mood import mood_scoring
+from src.lyrics.autotag import mood_scoring
 
 
 @pytest.fixture(autouse=True)

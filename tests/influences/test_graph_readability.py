@@ -56,10 +56,10 @@ import time
 
 import pytest
 
-from src.influences.influence_graph_data import InfluenceGraphDataMixin
+from src.influences.graph.influence_graph_data import InfluenceGraphDataMixin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WEB_DIR = REPO_ROOT / "src" / "influences" / "web"
+WEB_DIR = REPO_ROOT / "src" / "influences" / "graph" / "web"
 
 # A moderate zoom-in from the natural full-graph fit -- not zoomed to a
 # single node -- representing "zoomed in a reasonable amount, enough to
@@ -272,8 +272,8 @@ def _run_render_pipeline(qapp, harness_page, cases, aliases=None):
     boxW, boxH, fullW, fullH}} measured from the real Cytoscape instance
     graph.js creates. `aliases` is an optional {node_id: [alias, ...]}
     of real ArtistAlias names, longest first, matching node_aliases."""
-    from src.influences.influence_graph_legend import InfluenceGraphLegendMixin
-    from src.influences.influence_graph_render import InfluenceGraphRenderMixin
+    from src.influences.graph.influence_graph_legend import InfluenceGraphLegendMixin
+    from src.influences.graph.influence_graph_render import InfluenceGraphRenderMixin
 
     class _Host(InfluenceGraphDataMixin, InfluenceGraphRenderMixin, InfluenceGraphLegendMixin):
         def __init__(self):

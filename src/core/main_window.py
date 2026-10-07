@@ -11,10 +11,10 @@ from sqlalchemy.exc import SQLAlchemyError
 # ── Views are imported here for type-checking but NOT instantiated until
 #    the user navigates to them.  Adding a new view only requires adding
 #    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
-from src.album.album_view import AlbumView
+from src.album.view.album_view import AlbumView
 from src.artist.view.artist_view import ArtistView
 from src.award.award_view import AwardView
-from src.charts.charts_view import ChartsView
+from src.charts.ui.charts_view import ChartsView
 from src.core.menu_bar import MenuBar
 from src.core.navigation_dock import NavigationDock
 from src.core.status_widget import StatusBarWidget
@@ -35,7 +35,7 @@ from src.playlist.playlist_view import PlaylistView
 from src.publisher.publisher_view import PublisherView
 from src.role.role_view import RoleView
 from src.sync.sync_view import SyncView
-from src.track.track_view import TrackView
+from src.track.view.track_view import TrackView
 
 
 class GUI(QMainWindow, MenuBar):

@@ -14,7 +14,7 @@ too.
 
 import threading
 
-from src.player.core.player_transport import PlayerTransportMixin
+from src.player.engine.player_transport import PlayerTransportMixin
 
 
 class _Sig:

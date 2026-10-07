@@ -1,6 +1,6 @@
 """Injects the developer-only "Primary Artist Count" album sort option.
 
-``patch()`` mutates :class:`~src.album.album_sorting.AlbumSortingMixin` in place:
+``patch()`` mutates :class:`~src.album.view.album_sorting.AlbumSortingMixin` in place:
 
 * appends a "Developer" sort group to the class-level ``_SORT_GROUPS`` list
   (only when the flag is on at install time — hence "restart to apply"), and
@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 import functools
 
-from src.album.album_sorting import AlbumSortingMixin
+from src.album.view.album_sorting import AlbumSortingMixin
 from src.dev import dev_mode
 
 CRITERIA = "primary_artist_count"

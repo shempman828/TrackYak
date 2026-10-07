@@ -26,11 +26,11 @@ import os
 
 from PIL import Image
 
-from src.metadata.metadata_artwork import ArtworkExtractor
-from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
-from src.metadata.writers.metadata_id3_writer import ID3TagWriter
-from src.metadata.writers.metadata_writer_flac_picture import FlacPictureWriter
-from src.metadata.writers.metadata_writer_id3_picture import Id3PictureWriter
+from src.metadata.readers.metadata_artwork import ArtworkExtractor
+from src.metadata.writers.id3.metadata_id3_writer import ID3TagWriter
+from src.metadata.writers.id3.metadata_writer_id3_picture import Id3PictureWriter
+from src.metadata.writers.vorbis.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.vorbis.metadata_writer_flac_picture import FlacPictureWriter
 
 _STREAMINFO = b"\x00" * 34  # contents irrelevant to the metadata surgery under test
 

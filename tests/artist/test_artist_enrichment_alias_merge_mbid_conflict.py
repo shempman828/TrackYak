@@ -8,7 +8,7 @@ distinct people.
 
 from types import SimpleNamespace
 
-from src.artist.artist_enrichment_review_dialog import ArtistEnrichmentReviewDialog
+from src.artist.dialogs.artist_enrichment_review_dialog import ArtistEnrichmentReviewDialog
 from src.musicbrainz.musicbrainz_artist import MBAlias
 
 

@@ -2,8 +2,8 @@
 
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
+from src.place.map.place_map import MapView
 from src.place.place_list import ListView
-from src.place.place_map import MapView
 
 
 class PlaceView(QWidget):

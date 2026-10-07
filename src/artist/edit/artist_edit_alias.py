@@ -4,7 +4,7 @@
 from PySide6.QtWidgets import QDialog, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
+from src.artist.dialogs.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
 from src.common.alias.entity_alias_tab import EntityAliasesTab
 from src.common.dialogs.base_merge_dialog import MergeDBDialog
 from src.foundation.logger_config import logger

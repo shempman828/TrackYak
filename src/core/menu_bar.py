@@ -4,24 +4,24 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from src.analysis.analysis_dialog import AudioAnalysisDialog
 from src.common.dialogs.alias_management_dialog import AliasManagementDialog
-from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.foundation.asset_paths import ASSETS_DIR, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.foundation.version import get_version
 from src.importing.import_dialog import ImportDialog
-from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
-from src.library.duplicate_finder import DuplicateFinderDialog
+from src.library.artwork.artwork_consistency_dialog import ArtworkConsistencyDialog
+from src.library.duplicates.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
-from src.library.organize_files_dialog import OrganizeFilesDialog
+from src.library.organize.organize_files_dialog import OrganizeFilesDialog
+from src.lyrics.autotag.mood_autotag_dialog import MoodAutoTagDialog
+from src.lyrics.autotag.place_song_about_review_dialog import PlaceSongAboutReviewDialog
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 from src.metadata.writers.metadata_writer_dialog import show_metadata_write_dialog
-from src.mood.mood_autotag_dialog import MoodAutoTagDialog
-from src.place.place_song_about_review_dialog import PlaceSongAboutReviewDialog
+from src.player.equalizer.equalizer_dialog import EqualizerDialog
 from src.player.ui.player_mini import MiniPlayerWindow
-from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
 
 

@@ -5,10 +5,7 @@ dendrogram down to levels worth surfacing in the UI.
 See docs/specs/tiered_community_naming.md, acceptance criteria 1-2.
 """
 
-from src.influences.influence_graph_algorithms import (
-    assign_louvain_communities,
-    filter_eligible_levels,
-)
+from src.influences.graph.influence_graph_algorithms import assign_louvain_communities, filter_eligible_levels
 
 
 def _two_dense_clusters_bridged():
@@ -41,7 +38,7 @@ def test_assign_louvain_communities_returns_full_dendrogram():
 
 
 def test_assign_louvain_communities_falls_back_on_error(monkeypatch):
-    import src.influences.influence_graph_algorithms as algorithms
+    import src.influences.graph.influence_graph_algorithms as algorithms
 
     class _BoomGraph:
         def add_nodes_from(self, *a, **k):

@@ -22,7 +22,7 @@ from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
-from src.library.duplicate_finder import DuplicateFinderDialog, DuplicateScanWorker
+from src.library.duplicates.duplicate_finder import DuplicateFinderDialog, DuplicateScanWorker
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def test_fingerprint_scan_submits_every_batch_in_order(qapp, monkeypatch):
     pool so the stubbed scorer can record calls in-process."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from src.library import duplicate_finder
+    from src.library.duplicates import duplicate_finder
 
     submitted = []
 

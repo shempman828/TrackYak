@@ -20,10 +20,10 @@ import time
 import numpy as np
 import pytest
 
-from src.player.core import player_feeder
-from src.player.core.player_device import PlayerDeviceMixin
-from src.player.core.player_feeder import PlayerFeederMixin
-from src.player.core.player_realtime import PlayerRealtimeMixin
+from src.player.engine import player_feeder
+from src.player.engine.player_device import PlayerDeviceMixin
+from src.player.engine.player_feeder import PlayerFeederMixin
+from src.player.engine.player_realtime import PlayerRealtimeMixin
 
 CH = 2
 

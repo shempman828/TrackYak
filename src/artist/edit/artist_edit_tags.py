@@ -5,12 +5,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_flowlayout import ChipArea, FlowLayout
-from src.artist.tag_manager import TagManagerDialog
-from src.artist.tag_type_manager import TagTypeManagerDialog
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit
+from src.common.widgets.flow_layout import ChipArea, FlowLayout
 from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
+from src.tag.tag_manager import TagManagerDialog
+from src.tag.tag_type_manager import TagTypeManagerDialog
 
 
 class _TagTypeSection(QGroupBox):

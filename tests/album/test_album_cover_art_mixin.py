@@ -8,8 +8,8 @@ aborted the whole cover-pick flow before the image was even read.
 
 from pathlib import Path
 
-import src.album.album_cover_art_mixin as album_cover_art_mixin_module
-from src.album.album_cover_art_mixin import AlbumCoverArtMixin
+import src.album.edit.album_cover_art_mixin as album_cover_art_mixin_module
+from src.album.edit.album_cover_art_mixin import AlbumCoverArtMixin
 
 
 class _RaisingConfig:

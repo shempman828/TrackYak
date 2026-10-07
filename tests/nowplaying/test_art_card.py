@@ -8,7 +8,7 @@ seconds so a slow pan would never reach the end of a long credit line.
 from PySide6.QtGui import QPixmap
 import pytest
 
-from src.nowplaying.nowplaying_art import _ArtCard
+from src.nowplaying.art.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_marquee import MarqueeLabel
 
 

@@ -10,9 +10,9 @@ import subprocess
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QWidget
 
-from src.album import album_filtering as album_filtering_module, album_view as album_view_module
-from src.album.album_sorting import AlbumSortingMixin
-from src.album.album_view import AlbumView
+from src.album.view import album_filtering as album_filtering_module, album_view as album_view_module
+from src.album.view.album_sorting import AlbumSortingMixin
+from src.album.view.album_view import AlbumView
 import src.dev as dev_pkg
 from src.dev import dev_album_sort, dev_mode
 

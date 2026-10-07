@@ -3,7 +3,7 @@ influence_stats_worker.py
 
 InfluenceStatsWorker: computes library-wide "most influential artist" and
 "most eclectic artist" off the GUI thread, reusing the same graph
-algorithms as the Influence Graph tab (src/influences/influence_graph_algorithms.py)
+algorithms as the Influence Graph tab (src/influences/graph/influence_graph_algorithms.py)
 rather than inventing new formulas. Unlike the graph tab, this runs over
 every artist with an influence relationship, not just a displayed subgraph.
 
@@ -16,7 +16,7 @@ from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
 from src.foundation.logger_config import logger
-from src.influences import influence_graph_algorithms as algorithms
+from src.influences.graph import influence_graph_algorithms as algorithms
 
 
 class InfluenceStatsWorker(CancellableWorker):

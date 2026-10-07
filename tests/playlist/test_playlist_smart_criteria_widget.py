@@ -2,7 +2,7 @@
 
 from PySide6.QtCore import QDate
 
-from src.playlist.playlist_smart_criteria_widget import _DateRangeEdit
+from src.playlist.smart.playlist_smart_criteria_widget import _DateRangeEdit
 
 
 def test_inverted_range_is_swapped(qapp):
@@ -31,7 +31,7 @@ def _select_operator(widget, operator):
 
 
 def test_numeric_between_uses_a_two_bound_range(qapp):
-    from src.playlist.playlist_smart_criteria_widget import CriteriaWidget, _NumberRangeEdit
+    from src.playlist.smart.playlist_smart_criteria_widget import CriteriaWidget, _NumberRangeEdit
 
     widget = CriteriaWidget()
     widget.set_criteria({"field": "bpm", "comparison": "range", "value": "140|90", "type": "Integer"})
@@ -44,7 +44,7 @@ def test_numeric_between_uses_a_two_bound_range(qapp):
 
 
 def test_integer_value_is_restored_from_stored_text(qapp):
-    from src.playlist.playlist_smart_criteria_widget import CriteriaWidget
+    from src.playlist.smart.playlist_smart_criteria_widget import CriteriaWidget
 
     widget = CriteriaWidget()
     widget.set_criteria({"field": "bpm", "comparison": "gt", "value": "120", "type": "Integer"})
@@ -53,7 +53,7 @@ def test_integer_value_is_restored_from_stored_text(qapp):
 
 
 def test_last_criteria_row_cannot_be_deleted(qapp):
-    from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
+    from src.playlist.smart.playlist_smart_new import SmartPlaylistCreateDialog
 
     dialog = SmartPlaylistCreateDialog()
     assert not dialog.criteria_widgets[0].delete_btn.isEnabled()

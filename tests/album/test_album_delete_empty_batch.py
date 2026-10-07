@@ -3,16 +3,16 @@ a time (delete_entity(album.album_id) in a loop), issuing a separate DB
 commit per album with no UI yielding in between -- freezing the app on a
 large "Delete Empty Albums" batch. It must now issue a single batched
 delete_entity(entity_ids=[...]) call instead of one delete_entity call per
-empty album. See src/album/album_context_menu.py _delete_empty_albums().
+empty album. See src/album/view/album_context_menu.py _delete_empty_albums().
 """
 
-import pytest
 from PySide6.QtWidgets import QDialog, QWidget
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
+from src.album.view.album_context_menu import AlbumContextMenuMixin
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.album import Album

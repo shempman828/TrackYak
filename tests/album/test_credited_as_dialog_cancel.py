@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QDialog, QWidget
 import pytest
 
-from src.album.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.edit.album_editing_relationship_helpers import RelationshipHelpers
 from src.track.edit.track_edit_roles import RolesTab
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_add_artist_credit_aborts_when_credited_as_dialog_cancelled(qapp, monkey
         aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
     )
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.CreditedAsDialog",
+        "src.album.edit.album_editing_relationship_helpers.CreditedAsDialog",
         _fake_dialog(accept=False),
     )
 
@@ -113,7 +113,7 @@ def test_add_artist_credit_proceeds_when_credited_as_dialog_accepted(qapp, monke
         aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
     )
     monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.CreditedAsDialog",
+        "src.album.edit.album_editing_relationship_helpers.CreditedAsDialog",
         _fake_dialog(accept=True, alias_id=9),
     )
 

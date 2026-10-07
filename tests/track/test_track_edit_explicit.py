@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
 from src.foundation import censor
-from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
+from src.metadata.readers.metadata_mapping import VORBIS_TRACK_MAPPINGS
 from src.track.edit.track_edit_lyrics import LyricsTab
 
 

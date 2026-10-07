@@ -10,8 +10,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QMessageBox, QProgressDialog
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_delete_orphans import OrphanArtistDialog
 from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog
+from src.artist.dialogs.artist_delete_orphans import OrphanArtistDialog
 from src.foundation.status_utility import show_status_message
 
 

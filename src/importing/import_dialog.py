@@ -3,27 +3,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QSpacerItem,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSizePolicy, QSpacerItem, QVBoxLayout
 
 from src.foundation.asset_paths import config, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
 from src.importing.import_worker import ImportWorker
-from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
+from src.library.artwork.artwork_consistency_dialog import ArtworkConsistencyDialog
 
 CONFIG_FILE = config("import_paths.json")
 

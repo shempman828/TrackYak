@@ -16,7 +16,7 @@ Motivating bugs:
 from PySide6.QtWidgets import QMessageBox, QPushButton
 import pytest
 
-from src.album.album_tab import AlbumTabBuilder
+from src.album.edit.album_tab import AlbumTabBuilder
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 
 

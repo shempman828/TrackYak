@@ -1,10 +1,10 @@
-"""Tests for detect_known_places() (src/lyrics/place_matching.py), the
+"""Tests for detect_known_places() (src/lyrics/autotag/place_matching.py), the
 DB-only place-name-drop matcher from docs/specs/lyrics_mood_tagging.md.
 Confirms no gazetteer/new-Place-row behavior is involved -- this module
 only ever matches against names it's explicitly given.
 """
 
-from src.lyrics.place_matching import detect_known_places
+from src.lyrics.autotag.place_matching import detect_known_places
 
 
 # AC7 -------------------------------------------------------------------------

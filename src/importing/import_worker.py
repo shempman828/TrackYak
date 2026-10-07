@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from src.common.cancellable_worker import CancellableWorker
 from src.foundation.logger_config import logger
 from src.importing.library_import import ImportResult, TrackImporter
-from src.library.library_artwork_consistency import ArtworkConsistencyChecker
+from src.library.artwork.library_artwork_consistency import ArtworkConsistencyChecker
 
 
 class ImportWorker(CancellableWorker):

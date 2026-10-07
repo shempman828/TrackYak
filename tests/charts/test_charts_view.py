@@ -1,5 +1,5 @@
 """
-Smoke test for ChartsView (src/charts/charts_view.py) against a scratch
+Smoke test for ChartsView (src/charts/ui/charts_view.py) against a scratch
 in-memory SQLite session + offscreen Qt (tests/conftest.py's qapp fixture)
 -- never music_library.db, never a real MusicController. Covers the
 download/import/match state machine's button visibility and that the two
@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.charts_view import ChartsView
+from src.charts.ui.charts_view import ChartsView
 from src.common.match_confidence import confidence_color
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
@@ -202,7 +202,7 @@ def test_worker_error_clears_generating_header(qapp, session, controller, tmp_pa
     (tmp_path / "billboard-200-current.csv").write_text("stub")
     _seed_charts_fully_synced(session)
 
-    monkeypatch.setattr("src.charts.charts_view.QMessageBox.warning", lambda *a, **k: None)
+    monkeypatch.setattr("src.charts.ui.charts_view.QMessageBox.warning", lambda *a, **k: None)
 
     view = ChartsView(controller)
     view.status_label.setText("Generating charts playlists...")
@@ -262,9 +262,9 @@ def test_run_next_match_resets_eta_timer_per_chart(qapp, session, controller, tm
         def start(self):
             pass
 
-    monkeypatch.setattr("src.charts.charts_view.ChartMatchingWorker", _FakeMatchWorker)
+    monkeypatch.setattr("src.charts.ui.charts_view.ChartMatchingWorker", _FakeMatchWorker)
     times = iter([10.0, 20.0])
-    monkeypatch.setattr("src.charts.charts_view.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("src.charts.ui.charts_view.time.monotonic", lambda: next(times))
 
     view = ChartsView(controller)
     view._match_queue = ["hot-100", "billboard-200"]

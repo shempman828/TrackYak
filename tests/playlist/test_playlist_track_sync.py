@@ -21,8 +21,8 @@ from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.track import Track
-from src.playlist.playlist_smart_builder import SmartPlaylistBuilder
 from src.playlist.playlist_track_sync import sync_playlist_tracks
+from src.playlist.smart.playlist_smart_builder import SmartPlaylistBuilder
 
 
 class StubController:

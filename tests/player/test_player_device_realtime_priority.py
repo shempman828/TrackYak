@@ -9,7 +9,7 @@ only closed part of the gap. 20 is the maximum RTKit's own
 MaxRealtimePriority ceiling will grant on this system.
 """
 
-from src.player.core.player_realtime import REALTIME_PROMOTION_PRIORITY
+from src.player.engine.player_realtime import REALTIME_PROMOTION_PRIORITY
 
 RTKIT_MAX_REALTIME_PRIORITY = 20
 

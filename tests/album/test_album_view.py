@@ -9,9 +9,9 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from src.album import album_filtering as album_filtering_module, album_view as album_view_module
-from src.album.album_flowlayout import FlowLayout
-from src.album.album_view import _ALBUM_LIST_LOAD_OPTIONS, AlbumView
+from src.album.view import album_filtering as album_filtering_module, album_view as album_view_module
+from src.album.view.album_view import _ALBUM_LIST_LOAD_OPTIONS, AlbumView
+from src.common.widgets.flow_layout import FlowLayout
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables import Album, Artist, Role, Track
 from src.db.db_tables.associations import AlbumRoleAssociation
@@ -258,7 +258,7 @@ class StubController_fr:
 
 
 def _make_view_fr(monkeypatch, albums):
-    monkeypatch.setattr("src.album.album_view.AlbumWidget", StubAlbumWidget_fr)
+    monkeypatch.setattr("src.album.view.album_view.AlbumWidget", StubAlbumWidget_fr)
     albums_by_id = {a.album_id: a for a in albums}
     view = AlbumView(StubController_fr(albums_by_id))
     view.show()
@@ -344,7 +344,7 @@ def test_removal_that_fills_viewport_does_not_strand_remaining_albums(qapp, monk
     window must still eventually load via the deferred viewport-fill check,
     not get stuck forever.
     """
-    monkeypatch.setattr("src.album.album_view.AlbumWidget", StubAlbumWidget_fr)
+    monkeypatch.setattr("src.album.view.album_view.AlbumWidget", StubAlbumWidget_fr)
 
     # 12 albums, zero-padded names so title-sort order matches album_id order.
     albums = [StubAlbum_fr(i, f"Album {i:03d}") for i in range(1, 13)]
@@ -449,7 +449,7 @@ def test_add_album_widget_shows_widget_immediately(qapp, monkeypatch):
             super().__init__(parent)
             self.album = album
 
-    monkeypatch.setattr("src.album.album_view.AlbumWidget", StubAlbumWidget)
+    monkeypatch.setattr("src.album.view.album_view.AlbumWidget", StubAlbumWidget)
 
     class StubGetController:
         def get_all_entities(self, entity_type, load_options=None):

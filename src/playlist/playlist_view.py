@@ -18,11 +18,11 @@ from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog
 from src.playlist.playlist_refresh_controller import PlaylistRefreshController
-from src.playlist.playlist_smart_builder import condition_to_row_fields
-from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
-from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
 from src.playlist.playlist_tree_dnd import PlaylistTreeDnD
+from src.playlist.smart.playlist_smart_builder import condition_to_row_fields
+from src.playlist.smart.playlist_smart_edit import SmartPlaylistEditDialog
+from src.playlist.smart.playlist_smart_new import SmartPlaylistCreateDialog
 from src.track.track_shuffle import shuffle_and_play
 from src.track.view.base_track_view import BaseTrackView
 
