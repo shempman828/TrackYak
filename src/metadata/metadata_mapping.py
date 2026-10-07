@@ -1,4 +1,7 @@
-"""mapping of metadata tags to database fields"""
+"""Mapping of metadata tags to database fields."""
+
+# Optional mapping keys: "scale" multiplies a numeric value on read, "max" clamps it,
+# and "read_only" marks an alias that is read but never written.
 
 ID3_TRACK_MAPPINGS = {
     "COMM": {"field": "comment", "type": str, "entity": "Track"},
@@ -8,7 +11,7 @@ ID3_TRACK_MAPPINGS = {
     "TIT2": {"field": "track_name", "type": str, "entity": "Track"},
     "TIT3": {"field": "track_description", "type": str, "entity": "Track"},
     "TKEY": {"field": "key", "type": str, "entity": "Track"},
-    "TLEN": {"field": "duration", "type": int, "entity": "Track"},
+    "TLEN": {"field": "duration", "type": float, "entity": "Track", "scale": 0.001},  # ms on disk
     "TRCK": {"field": "track_number", "type": int, "entity": "Track"},
     "TSRC": {"field": "isrc", "type": str, "entity": "Track"},
     "USLT": {"field": "lyrics", "type": str, "entity": "Track"},
@@ -34,65 +37,23 @@ ID3_PUBLISHER_MAPPINGS = {"TPUB": {"field": "publisher_name", "type": str, "enti
 ID3_DISC_MAPPINGS = {"TPOS": {"field": "disc_number", "type": int, "entity": "Disc"}}
 ID3_ARTIST_MAPPINGS = {
     "TCOM": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Composer"},
-    "TPE1": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role_name": "Primary Artist",
-    },
+    "TPE1": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Primary Artist"},
     "TPE2": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Album Artist"},
     "TEXT": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Lyricist"},
-    "TOLY": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role_name": "Original Lyricist",
-    },
-    "TOPE": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role_name": "Original Performer",
-    },
+    "TOLY": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Original Lyricist"},
+    "TOPE": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Original Performer"},
     "TPE3": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Conductor"},
 }
 ID3_SPECIAL_MAPPINGS = {
-    "TMCL": {
-        "role_field": "role_name",
-        "artist_field": "artist_name",
-        "separator": ",",
-        "entity": "Artist",
-        "type": "special",
-    },
-    "TIPL": {
-        "role_field": "role_name",
-        "artist_field": "artist_name",
-        "separator": ",",
-        "entity": "Artist",
-        "type": "special",
-    },
+    "TMCL": {"role_field": "role_name", "artist_field": "artist_name", "separator": ",", "entity": "Artist", "type": "special"},
+    "TIPL": {"role_field": "role_name", "artist_field": "artist_name", "separator": ",", "entity": "Artist", "type": "special"},
 }
-ID3_GENRE_MAPPINGS = {
-    "TOCN": {"field": "genre_name", "type": str, "entity": "Genre"},
-    "TCON": {"field": "genre_name", "type": str, "entity": "Genre"},
-}
+ID3_GENRE_MAPPINGS = {"TOCN": {"field": "genre_name", "type": str, "entity": "Genre"}, "TCON": {"field": "genre_name", "type": str, "entity": "Genre"}}
 
 ID3_DATE_MAPPINGS = {
-    "TDRC": {
-        "target": "track",
-        "fields": ["recorded_year", "recorded_month", "recorded_day"],
-        "type": "date",
-        "format": "YYYY-MM-DD",
-        "entity": "Track",
-    },
+    "TDRC": {"target": "track", "fields": ["recorded_year", "recorded_month", "recorded_day"], "type": "date", "format": "YYYY-MM-DD", "entity": "Track"},
     "TYER": {"target": "track", "fields": ["recorded_year"], "type": "year", "entity": "Track"},
-    "TDOR": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "YYYY-MM-DD",
-        "entity": "Album",
-    },
+    "TDOR": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "YYYY-MM-DD", "entity": "Album"},
 }
 
 
@@ -124,7 +85,7 @@ VORBIS_TRACK_MAPPINGS = {
     "LYRICS": {"field": "lyrics", "type": str, "entity": "Track"},
     "DESCRIPTION": {"field": "track_description", "type": str, "entity": "Track"},
     "PLAYCOUNT": {"field": "play_count", "type": int, "entity": "Track"},
-    "RATING": {"field": "user_rating", "type": float, "entity": "Track"},
+    "RATING": {"field": "user_rating", "type": float, "entity": "Track", "scale": 0.1, "max": 10},  # 0-100 on disk
     # Content flags
     "EXPLICIT": {"field": "is_explicit", "type": int, "entity": "Track"},
     "INSTRUMENTAL": {"field": "is_instrumental", "type": int, "entity": "Track"},
@@ -147,11 +108,7 @@ VORBIS_TRACK_MAPPINGS = {
     "LIVENESS": {"field": "liveness", "type": float, "entity": "Track"},
     "KEYCONFIDENCE": {"field": "key_confidence", "type": float, "entity": "Track"},
     "TEMPOCONFIDENCE": {"field": "tempo_confidence", "type": float, "entity": "Track"},
-    "TIMESIGNATURECONFIDENCE": {
-        "field": "time_signature_confidence",
-        "type": float,
-        "entity": "Track",
-    },
+    "TIMESIGNATURECONFIDENCE": {"field": "time_signature_confidence", "type": float, "entity": "Track"},
     "DYNAMICRANGE": {"field": "dynamic_range", "type": float, "entity": "Track"},
     "STEREOWIDTH": {"field": "stereo_width", "type": float, "entity": "Track"},
     "MSENERGYRATIO": {"field": "ms_energy_ratio", "type": float, "entity": "Track"},
@@ -165,7 +122,7 @@ VORBIS_TRACK_MAPPINGS = {
 VORBIS_ALBUM_MAPPINGS = {
     # Core
     "ALBUM": {"field": "album_name", "type": str, "entity": "Album"},
-    "ALBUMSORT": {"field": "album_name", "type": str, "entity": "Album"},  # read-only alias
+    "ALBUMSORT": {"field": "album_name", "type": str, "entity": "Album", "read_only": True},
     "SUBTITLE": {"field": "album_subtitle", "type": str, "entity": "Album"},
     "MUSICBRAINZ_ALBUMID": {"field": "MBID", "type": str, "entity": "Album"},
     # Release metadata
@@ -187,38 +144,19 @@ VORBIS_ALBUM_MAPPINGS = {
 VORBIS_DISC_MAPPINGS = {
     "DISCNUMBER": {"field": "disc_number", "type": int, "entity": "Disc"},
     "DISCTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
-    "DISCSUBTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
+    "DISCSUBTITLE": {"field": "disc_title", "type": str, "entity": "Disc", "read_only": True},
 }
-VORBIS_MOOD_MAPPINGS = {
-    "MOOD": {"field": "mood_name", "type": str, "entity": "Mood"},
-    "MOODDESC": {"field": "mood_description", "type": str, "entity": "Mood"},
-}
+VORBIS_MOOD_MAPPINGS = {"MOOD": {"field": "mood_name", "type": str, "entity": "Mood"}, "MOODDESC": {"field": "mood_description", "type": str, "entity": "Mood"}}
 
 
 VORBIS_ARTIST_MAPPINGS = {
     "ARTIST": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Primary Artist"},
-    "PERFORMER": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role": "Performer",
-        "priority": "low",
-    },
-    "ALBUMARTIST": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role": "Album Artist",
-    },
+    "PERFORMER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Performer", "priority": "low"},
+    "ALBUMARTIST": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Album Artist"},
     "COMPOSER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Composer"},
     "LYRICIST": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Lyricist"},
     "ARRANGER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Arranger"},
-    "ORIGINALPERFORMER": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role": "Original Performer",
-    },
+    "ORIGINALPERFORMER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Original Performer"},
     "CONDUCTOR": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Conductor"},
     "ENGINEER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Engineer"},
     "MIXER": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Mixer"},
@@ -233,12 +171,7 @@ VORBIS_ARTIST_MAPPINGS = {
     "CHOIR": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Choir"},
     "ARRANGEMENT": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Arranger"},
     "DJ": {"field": "artist_name", "type": str, "entity": "Artist", "role": "DJ"},
-    "MASTERING": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role": "Mastering Engineer",
-    },
+    "MASTERING": {"field": "artist_name", "type": str, "entity": "Artist", "role": "Mastering Engineer"},
 }
 
 VORBIS_PUBLISHER_MAPPINGS = {
@@ -254,65 +187,18 @@ VORBIS_GENRE_MAPPINGS = {
     "GENREDESC": {"field": "genre_description", "type": str, "entity": "Genre"},
 }
 VORBIS_PLACE_MAPPINGS = {
-    "LOCATION": {
-        "field": "place_name",
-        "type": str,
-        "entity": "Place",
-        "association_type": "Recording Location",
-        "entity_type": "Track",
-    },
-    "RELEASECOUNTRY": {
-        "field": "place_name",
-        "type": str,
-        "entity": "Place",
-        "association_type": "Release Location",
-        "entity_type": "Album",
-    },
+    "LOCATION": {"field": "place_name", "type": str, "entity": "Place", "association_type": "Recording Location", "entity_type": "Track"},
+    "RELEASECOUNTRY": {"field": "place_name", "type": str, "entity": "Place", "association_type": "Release Location", "entity_type": "Album"},
 }
 
 VORBIS_DATE_MAPPINGS = {
-    "DATE": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Album",
-    },
-    "RELEASE_DATE": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Album",
-    },
-    "ORIGINALDATE": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Album",
-    },
+    "DATE": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "auto", "entity": "Album"},
+    "RELEASE_DATE": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "auto", "entity": "Album"},
+    "ORIGINALDATE": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "auto", "entity": "Album"},
     "YEAR": {"target": "album", "fields": ["release_year"], "type": "year", "entity": "Album"},
-    "ORIGINALYEAR": {
-        "target": "album",
-        "fields": ["release_year"],
-        "type": "year",
-        "entity": "Album",
-    },
-    "RECORDINGDATE": {
-        "target": "track",
-        "fields": ["recorded_year", "recorded_month", "recorded_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Track",
-    },
-    "COMPOSEDDATE": {
-        "target": "track",
-        "fields": ["composed_year", "composed_month", "composed_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Track",
-    },
+    "ORIGINALYEAR": {"target": "album", "fields": ["release_year"], "type": "year", "entity": "Album"},
+    "RECORDINGDATE": {"target": "track", "fields": ["recorded_year", "recorded_month", "recorded_day"], "type": "date", "format": "auto", "entity": "Track"},
+    "COMPOSEDDATE": {"target": "track", "fields": ["composed_year", "composed_month", "composed_day"], "type": "date", "format": "auto", "entity": "Track"},
 }
 
 VORBIS_SPECIAL_MAPPINGS = {
@@ -322,7 +208,7 @@ VORBIS_SPECIAL_MAPPINGS = {
         "patterns": [
             r"^(?P<artist>.+?)\s*\((?P<role>.+)\)$",  # "Artist (Role)"
             r"^(?P<role>.+?):\s*(?P<artist>.+)$",  # "Role: Artist"
-            r"^(?P<artist>.+?)\s*-\s*(?P<role>.+)$",  # "Artist - Role"
+            r"^(?P<artist>.+?)\s+-\s+(?P<role>.+)$",  # "Artist - Role" (spaces required, so "Jay-Z" stays whole)
             r"^(?P<artist>.+)$",  # fallback: just artist
         ],
         "default_role": "Performer",
@@ -347,54 +233,26 @@ MP4_TRACK_MAPPINGS = {
     # (mirrors the Vorbis MUSICBRAINZ_TRACKID/MUSICBRAINZ_RELEASETRACKID
     # pair and the ID3 UFID/TXXX pair above).
     "----:com.apple.iTunes:MusicBrainz Track Id": {"field": "MBID", "type": str, "entity": "Track"},
-    "----:com.apple.iTunes:MusicBrainz Release Track Id": {
-        "field": "MBID",
-        "type": str,
-        "entity": "Track",
-    },
+    "----:com.apple.iTunes:MusicBrainz Release Track Id": {"field": "MBID", "type": str, "entity": "Track"},
 }
 MP4_ALBUM_MAPPINGS = {
     "\xa9alb": {"field": "album_name", "type": str, "entity": "Album"},
     "----:com.apple.iTunes:MusicBrainz Album Id": {"field": "MBID", "type": str, "entity": "Album"},
-    "----:com.apple.iTunes:MusicBrainz Album Type": {
-        "field": "release_type",
-        "type": str,
-        "entity": "Album",
-    },
-    "----:com.apple.iTunes:MusicBrainz Album Status": {
-        "field": "status",
-        "type": str,
-        "entity": "Album",
-    },
+    "----:com.apple.iTunes:MusicBrainz Album Type": {"field": "release_type", "type": str, "entity": "Album"},
+    "----:com.apple.iTunes:MusicBrainz Album Status": {"field": "status", "type": str, "entity": "Album"},
 }
 MP4_DISC_MAPPINGS = {"disk": {"field": "disc_number", "type": int, "entity": "Disc"}}
 MP4_PUBLISHER_MAPPINGS: dict = {}
-MP4_GENRE_MAPPINGS = {
-    "\xa9gen": {"field": "genre_name", "type": str, "entity": "Genre"},
-    "gnre": {"field": "genre_name", "type": str, "entity": "Genre"},
-}
+MP4_GENRE_MAPPINGS = {"\xa9gen": {"field": "genre_name", "type": str, "entity": "Genre"}, "gnre": {"field": "genre_name", "type": str, "entity": "Genre"}}
 MP4_MOOD_MAPPINGS: dict = {}
 MP4_ARTIST_MAPPINGS = {
-    "\xa9ART": {
-        "field": "artist_name",
-        "type": str,
-        "entity": "Artist",
-        "role_name": "Primary Artist",
-    },
+    "\xa9ART": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Primary Artist"},
     "aART": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Album Artist"},
     "\xa9wrt": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Composer"},
     "cond": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Conductor"},
 }
 MP4_SPECIAL_MAPPINGS: dict = {}
-MP4_DATE_MAPPINGS = {
-    "\xa9day": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Album",
-    }
-}
+MP4_DATE_MAPPINGS = {"\xa9day": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "auto", "entity": "Album"}}
 
 # WAV RIFF LIST/INFO chunk IDs (INAM, IART, etc).
 WAV_TRACK_MAPPINGS = {
@@ -408,16 +266,6 @@ WAV_DISC_MAPPINGS: dict = {}
 WAV_PUBLISHER_MAPPINGS = {"ICMS": {"field": "publisher_name", "type": str, "entity": "Publisher"}}
 WAV_GENRE_MAPPINGS = {"IGNR": {"field": "genre_name", "type": str, "entity": "Genre"}}
 WAV_MOOD_MAPPINGS: dict = {}
-WAV_ARTIST_MAPPINGS = {
-    "IART": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Primary Artist"}
-}
+WAV_ARTIST_MAPPINGS = {"IART": {"field": "artist_name", "type": str, "entity": "Artist", "role_name": "Primary Artist"}}
 WAV_SPECIAL_MAPPINGS: dict = {}
-WAV_DATE_MAPPINGS = {
-    "ICRD": {
-        "target": "album",
-        "fields": ["release_year", "release_month", "release_day"],
-        "type": "date",
-        "format": "auto",
-        "entity": "Album",
-    }
-}
+WAV_DATE_MAPPINGS = {"ICRD": {"target": "album", "fields": ["release_year", "release_month", "release_day"], "type": "date", "format": "auto", "entity": "Album"}}

@@ -1,5 +1,7 @@
+"""Maps raw tag key/value pairs to named Track/Album/Artist/etc. fields."""
+
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 from src.foundation.logger_config import logger
 from src.metadata.metadata_mapping import (
@@ -27,6 +29,7 @@ from src.metadata.metadata_mapping import (
     VORBIS_DISC_MAPPINGS,
     VORBIS_GENRE_MAPPINGS,
     VORBIS_MOOD_MAPPINGS,
+    VORBIS_PLACE_MAPPINGS,
     VORBIS_PUBLISHER_MAPPINGS,
     VORBIS_SPECIAL_MAPPINGS,
     VORBIS_TRACK_MAPPINGS,
@@ -42,91 +45,10 @@ from src.metadata.metadata_mapping import (
 )
 
 
-def format_track_number(track: Any) -> str | None:
-    """Build the track-number string to write to file metadata. When the
-    track has a vinyl side (e.g. "B"), it's prefixed onto the number
-    (side "B" + track_number 1 -> "B1"), matching how records are labeled.
-    Falls back to a plain number string when there's no side.
-    """
-    track_number = getattr(track, "track_number", None)
-    if track_number is None:
-        return None
-    side = getattr(track, "side", None)
-    if side:
-        return f"{side}{track_number}"
-    return str(track_number)
-
-
-def build_iso_date_string(entity: Any, fields: list[str]) -> str | None:
-    """Build a YYYY[-MM[-DD]] date string from up to 3 year/month/day DB
-    columns on `entity`, named by `fields` (year field first, then month,
-    then day). Stops at the first missing/falsy field, so a year-only or
-    year+month row doesn't get a partial trailing gap. Returns None if
-    even the year field is missing.
-    """
-    if not fields:
-        return None
-
-    parts = []
-    for i, field in enumerate(fields):
-        value = getattr(entity, field, None)
-        if not value:
-            break
-        width = 4 if i == 0 else 2
-        parts.append(str(value).zfill(width))
-
-    return "-".join(parts) if parts else None
-
-
-def group_artists_by_tag(
-    artist_role_data: list[dict[str, Any]],
-    role_to_tag: dict[str, str],
-    id_tag_map: dict[str, str],
-    dedupe: bool = False,
-) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Group artist-role dicts (each with "role" -> object with .role_name,
-    "credited_name", and optional "artist_mbid") by output tag/frame id,
-    using `role_to_tag` to map role name -> tag. Returns
-    (names_by_tag, mbids_by_tag): `mbids_by_tag` only gets entries for tags
-    that appear in `id_tag_map` (its values are the paired MusicBrainz-ID
-    tag/frame names), and only for artists that actually have an mbid.
-
-    With `dedupe=True`, a repeated (tag, name) or (id_tag, mbid) pair is
-    collapsed to its first occurrence - used by the Vorbis builder, which
-    emits one tag entry per artist. The ID3 builder instead joins every
-    name into a single string per frame, so it leaves dedupe=False and
-    lets duplicates show up as repeated segments in that joined text,
-    matching its pre-consolidation behavior.
-    """
-    names_by_tag: dict[str, list[str]] = {}
-    mbids_by_tag: dict[str, list[str]] = {}
-
-    for artist_data in artist_role_data:
-        role_name = artist_data["role"].role_name
-        tag = role_to_tag.get(role_name)
-        name = artist_data.get("credited_name")
-        if not tag or not name:
-            continue
-
-        names = names_by_tag.setdefault(tag, [])
-        if not dedupe or name not in names:
-            names.append(name)
-
-        id_tag = id_tag_map.get(tag)
-        mbid = artist_data.get("artist_mbid")
-        if id_tag and mbid:
-            mbids = mbids_by_tag.setdefault(id_tag, [])
-            if not dedupe or mbid not in mbids:
-                mbids.append(mbid)
-
-    return names_by_tag, mbids_by_tag
-
-
 class TextMetadataExtractor:
-    """Extracts and normalizes metadata from audio files using mapping definitions."""
+    """Extracts and normalizes metadata from raw tags using the mapping tables."""
 
-    # File extension to format mapping
-    FILE_FORMAT_MAPPING = {
+    FILE_FORMAT_MAPPING: ClassVar[dict[str, str]] = {
         # ID3 formats
         "mp3": "id3",
         "aiff": "id3",
@@ -146,64 +68,39 @@ class TextMetadataExtractor:
         "wav": "wav",
     }
 
-    # Per-format-type mapping-set lookups, replacing a growing id3/vorbis
-    # ternary as more container formats are supported.
-    TRACK_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_TRACK_MAPPINGS,
-        "vorbis": VORBIS_TRACK_MAPPINGS,
-        "mp4": MP4_TRACK_MAPPINGS,
-        "wav": WAV_TRACK_MAPPINGS,
-    }
-    ALBUM_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_ALBUM_MAPPINGS,
-        "vorbis": VORBIS_ALBUM_MAPPINGS,
-        "mp4": MP4_ALBUM_MAPPINGS,
-        "wav": WAV_ALBUM_MAPPINGS,
-    }
-    DISC_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_DISC_MAPPINGS,
-        "vorbis": VORBIS_DISC_MAPPINGS,
-        "mp4": MP4_DISC_MAPPINGS,
-        "wav": WAV_DISC_MAPPINGS,
-    }
-    PUBLISHER_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_PUBLISHER_MAPPINGS,
-        "vorbis": VORBIS_PUBLISHER_MAPPINGS,
-        "mp4": MP4_PUBLISHER_MAPPINGS,
-        "wav": WAV_PUBLISHER_MAPPINGS,
-    }
-    GENRE_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_GENRE_MAPPINGS,
-        "vorbis": VORBIS_GENRE_MAPPINGS,
-        "mp4": MP4_GENRE_MAPPINGS,
-        "wav": WAV_GENRE_MAPPINGS,
-    }
-    MOOD_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_MOOD_MAPPINGS,
-        "vorbis": VORBIS_MOOD_MAPPINGS,
-        "mp4": MP4_MOOD_MAPPINGS,
-        "wav": WAV_MOOD_MAPPINGS,
-    }
-    ARTIST_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_ARTIST_MAPPINGS,
-        "vorbis": VORBIS_ARTIST_MAPPINGS,
-        "mp4": MP4_ARTIST_MAPPINGS,
-        "wav": WAV_ARTIST_MAPPINGS,
-    }
-    SPECIAL_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_SPECIAL_MAPPINGS,
-        "vorbis": VORBIS_SPECIAL_MAPPINGS,
-        "mp4": MP4_SPECIAL_MAPPINGS,
-        "wav": WAV_SPECIAL_MAPPINGS,
-    }
-    DATE_MAPPINGS_BY_FORMAT = {
-        "id3": ID3_DATE_MAPPINGS,
-        "vorbis": VORBIS_DATE_MAPPINGS,
-        "mp4": MP4_DATE_MAPPINGS,
-        "wav": WAV_DATE_MAPPINGS,
+    TRACK_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_TRACK_MAPPINGS, "vorbis": VORBIS_TRACK_MAPPINGS, "mp4": MP4_TRACK_MAPPINGS, "wav": WAV_TRACK_MAPPINGS}
+    ALBUM_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_ALBUM_MAPPINGS, "vorbis": VORBIS_ALBUM_MAPPINGS, "mp4": MP4_ALBUM_MAPPINGS, "wav": WAV_ALBUM_MAPPINGS}
+    DISC_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_DISC_MAPPINGS, "vorbis": VORBIS_DISC_MAPPINGS, "mp4": MP4_DISC_MAPPINGS, "wav": WAV_DISC_MAPPINGS}
+    PUBLISHER_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_PUBLISHER_MAPPINGS, "vorbis": VORBIS_PUBLISHER_MAPPINGS, "mp4": MP4_PUBLISHER_MAPPINGS, "wav": WAV_PUBLISHER_MAPPINGS}
+    GENRE_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_GENRE_MAPPINGS, "vorbis": VORBIS_GENRE_MAPPINGS, "mp4": MP4_GENRE_MAPPINGS, "wav": WAV_GENRE_MAPPINGS}
+    MOOD_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_MOOD_MAPPINGS, "vorbis": VORBIS_MOOD_MAPPINGS, "mp4": MP4_MOOD_MAPPINGS, "wav": WAV_MOOD_MAPPINGS}
+    ARTIST_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_ARTIST_MAPPINGS, "vorbis": VORBIS_ARTIST_MAPPINGS, "mp4": MP4_ARTIST_MAPPINGS, "wav": WAV_ARTIST_MAPPINGS}
+    SPECIAL_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_SPECIAL_MAPPINGS, "vorbis": VORBIS_SPECIAL_MAPPINGS, "mp4": MP4_SPECIAL_MAPPINGS, "wav": WAV_SPECIAL_MAPPINGS}
+    DATE_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": ID3_DATE_MAPPINGS, "vorbis": VORBIS_DATE_MAPPINGS, "mp4": MP4_DATE_MAPPINGS, "wav": WAV_DATE_MAPPINGS}
+    PLACE_MAPPINGS_BY_FORMAT: ClassVar[dict[str, dict]] = {"id3": {}, "vorbis": VORBIS_PLACE_MAPPINGS, "mp4": {}, "wav": {}}
+
+    # Role abbreviations seen in "Artist (abbr)" PERFORMER values.
+    ROLE_ABBREVIATIONS: ClassVar[dict[str, str]] = {
+        "voc": "Vocalist",
+        "vox": "Vocalist",
+        "dr": "Drummer",
+        "drm": "Drummer",
+        "gtr": "Guitarist",
+        "git": "Guitarist",
+        "bass": "Bassist",
+        "keys": "Keyboardist",
+        "cond": "Conductor",
+        "arr": "Arranger",
+        "prod": "Producer",
+        "mix": "Mixer",
+        "eng": "Engineer",
     }
 
+    # "B1"-style vinyl track numbers: side letters, then the number.
+    _SIDE_TRACK_NUMBER = re.compile(r"^\s*([A-Za-z]{1,2})\s*(\d+)")
+
     def __init__(self, filepath: str, file_extension: str, raw_tags: dict[str, Any]):
+        """Keep the file's raw tags and resolve its mapping format."""
         self.filepath = filepath
         self.file_extension = file_extension.lower().lstrip(".")
         self.raw_tags = raw_tags
@@ -214,9 +111,7 @@ class TextMetadataExtractor:
         return self.FILE_FORMAT_MAPPING.get(self.file_extension, "unknown")
 
     def extract_metadata(self) -> dict[str, list[dict[str, Any]]]:
-        """
-        Extract and normalize metadata from raw tags.
-        """
+        """Extract and normalize metadata from raw tags, grouped by entity."""
         if self.format_type not in self.TRACK_MAPPINGS_BY_FORMAT:
             logger.warning(f"Unsupported file format: {self.format_type} for {self.filepath}")
             return {}
@@ -224,26 +119,15 @@ class TextMetadataExtractor:
         normalized_data = {}
 
         try:
-            # Track which PERFORMER values we've already processed
+            # Vorbis PERFORMER is parsed once here, so the artist and special passes skip it.
             self.processed_performers = set()
-
-            # 1. Process PERFORMER tag first with special handling
             if self.format_type == "vorbis" and "PERFORMER" in self.raw_tags:
                 self._process_performer_tag(normalized_data)
-                # Mark these values as processed
-                values = self._get_tag_values("PERFORMER")
-                self.processed_performers.update(values)
+                self.processed_performers.update(self._get_tag_values("PERFORMER"))
 
-            # 2. Process other simple mappings (but skip PERFORMER if we already handled it)
-            self._process_simple_mappings_with_filter(normalized_data)
-
-            # 3. Process artist mappings (but skip PERFORMER if we already handled it)
+            self._process_simple_mappings(normalized_data)
             self._process_artist_mappings_with_filter(normalized_data)
-
-            # 4. Process other special mappings
             self._process_special_mappings(normalized_data)
-
-            # 5. Process date mappings
             self._process_date_mappings(normalized_data)
 
         except (KeyError, IndexError, re.error) as e:
@@ -251,10 +135,8 @@ class TextMetadataExtractor:
 
         return normalized_data
 
-    def _process_simple_mappings_with_filter(
-        self, normalized_data: dict[str, list[dict[str, Any]]]
-    ):
-        """Process simple mappings but filter out already-processed PERFORMER tags."""
+    def _process_simple_mappings(self, normalized_data: dict[str, list[dict[str, Any]]]):
+        """Process the one-tag-to-one-field mappings."""
         mapping_sets = [
             self.TRACK_MAPPINGS_BY_FORMAT[self.format_type],
             self.ALBUM_MAPPINGS_BY_FORMAT[self.format_type],
@@ -262,23 +144,18 @@ class TextMetadataExtractor:
             self.PUBLISHER_MAPPINGS_BY_FORMAT[self.format_type],
             self.GENRE_MAPPINGS_BY_FORMAT[self.format_type],
             self.MOOD_MAPPINGS_BY_FORMAT[self.format_type],
+            self.PLACE_MAPPINGS_BY_FORMAT[self.format_type],
         ]
 
         for mapping_set in mapping_sets:
             for tag_key, mapping in mapping_set.items():
-                # Skip PERFORMER if we already processed it
-                if tag_key == "PERFORMER" and tag_key in self.processed_performers:
-                    continue
-
                 if tag_key in self.raw_tags:
                     values = self._get_tag_values(tag_key)
                     for value in values:
                         self._add_normalized_field(normalized_data, mapping, value)
 
-    def _process_artist_mappings_with_filter(
-        self, normalized_data: dict[str, list[dict[str, Any]]]
-    ):
-        """Process artist mappings but filter out already-processed PERFORMER tags."""
+    def _process_artist_mappings_with_filter(self, normalized_data: dict[str, list[dict[str, Any]]]):
+        """Process artist mappings, skipping PERFORMER values already parsed."""
         artist_mappings = self.ARTIST_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in artist_mappings.items():
@@ -287,9 +164,7 @@ class TextMetadataExtractor:
                 # Check if any raw PERFORMER values haven't been processed yet
                 if tag_key in self.raw_tags:
                     raw_values = self._get_tag_values(tag_key)
-                    unprocessed_values = [
-                        v for v in raw_values if v not in self.processed_performers
-                    ]
+                    unprocessed_values = [v for v in raw_values if v not in self.processed_performers]
 
                     if unprocessed_values:
                         # Process unprocessed values with the simple mapping
@@ -326,6 +201,8 @@ class TextMetadataExtractor:
         special_mappings = self.SPECIAL_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in special_mappings.items():
+            if tag_key == "PERFORMER" and self.format_type == "vorbis":
+                continue  # already parsed by _process_performer_tag
             if tag_key in self.raw_tags:
                 values = self._get_tag_values(tag_key)
                 for value in values:
@@ -335,7 +212,7 @@ class TextMetadataExtractor:
                         self._parse_vorbis_special_mapping(normalized_data, mapping, value)
 
     def _process_date_mappings(self, normalized_data: dict[str, list[dict[str, Any]]]):
-        """Process date mappings with proper splitting."""
+        """Process date mappings into year/month/day fields."""
         date_mappings = self.DATE_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in date_mappings.items():
@@ -344,33 +221,21 @@ class TextMetadataExtractor:
                 for value in values:
                     self._parse_date_mapping(normalized_data, mapping, value)
 
-    def _parse_id3_special_mapping(
-        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
-    ):
-        """Parse ID3 special mappings like TMCL/TIPL."""
-        # TMCL/TIPL format: "role1,artist1,role2,artist2,..."
+    def _parse_id3_special_mapping(self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str):
+        """Parse a TMCL/TIPL role/artist pair list."""
         if "separator" in mapping:
-            parts = [part.strip() for part in value.split(mapping["separator"])]
+            # v2.4 separates pairs with NUL; this app writes the comma form.
+            separator = "\x00" if "\x00" in value else mapping["separator"]
+            parts = [part.strip() for part in value.split(separator)]
             # Process in pairs: role, artist, role, artist, ...
             for i in range(0, len(parts) - 1, 2):
                 if i + 1 < len(parts):
                     role = parts[i]
                     artist = parts[i + 1]
-                    self._add_normalized_field(
-                        normalized_data,
-                        {
-                            "field": mapping["artist_field"],
-                            "type": "str",
-                            "entity": mapping["entity"],
-                        },
-                        artist,
-                        additional_data={"role": role},
-                    )
+                    self._add_normalized_field(normalized_data, {"field": mapping["artist_field"], "type": "str", "entity": mapping["entity"]}, artist, additional_data={"role": role})
 
-    def _parse_vorbis_special_mapping(
-        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
-    ):
-        """Parse Vorbis special mappings like PERFORMER with pattern."""
+    def _parse_vorbis_special_mapping(self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str):
+        """Parse a pattern-based Vorbis special mapping."""
         if "patterns" in mapping:
             artist = value.strip()
             role = mapping.get("default_role", "Performer")
@@ -385,16 +250,9 @@ class TextMetadataExtractor:
                         role = match.group("role").strip()
                     break  # Use first matching pattern
 
-            self._add_normalized_field(
-                normalized_data,
-                {"field": mapping["artist_field"], "type": "str", "entity": mapping["entity"]},
-                artist,
-                additional_data={"role": role},
-            )
+            self._add_normalized_field(normalized_data, {"field": mapping["artist_field"], "type": "str", "entity": mapping["entity"]}, artist, additional_data={"role": role})
 
-    def _parse_date_mapping(
-        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
-    ):
+    def _parse_date_mapping(self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str):
         """Parse date mappings into year/month/day components."""
         try:
             # Handle different date formats
@@ -427,46 +285,34 @@ class TextMetadataExtractor:
                     if field_name and parts[i].strip():
                         field_value = self._safe_int(parts[i].strip())
                         if field_value is not None:
-                            field_data = {
-                                "field": field_name,
-                                "value": field_value,
-                                "type": "int",
-                                "entity": mapping["entity"],
-                            }
+                            field_data = {"field": field_name, "value": field_value, "type": "int", "entity": mapping["entity"]}
                             self._add_to_entity(normalized_data, mapping["entity"], field_data)
 
         except KeyError as e:
             logger.warning(f"Error parsing date '{value}': {e}")
 
     def _get_tag_values(self, tag_key: str) -> list[str]:
-        """Get tag values, handling both single values and lists."""
+        """Return the non-empty values stored under tag_key."""
         value = self.raw_tags[tag_key]
 
         logger.debug(f"Raw tag value for '{tag_key}': {value} (type: {type(value)})")
 
         if isinstance(value, list):
-            # Already a list - process each item
             return [str(v).strip() for v in value if v and str(v).strip()]
-        return [str(value)]
+        return [str(value)] if str(value).strip() else []
 
-    def _add_normalized_field(
-        self,
-        normalized_data: dict[str, list[dict[str, Any]]],
-        mapping: dict[str, Any],
-        value: str,
-        additional_data: dict[str, Any] | None = None,
-    ):
-        """Add a normalized field to the output data with type conversion."""
+    def _add_normalized_field(self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str, additional_data: dict[str, Any] | None = None):
+        """Add one type-converted field to the output data."""
         try:
-            # Convert value to appropriate type
-            converted_value = self._convert_value(value, mapping.get("type", "str"))
+            if mapping["field"] == "track_number":
+                side_match = self._SIDE_TRACK_NUMBER.match(value)
+                if side_match:
+                    side, value = side_match.group(1).upper(), side_match.group(2)
+                    self._add_to_entity(normalized_data, "Track", {"field": "side", "value": side, "type": "str", "entity": "Track"})
 
-            field_data = {
-                "field": mapping["field"],
-                "value": converted_value,
-                "type": mapping.get("type", "str"),
-                "entity": mapping["entity"],
-            }
+            converted_value = self._scale_value(self._convert_value(value, mapping.get("type", "str")), mapping)
+
+            field_data = {"field": mapping["field"], "value": converted_value, "type": mapping.get("type", "str"), "entity": mapping["entity"]}
 
             # Add any additional data (like roles)
             if additional_data:
@@ -477,20 +323,23 @@ class TextMetadataExtractor:
         except KeyError as e:
             logger.warning(f"Error processing field {mapping['field']} with value '{value}': {e}")
 
-    def _add_to_entity(
-        self,
-        normalized_data: dict[str, list[dict[str, Any]]],
-        entity: str,
-        field_data: dict[str, Any],
-    ):
-        """Add field data to the appropriate entity list."""
-        if entity not in normalized_data:
-            normalized_data[entity] = []
-        normalized_data[entity].append(field_data)
+    def _add_to_entity(self, normalized_data: dict[str, list[dict[str, Any]]], entity: str, field_data: dict[str, Any]):
+        """Add field data to the entity's list."""
+        normalized_data.setdefault(entity, []).append(field_data)
+
+    @staticmethod
+    def _scale_value(value: Any, mapping: dict[str, Any]) -> Any:
+        """Apply the mapping's optional "scale" and "max" to a numeric value."""
+        if not isinstance(value, (int, float)):
+            return value
+        if "scale" in mapping:
+            value = round(value * mapping["scale"], 3)
+        if "max" in mapping:
+            value = max(0, min(value, mapping["max"]))
+        return value
 
     def _convert_value(self, value: str, target_type: Any) -> Any:
-        """Convert string value to target type safely."""
-        # Handle both string type names and actual type objects
+        """Convert a string value to the target type, or None if it does not parse."""
         if target_type in [int, "int"]:
             return self._safe_int(value)
         if target_type in [float, "float"]:
@@ -500,36 +349,31 @@ class TextMetadataExtractor:
         return value  # Return as-is for unknown types
 
     def _safe_int(self, value: str) -> int | None:
-        """Safely convert to int, returning None on failure."""
+        """Convert to int ("1/10" -> 1, "1.0" -> 1), or None on failure."""
         try:
-            # Handle common cases like "1/10" by taking first part
             if "/" in value:
                 value = value.split("/")[0]
-            return int(float(value))  # Handle "1.0" case
+            return int(float(value))
         except (ValueError, TypeError):
             return None
 
     def _safe_float(self, value: str) -> float | None:
-        """Safely convert to float, returning None on failure."""
+        """Convert to float ("-4.9 dB" -> -4.9, "3,5" -> 3.5), or None on failure."""
         try:
             if isinstance(value, str):
-                # Remove all characters except digits, decimal points, and minus signs
-                # This handles cases like: "-4.9 dB", "+2.1dB", "3,5" (European decimal), etc.
-                clean_value = re.sub(r"[^\d\.\-+]", "", value)
+                clean_value = re.sub(r"[^\d\.,\-+]", "", value)
 
-                # Handle European decimal commas by converting to points
-                if "," in clean_value and "." not in clean_value:
-                    clean_value = clean_value.replace(",", ".")
+                # A lone comma is a European decimal mark; with a point present it is a thousands mark.
+                clean_value = clean_value.replace(",", ".") if "." not in clean_value else clean_value.replace(",", "")
+                if clean_value.count(".") > 1:
+                    return None
 
-                # Remove any extra minus signs (keep only the first one if multiple exist)
                 if clean_value.count("-") > 1:
                     parts = clean_value.split("-")
                     clean_value = "-" + "".join(parts[1:]).replace("-", "")
 
-                # Remove any plus signs (they're redundant for float conversion)
                 clean_value = clean_value.replace("+", "")
 
-                # Ensure we don't have empty strings or just punctuation
                 if not clean_value or clean_value in [".", "-", "-."]:
                     return None
 
@@ -540,19 +384,17 @@ class TextMetadataExtractor:
             return None
 
     def _process_performer_tag(self, normalized_data: dict[str, list[dict[str, Any]]]):
-        """Special handling for PERFORMER tag which can be in multiple formats."""
+        """Parse each Vorbis PERFORMER value into an artist and role."""
         if "PERFORMER" not in self.raw_tags:
             return
 
         values = self._get_tag_values("PERFORMER")
 
         for value in values:
-            # Try to parse with all known formats
             parsed = self._parse_performer_value(value)
 
             if parsed:
                 artist, role = parsed
-                # Add to normalized data
                 field_data = {
                     "field": "artist_name",
                     "value": artist,
@@ -560,76 +402,35 @@ class TextMetadataExtractor:
                     "entity": "Artist",
                     "role": role,
                     "source_tag": "PERFORMER",
-                    "parsed_format": "special"
-                    if "(" in value or ":" in value or " - " in value
-                    else "simple",
+                    "parsed_format": "special" if "(" in value or ":" in value or " - " in value else "simple",
                 }
 
-                entity = "Artist"
-                if entity not in normalized_data:
-                    normalized_data[entity] = []
-                normalized_data[entity].append(field_data)
+                self._add_to_entity(normalized_data, "Artist", field_data)
 
     def _parse_performer_value(self, value: str) -> tuple[str, str] | None:
-        """Parse performer value using multiple pattern formats.
-        Returns (artist_name, role_name) or None if parsing fails.
-        """
+        """Parse a PERFORMER value into (artist_name, role_name), or None."""
         patterns = [
-            # 1. MusicBrainz format: "Artist (Role)"
-            (r"^(?P<artist>.+?)\s*\((?P<role>.+)\)$", None),
-            # 2. Role: Artist format
-            (r"^(?P<role>.+?):\s*(?P<artist>.+)$", None),
-            # 3. Artist - Role format
-            (r"^(?P<artist>.+?)\s*-\s*(?P<role>.+)$", None),
-            # 4. Artist with role in square brackets
-            (r"^(?P<artist>.+?)\s*\[(?P<role>.+)\]$", None),
-            # 5. Common role abbreviations
-            (
-                r"^(?P<artist>.+?)\s*\((?P<abbr>voc|vox|dr|gtr|bass|keys|cond|arr)\)$",
-                lambda m: (m.group("artist"), self._expand_abbreviation(m.group("abbr"))),
-            ),
-            # 6. Just artist name (fallback)
-            (r"^(?P<artist>.+)$", lambda m: (m.group("artist"), "Performer")),
+            r"^(?P<artist>.+?)\s*\((?P<role>.+)\)$",  # MusicBrainz "Artist (Role)"
+            r"^(?P<role>.+?):\s*(?P<artist>.+)$",  # "Role: Artist"
+            r"^(?P<artist>.+?)\s+-\s+(?P<role>.+)$",  # "Artist - Role" (spaces required, so "Jay-Z" stays whole)
+            r"^(?P<artist>.+?)\s*\[(?P<role>.+)\]$",  # "Artist [Role]"
         ]
 
-        for pattern, processor in patterns:
-            match = re.match(pattern, value, re.IGNORECASE)
+        for pattern in patterns:
+            match = re.match(pattern, value)
             if match:
-                if processor:
-                    return processor(match)
-                return match.group("artist").strip(), match.group("role").strip()
+                role = match.group("role").strip()
+                return match.group("artist").strip(), self.ROLE_ABBREVIATIONS.get(role.lower(), role)
 
-        return None
-
-    def _expand_abbreviation(self, abbr: str) -> str:
-        """Expand common role abbreviations."""
-        expansions = {
-            "voc": "Vocalist",
-            "vox": "Vocalist",
-            "dr": "Drummer",
-            "drm": "Drummer",
-            "gtr": "Guitarist",
-            "git": "Guitarist",
-            "bass": "Bassist",
-            "keys": "Keyboardist",
-            "cond": "Conductor",
-            "arr": "Arranger",
-            "prod": "Producer",
-            "mix": "Mixer",
-            "eng": "Engineer",
-        }
-        return expansions.get(abbr.lower(), abbr.title())
+        stripped = value.strip()
+        return (stripped, "Performer") if stripped else None
 
 
 def flatten_text_metadata(text_metadata: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    """
-    Convert TextMetadataExtractor.extract_metadata()'s grouped-by-entity
-    structure into the flat field-name dict the rest of the app (import
-    mapping, track/album creation) works with.
-    """
+    """Flatten extract_metadata()'s grouped-by-entity output into the field-name dict import uses."""
     flattened = {}
 
-    for entity_type, fields_list in text_metadata.items():
+    for fields_list in text_metadata.values():
         for field_data in fields_list:
             field_name = field_data["field"]
             entity = field_data["entity"]
@@ -655,9 +456,7 @@ def flatten_text_metadata(text_metadata: dict[str, list[dict[str, Any]]]) -> dic
                 # (e.g. album_language, album_gain) — don't double-prefix
                 # those, or downstream readers looking up the un-doubled
                 # key (e.g. metadata.get("album_language")) never find it.
-                album_field_name = (
-                    field_name if field_name.startswith("album_") else f"album_{field_name}"
-                )
+                album_field_name = field_name if field_name.startswith("album_") else f"album_{field_name}"
                 if field_name in multi_value_album_fields:
                     if album_field_name not in flattened:
                         flattened[album_field_name] = []
@@ -726,14 +525,7 @@ def flatten_text_metadata(text_metadata: dict[str, list[dict[str, Any]]]) -> dic
                 flattened[field_name] = value
 
     # Ensure critical fields exist and are lists where expected
-    list_fields = [
-        "artist_name",
-        "album_artist_name",
-        "genre_name",
-        "mood_name",
-        "place_name",
-        "publisher_name",
-    ]
+    list_fields = ["artist_name", "album_artist_name", "genre_name", "mood_name", "place_name", "publisher_name"]
 
     # Also add any artist role fields that should be lists
     artist_role_fields = [key for key in flattened if key.startswith("artist_")]

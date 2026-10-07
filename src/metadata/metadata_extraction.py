@@ -1,5 +1,7 @@
+"""Reads one audio file and returns a single flat metadata dict."""
+
 from datetime import UTC, datetime
-import os
+from pathlib import Path
 
 from src.foundation.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
@@ -9,57 +11,29 @@ from src.metadata.metadata_text import TextMetadataExtractor, flatten_text_metad
 
 
 class MetadataExtractor:
-    """Reads one audio file and returns a single flat metadata dict, by
-    reading the file once and handing that buffer to three specialized,
-    per-format extractors:
-
-    - RawTagExtractor:          on-disk tag key/value pairs (ID3 frames,
-                                 Vorbis comments, MP4 atoms, RIFF INFO
-                                 chunks — format-specific, meaning-agnostic)
-    - TextMetadataExtractor:    maps those raw keys to named Track/Album/
-                                 Artist/etc. fields
-    - AudioPropertiesExtractor: duration/bitrate/sample-rate/channels
-    - ArtworkExtractor:         embedded cover art
-
-    This class only orchestrates; it has no format-specific parsing of its
-    own.
-    """
+    """Reads a file once and combines the raw-tag, text, artwork and audio-property extractors."""
 
     def __init__(self):
+        """Create the per-concern extractors."""
         self.raw_tag_extractor = RawTagExtractor()
         self.artwork_extractor = ArtworkExtractor()
         self.audio_properties_extractor = AudioPropertiesExtractor()
 
     def extract_metadata(self, file_path):
-        """
-        Extract metadata from an audio file.
-
-        Args:
-            file_path: Path to the audio file
-
-        Returns:
-            Dictionary with complete metadata
-        """
-        if not os.path.exists(file_path):
+        """Return the complete metadata dict for an audio file, or {} if it does not exist."""
+        if not Path(file_path).exists():
             logger.error(f"File not found: {file_path}")
             return {}
 
-        file_ext = os.path.splitext(file_path)[1].lower()
+        file_ext = Path(file_path).suffix.lower()
 
         try:
             logger.debug(f"Processing file: {file_path}")
 
-            # Read the file once; every extractor below works off this same
-            # buffer instead of each re-opening and re-reading the file.
-            with open(file_path, "rb") as f:
-                data = f.read()
+            # One read; every extractor works off this buffer.
+            data = Path(file_path).read_bytes()
 
-            metadata = {
-                "track_file_path": file_path,
-                "file_size": len(data),
-                "file_extension": file_ext.lstrip("."),
-                "date_added": datetime.now(UTC),
-            }
+            metadata = {"track_file_path": file_path, "file_size": len(data), "file_extension": file_ext.lstrip("."), "date_added": datetime.now(UTC)}
 
             raw_tags = self.raw_tag_extractor.extract_raw_tags(data, file_ext)
 
@@ -71,9 +45,7 @@ class MetadataExtractor:
             if artwork:
                 metadata["album_art_data"] = artwork
 
-            audio_properties = self.audio_properties_extractor.extract_audio_properties(
-                data, file_ext
-            )
+            audio_properties = self.audio_properties_extractor.extract_audio_properties(data, file_ext)
             metadata.update(audio_properties)
 
             logger.debug(f"Successfully extracted metadata from {file_path}")
@@ -82,25 +54,21 @@ class MetadataExtractor:
             return metadata
 
         except Exception as e:
+            # Intentional boundary catch: one unreadable file must not abort a library import.
             logger.exception(f"Critical error extracting metadata from {file_path}: {str(e)[:500]}")
             return self._get_basic_file_info(file_path)
 
     def _get_basic_file_info(self, file_path):
-        """Fallback metadata (file system properties only) used when full
-        extraction fails."""
-        stat = os.stat(file_path)
-        file_extension = os.path.splitext(file_path)[1].lower().lstrip(".")
+        """Return file-system-only metadata, used when full extraction fails."""
+        try:
+            file_size = Path(file_path).stat().st_size
+        except OSError:
+            file_size = None  # the file vanished or became unreadable mid-import
 
-        return {
-            "track_file_path": file_path,
-            "file_size": stat.st_size,
-            "file_extension": file_extension,
-            "date_added": datetime.now(UTC),
-        }
+        return {"track_file_path": file_path, "file_size": file_size, "file_extension": Path(file_path).suffix.lower().lstrip("."), "date_added": datetime.now(UTC)}
 
     def _safe_for_logging(self, metadata):
-        """Replace binary values with a size placeholder so debug logs
-        don't dump raw image bytes."""
+        """Replace binary values with a size placeholder so debug logs do not dump image bytes."""
         safe_metadata = {}
         for key, value in metadata.items():
             if key == "album_art_data":

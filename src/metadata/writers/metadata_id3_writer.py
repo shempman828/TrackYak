@@ -1,129 +1,84 @@
+"""Builds raw ID3v2.3 frames and the surrounding tag header."""
+
 import struct
 
 from src.foundation.logger_config import logger
 
+# UTF-16 with BOM: the only Unicode encoding ID3v2.3 allows.
+_UTF16 = 0x01
+
 
 class ID3TagWriter:
-    """Handles writing ID3v2.3/2.4 tags to MP3 files."""
+    """Builds ID3v2.3 frames and tags as raw bytes."""
 
-    def __init__(self, version: int = 4):
-        self.version = version  # 3 for ID3v2.3, 4 for ID3v2.4
-        self.encoding_byte = 0x03  # UTF-8 encoding for ID3v2.4
+    @staticmethod
+    def _frame(frame_id: str, body: bytes) -> bytes:
+        """Wrap body in a v2.3 frame header (plain 32-bit size, no flags)."""
+        return frame_id.encode("ascii") + struct.pack(">I", len(body)) + b"\x00\x00" + body
 
     def create_text_frame(self, frame_id: str, text: str) -> bytes:
-        """Create a text information frame."""
+        """Create a text information frame, or b"" for empty text."""
         if not text:
             return b""
+        return self._frame(frame_id, bytes([_UTF16]) + text.encode("utf-16"))
 
-        # Encode text with BOM for unicode
-        encoded_text = text.encode("utf-16")
-        frame_data = struct.pack(">B", 0x01) + encoded_text  # Unicode with BOM
-
-        # Frame header: ID (4 bytes) + size (4 bytes) + flags (2 bytes)
-        frame_size = len(frame_data)
-        frame_header = frame_id.encode("ascii") + struct.pack(">I", frame_size) + b"\x00\x00"
-
-        return frame_header + frame_data
+    def _create_lang_frame(self, frame_id: str, text: str, language: str) -> bytes:
+        """Create a COMM/USLT frame: encoding, language, empty description, then text."""
+        if not text:
+            return b""
+        body = bytes([_UTF16]) + language.encode("latin-1")[:3].ljust(3, b" ") + "".encode("utf-16") + b"\x00\x00" + text.encode("utf-16")
+        return self._frame(frame_id, body)
 
     def create_comment_frame(self, text: str, language: str = "eng") -> bytes:
-        """Create a comment frame."""
-        if not text:
-            return b""
-
-        encoded_text = text.encode("utf-16")
-        frame_data = language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
-
-        frame_size = len(frame_data)
-        frame_header = b"COMM" + struct.pack(">I", frame_size) + b"\x00\x00"
-
-        return frame_header + frame_data
-
-    def create_number_frame(self, frame_id: str, number: int) -> bytes:
-        """Create a numeric frame (track number, play count, etc.)."""
-        if number is None:
-            return b""
-
-        text = str(number)
-        return self.create_text_frame(frame_id, text)
-
-    def create_float_frame(self, frame_id: str, value: float) -> bytes:
-        """Create a float frame (BPM, etc.)."""
-        if value is None:
-            return b""
-
-        text = str(value)
-        return self.create_text_frame(frame_id, text)
+        """Create a COMM frame with an empty description."""
+        return self._create_lang_frame("COMM", text, language)
 
     def create_lyrics_frame(self, lyrics: str, language: str = "eng") -> bytes:
-        """Create a lyrics frame."""
-        if not lyrics:
+        """Create a USLT frame with an empty description."""
+        return self._create_lang_frame("USLT", lyrics, language)
+
+    def create_number_frame(self, frame_id: str, number: int) -> bytes:
+        """Create a text frame holding an integer."""
+        if number is None:
             return b""
+        return self.create_text_frame(frame_id, str(number))
 
-        encoded_text = lyrics.encode("utf-16")
-        frame_data = language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
+    def create_float_frame(self, frame_id: str, value: float) -> bytes:
+        """Create a text frame holding a float."""
+        if value is None:
+            return b""
+        return self.create_text_frame(frame_id, str(value))
 
-        frame_size = len(frame_data)
-        frame_header = b"USLT" + struct.pack(">I", frame_size) + b"\x00\x00"
+    def create_counter_frame(self, count: int) -> bytes:
+        """Create a PCNT play-counter frame (binary big-endian counter, at least 4 bytes)."""
+        if count is None or count < 0:
+            return b""
+        length = max(4, (int(count).bit_length() + 7) // 8)
+        return self._frame("PCNT", int(count).to_bytes(length, "big"))
 
-        return frame_header + frame_data
+    def create_ufid_frame(self, owner: str, identifier: str) -> bytes:
+        """Create a UFID frame (owner URL, NUL, identifier; no encoding byte)."""
+        if not owner or not identifier:
+            return b""
+        return self._frame("UFID", owner.encode("latin-1", errors="ignore") + b"\x00" + identifier.encode("ascii", errors="ignore")[:64])
 
     def create_txxx_frame(self, description: str, value: str) -> bytes:
-        """Create a TXXX (user-defined text) frame for custom tag fields.
-
-        TXXX frames are how ID3 stores custom tags that have no official frame
-        ID. The description acts as the key (e.g. "PLAYLIST") and the value
-        holds the content (e.g. "My Favourites ; Workout Mix").
-
-        Multiple playlists are joined with " ; " so they fit in one frame,
-        since ID3 only allows one TXXX frame per description.
-
-        Args:
-            description: The frame description / key, e.g. "PLAYLIST".
-            value:       The tag value. Use " ; " to separate multiple values.
-
-        Returns:
-            Raw bytes for the complete TXXX frame, or b"" if either arg is empty.
-        """
+        """Create a TXXX user-defined text frame keyed by description, or b"" if either is empty."""
         if not value or not description:
             return b""
-
-        # Encode as UTF-16BE (encoding byte 0x01)
-        encoded_description = description.encode("utf-16")
-        encoded_value = value.encode("utf-16")
-
-        # UTF-16 null terminator (2 bytes) separates description from value
-        null_terminator = b"\x00\x00"
-
-        frame_data = (
-            struct.pack(">B", 0x01)  # encoding: UTF-16
-            + encoded_description
-            + null_terminator
-            + encoded_value
-        )
-
-        # Frame header: "TXXX" (4 bytes) + size (4 bytes) + flags (2 bytes)
-        frame_size = len(frame_data)
-        frame_header = b"TXXX" + struct.pack(">I", frame_size) + b"\x00\x00"
-
-        return frame_header + frame_data
+        # Only one TXXX frame is allowed per description, so callers join multiple values (e.g. " ; ").
+        return self._frame("TXXX", bytes([_UTF16]) + description.encode("utf-16") + b"\x00\x00" + value.encode("utf-16"))
 
     def sync_safe_int(self, value: int) -> bytes:
-        """Convert a 28-bit integer to a proper 4-byte sync-safe encoding
-        (7 significant bits per byte, matching the ID3v2 header size field)."""
-        return bytes(
-            [(value >> 21) & 0x7F, (value >> 14) & 0x7F, (value >> 7) & 0x7F, value & 0x7F]
-        )
+        """Encode a 28-bit integer as a 4-byte ID3 syncsafe integer."""
+        return bytes([(value >> 21) & 0x7F, (value >> 14) & 0x7F, (value >> 7) & 0x7F, value & 0x7F])
 
     def build_id3_tag(self, frames: list[bytes]) -> bytes:
-        """Build complete ID3 tag from frames."""
+        """Build a complete ID3v2.3 tag from frames, or b"" when there are none."""
         if not frames:
             logger.debug("No frames provided to build_id3_tag; skipping tag creation")
             return b""
 
         tag_data = b"".join(frames)
-        tag_size = len(tag_data)
-
-        # ID3 header: "ID3"(3) + major+revision(2) + flags(1) + size(4) = 10 bytes
-        header = b"ID3" + struct.pack(">BB", 3, 0) + b"\x00" + self.sync_safe_int(tag_size)
-
+        header = b"ID3" + struct.pack(">BB", 3, 0) + b"\x00" + self.sync_safe_int(len(tag_data))
         return header + tag_data

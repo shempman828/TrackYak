@@ -1,3 +1,5 @@
+"""Embedded artwork extraction from audio file bytes."""
+
 import io
 from pathlib import Path
 import struct
@@ -6,36 +8,26 @@ from typing import ClassVar
 from PIL import Image
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_byte_utils import syncsafe_to_int
+from src.metadata.metadata_byte_utils import id3_frames_offset, is_valid_frame_id, split_id3_string, syncsafe_to_int
 from src.metadata.metadata_image_utils import ARTWORK_TYPE_TO_ROLE, determine_image_format
 from src.metadata.metadata_mp4_atoms import find_atom
 
 
 class ArtworkExtractor:
-    """Dedicated album art extraction separate from text metadata."""
+    """Extracts embedded artwork, separately from text metadata."""
 
-    # MusicBrainz/ID3-APIC picture-type convention used to assign a role to
-    # each embedded picture, shared with the writers (see metadata_image_utils).
+    # Picture-type -> role convention shared with the writers.
     PICTURE_TYPE_ROLES = ARTWORK_TYPE_TO_ROLE
 
-    # Formats supported by extract_artwork_by_role / write_artwork_to_file's
-    # role-based (front/rear/liner) read+write path.
+    # Formats with role-based (front/rear/liner) read and write support.
     SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {".flac", ".mp3"}
 
     def __init__(self):
+        """Register the per-extension artwork readers."""
         self.format_handlers = {".mp3": self._extract_mp3_artwork, ".flac": self._extract_flac_artwork, ".m4a": self._extract_alac_artwork, ".mp4": self._extract_alac_artwork}
 
     def extract_artwork(self, data, file_ext):
-        """
-        Extract artwork from audio file bytes already read by the caller.
-
-        Args:
-            data: Full file contents
-            file_ext: File extension (.mp3, .flac, etc.)
-
-        Returns:
-            Dictionary with artwork data or None if no artwork found
-        """
+        """Return the first embedded picture of the file bytes as a dict, or None."""
         try:
             handler = self.format_handlers.get(file_ext.lower())
             if not handler:
@@ -56,13 +48,11 @@ class ArtworkExtractor:
             return None
 
     def _iter_id3_frames(self, data, version_major, end_pos):
-        """Yield (frame_id, frame_start, frame_size) for each ID3v2 frame
-        header from byte offset 10 (right after the ID3 tag header) up to
-        end_pos. Stops as soon as a frame with size 0 is hit or fewer than
-        10 bytes remain, mirroring where a real ID3v2 tag ends.
-        """
-        pos = 10
+        """Yield (frame_id, frame_start, frame_size) for each ID3v2 frame up to end_pos."""
+        pos = id3_frames_offset(data)
         while pos < end_pos - 10:
+            if not is_valid_frame_id(data[pos : pos + (3 if version_major == 2 else 4)]):
+                break  # padding or a corrupt header
             if version_major == 2:  # ID3v2.2
                 frame_id = data[pos : pos + 3].decode("ascii", errors="ignore")
                 frame_size = struct.unpack(">I", b"\x00" + data[pos + 3 : pos + 6])[0]
@@ -98,7 +88,7 @@ class ArtworkExtractor:
         return None
 
     def _extract_mp3_artwork_all(self, data):
-        """Extract every APIC/PIC frame from an MP3's ID3 tag, keyed by raw picture type."""
+        """Extract every APIC/PIC frame from an MP3's ID3 tag, keyed by raw picture type (first wins)."""
         pictures = {}
         try:
             if len(data) < 10 or data[0:3] != b"ID3":
@@ -124,13 +114,7 @@ class ArtworkExtractor:
         return pictures
 
     def _flac_metadata_start(self, data):
-        """
-        Return the byte offset right after the "fLaC" marker, tolerating an
-        optional leading ID3v2 tag. Native FLAC doesn't use ID3, but some
-        tools prepend one anyway; lenient decoders (ffmpeg, foobar2000, etc.)
-        skip over it, so real playable files in the wild have this shape.
-        Returns None if no "fLaC" marker can be found either way.
-        """
+        """Return the offset just past the "fLaC" marker (skipping a leading ID3v2 tag), or None."""
         if data[0:4] == b"fLaC":
             return 4
         if data[0:3] == b"ID3" and len(data) >= 10:
@@ -154,10 +138,7 @@ class ArtworkExtractor:
                 block_type = (header >> 24) & 0x7F
                 block_size = header & 0xFFFFFF  # 24-bit size
 
-                # Safety check: a zero-size block is legitimate (e.g. an
-                # empty SEEKTABLE placeholder some encoders write) and must
-                # not be treated as corruption - only an actual overrun means
-                # the file is malformed/truncated.
+                # A zero-size block is legal (empty SEEKTABLE); only an overrun means truncation.
                 if pos + block_size > len(data):
                     break
 
@@ -192,9 +173,7 @@ class ArtworkExtractor:
                 block_type = (header >> 24) & 0x7F
                 block_size = header & 0xFFFFFF  # 24-bit size
 
-                # A zero-size block (e.g. an empty SEEKTABLE placeholder) is
-                # legitimate and must not abort the scan - only an actual
-                # overrun means the file is malformed/truncated.
+                # A zero-size block is legal (empty SEEKTABLE); only an overrun means truncation.
                 if pos + block_size > len(data):
                     break
 
@@ -218,26 +197,12 @@ class ArtworkExtractor:
 
         return pictures
 
-    # Growth step for the incremental FLAC metadata read below. Most covers
-    # fit in the first chunk; the loop only grows the buffer for files whose
-    # metadata (usually a large embedded picture) spills past it.
+    # Growth step for the incremental FLAC metadata read; most covers fit in the first chunk.
     _FLAC_READ_CHUNK = 256 * 1024
 
     def extract_artwork_by_role(self, file_path, file_ext):
-        """
-        Extract embedded artwork keyed by role ("front"/"rear"/"liner").
-
-        Only FLAC and MP3 are supported today; other formats return an
-        empty dict. Returns a dict containing only the roles that were
-        found - callers should use .get(role) rather than assuming all
-        three keys exist.
-
-        Reads only the tag/metadata region of the file rather than the
-        whole thing - callers such as the library-wide consistency scan
-        (src/library/library_artwork_consistency.py) call this once per
-        track, and a full read of every track's audio data made that scan
-        take tens of minutes on large libraries.
-        """
+        """Return {role: picture} for the roles found in a FLAC or MP3 file ({} for other formats)."""
+        # Reads only the tag region: the library-wide consistency scan calls this once per track.
         ext = file_ext.lower()
         if ext not in self.SUPPORTED_EXTENSIONS:
             return {}
@@ -253,9 +218,7 @@ class ArtworkExtractor:
         return self._pictures_to_roles(all_pictures, file_path)
 
     def _read_mp3_id3_prefix(self, file_path):
-        """Read just the ID3v2 tag (header + its declared size) instead of
-        the whole MP3, mirroring the bounds _extract_mp3_artwork_all itself
-        parses."""
+        """Read only the ID3v2 tag (header plus its declared size) of an MP3."""
         with Path(file_path).open("rb") as f:
             header = f.read(10)
             if len(header) < 10 or header[0:3] != b"ID3":
@@ -264,9 +227,7 @@ class ArtworkExtractor:
             return header + f.read(size)
 
     def _read_flac_metadata_prefix(self, file_path):
-        """Read only the FLAC metadata-block region (STREAMINFO..PICTURE),
-        growing the read in chunks until the last metadata block is fully
-        buffered, instead of reading the whole file's audio payload."""
+        """Read only the FLAC metadata-block region, growing the read until the last block is buffered."""
         with Path(file_path).open("rb") as f:
             buf = f.read(self._FLAC_READ_CHUNK)
             while True:
@@ -288,9 +249,7 @@ class ArtworkExtractor:
                 buf += more
 
     def _flac_metadata_end(self, data, pos):
-        """Walk FLAC metadata block headers starting at `pos`, returning the
-        offset just past the last one (its is_last bit set) once fully
-        contained in `data`, or None if more bytes must be read first."""
+        """Return the offset just past the last metadata block, or None if data is too short yet."""
         while True:
             if pos + 4 > len(data):
                 return None
@@ -305,12 +264,7 @@ class ArtworkExtractor:
             pos = block_end
 
     def _pictures_to_roles(self, all_pictures, file_path):
-        """
-        Map a {picture_type: picture} dict (as produced by either the FLAC
-        or MP3 "extract all pictures" scan) to {role: picture}, applying
-        the shared MusicBrainz/ID3-APIC type convention and the
-        untyped-single-picture-is-front fallback rule.
-        """
+        """Map {picture_type: picture} to {role: picture}; a single untyped picture becomes the front cover."""
         by_role = {}
         leftovers = {}
         for picture_type, picture in all_pictures.items():
@@ -363,8 +317,7 @@ class ArtworkExtractor:
             if d_end - d_start < 8:
                 return None
 
-            # data atom payload: type indicator(4) + locale/reserved(4),
-            # then the raw image bytes.
+            # data atom payload: type indicator(4) + locale(4), then the image bytes.
             image_bytes = data[d_start + 8 : d_end]
             if image_bytes.startswith(b"\xff\xd8"):
                 return self._process_image_data(image_bytes, "JPEG")
@@ -382,7 +335,7 @@ class ArtworkExtractor:
             if len(frame_data) < 2:
                 return None
 
-            # Skip encoding byte
+            encoding = frame_data[0]
             current_pos = 1
 
             if version_major == 2:
@@ -403,14 +356,10 @@ class ArtworkExtractor:
             picture_type = frame_data[current_pos]
             current_pos += 1
 
-            # Skip description (null-terminated string)
-            while current_pos < len(frame_data) and frame_data[current_pos] != 0:
-                current_pos += 1
-            current_pos += 1
+            # The description terminator is 2 bytes for UTF-16 encodings.
+            _description, image_data = split_id3_string(frame_data[current_pos:], encoding)
 
-            # Remaining data is the image
-            if current_pos < len(frame_data):
-                image_data = frame_data[current_pos:]
+            if image_data:
                 format_type = determine_image_format(image_data, "")
                 processed_image = self._process_image_data(image_data, format_type)
                 if processed_image:
@@ -423,7 +372,7 @@ class ArtworkExtractor:
         return None
 
     def _parse_flac_picture_block(self, data):
-        """Parse FLAC PICTURE block according to FLAC specification."""
+        """Parse a FLAC METADATA_BLOCK_PICTURE payload."""
         try:
             pos = 0
 
@@ -503,18 +452,13 @@ class ArtworkExtractor:
         return None
 
     def _process_image_data(self, image_data, format_type):
-        """Process and validate image data."""
+        """Validate image bytes with PIL and return {data, format, width, height, size}, or None."""
         try:
-            # First, validate the image data has minimum required bytes
             if len(image_data) < 8:
                 return None
 
-            # Try to open with PIL to validate it's a real image
             image = Image.open(io.BytesIO(image_data))
-
-            # Verify the image was loaded correctly by attempting to get its mode
-            # This will raise an exception if the image is invalid
-            image.load()
+            image.load()  # raises on a truncated or invalid image
 
             return {"data": image_data, "format": format_type, "width": image.width, "height": image.height, "size": len(image_data)}
         except (OSError, Image.DecompressionBombError) as e:

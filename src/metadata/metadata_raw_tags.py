@@ -1,30 +1,58 @@
+"""Extracts raw, unmapped tag key/value pairs from audio file bytes."""
+
 import struct
+from typing import ClassVar
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_byte_utils import syncsafe_to_int
+from src.metadata.metadata_byte_utils import decode_id3_string, id3_frames_offset, is_valid_frame_id, parse_id3_lang_frame, split_id3_string, syncsafe_to_int
 from src.metadata.metadata_mp4_atoms import find_atom, iter_atoms
 from src.metadata.metadata_ogg_pages import iter_packets
 
 
 class RawTagExtractor:
-    """Extracts raw (unmapped) tag key/value pairs from audio file bytes,
-    one reader per container format.
+    """Extracts raw, unmapped tag key/value pairs from audio file bytes, one reader per container format."""
 
-    This class only knows each format's on-disk tag structure (ID3 frame
-    IDs, Vorbis comment keys, MP4 atom names, RIFF INFO chunk IDs) — it has
-    no idea what any of those keys *mean*. Turning e.g. "TIT2" or "©nam"
-    into Track.track_name is TextMetadataExtractor's job
-    (metadata_text.py), driven by the mapping tables in metadata_mapping.py.
-    """
+    # AIFF chunk IDs mapped to ID3 frame IDs: AIFF resolves to the "id3" mapping set in TextMetadataExtractor.
+    _AIFF_CHUNK_TO_ID3: ClassVar[dict[bytes, str]] = {b"NAME": "TIT2", b"AUTH": "TPE1", b"(c) ": "TCOP", b"ANNO": "COMM"}
 
-    # AIFF's own chunk IDs, mapped to the ID3 frame IDs that
-    # ID3_TRACK_MAPPINGS/ID3_ARTIST_MAPPINGS/ID3_ALBUM_MAPPINGS already
-    # understand — AIFF resolves to the "id3" format type in
-    # TextMetadataExtractor, so raw tags need to speak that vocabulary
-    # rather than AIFF's native chunk names.
-    _AIFF_CHUNK_TO_ID3 = {b"NAME": "TIT2", b"AUTH": "TPE1", b"(c) ": "TCOP", b"ANNO": "COMM"}
+    # ID3v2.2 3-character frame IDs mapped to their v2.3/2.4 equivalents, so v2.2 tags use the same mappings.
+    _ID3V22_TO_V23: ClassVar[dict[str, str]] = {
+        "TT1": "TIT1",
+        "TT2": "TIT2",
+        "TT3": "TIT3",
+        "TP1": "TPE1",
+        "TP2": "TPE2",
+        "TP3": "TPE3",
+        "TP4": "TPE4",
+        "TCM": "TCOM",
+        "TXT": "TEXT",
+        "TAL": "TALB",
+        "TRK": "TRCK",
+        "TPA": "TPOS",
+        "TYE": "TYER",
+        "TCO": "TCON",
+        "TBP": "TBPM",
+        "TKE": "TKEY",
+        "TCR": "TCOP",
+        "TPB": "TPUB",
+        "TLA": "TLAN",
+        "TRC": "TSRC",
+        "TOA": "TOPE",
+        "TOL": "TOLY",
+        "TLE": "TLEN",
+        "COM": "COMM",
+        "ULT": "USLT",
+        "TXX": "TXXX",
+        "CNT": "PCNT",
+        "UFI": "UFID",
+        "PIC": "APIC",
+    }
+
+    # Frames whose NUL separators delimit role/name pairs, not separate values.
+    _PAIRED_LIST_FRAMES = frozenset({"TIPL", "TMCL", "IPLS"})
 
     def __init__(self):
+        """Register the per-extension raw tag readers."""
         self.format_handlers = {
             ".mp3": self._extract_id3_tags,
             ".flac": self._extract_flac_tags,
@@ -43,10 +71,7 @@ class RawTagExtractor:
         }
 
     def extract_raw_tags(self, data: bytes, file_ext: str) -> dict:
-        """Extract raw tags from file bytes for whichever format file_ext
-        names. Returns {} for unsupported formats or on any parse error —
-        every per-format reader below already isolates its own internal
-        failures, so this is a last-resort safety net."""
+        """Extract raw tags for the format file_ext names; return {} if unsupported or unparseable."""
         handler = self.format_handlers.get(file_ext.lower())
         if not handler:
             logger.warning(f"Unsupported file format for raw tag extraction: {file_ext}")
@@ -55,6 +80,7 @@ class RawTagExtractor:
         try:
             return handler(data)
         except AttributeError as e:
+            # Last-resort net: each reader already handles its own parse errors.
             logger.warning(f"Error extracting raw tags: {e}")
             return {}
 
@@ -62,24 +88,25 @@ class RawTagExtractor:
     # (MP3, and AIFF via _AIFF_CHUNK_TO_ID3 remapping)
 
     def _extract_id3_tags(self, data):
-        """Extract raw ID3 tags without mapping."""
+        """Extract raw ID3v2 tags, with ID3v1 only filling keys that v2 does not have."""
         raw_tags = {}
 
         try:
-            # ID3v2 extraction
             if len(data) >= 10 and data[0:3] == b"ID3":
                 version_major = data[3]
-                size = syncsafe_to_int(data[6:10])
-                frame_data = data[10 : 10 + size]
+                tag_end = 10 + syncsafe_to_int(data[6:10])
+                frame_data = data[id3_frames_offset(data) : tag_end]
 
                 if version_major == 2:
                     raw_tags.update(self._parse_id3v2_2_frames(frame_data))
                 elif version_major in [3, 4]:
                     raw_tags.update(self._parse_id3v2_3_4_frames(frame_data, version_major))
 
-            # ID3v1 extraction (fallback)
             if len(data) >= 128 and data[-128:-125] == b"TAG":
-                raw_tags.update(self._parse_id3v1_tags(data[-128:]))
+                for key, value in self._parse_id3v1_tags(data[-128:]).items():
+                    # v1 fields are truncated to 30 characters, so v2 always wins.
+                    if value and key not in raw_tags:
+                        raw_tags[key] = [value]
 
         except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw ID3 tags: {e}")
@@ -87,19 +114,21 @@ class RawTagExtractor:
         return raw_tags
 
     def _parse_id3v2_2_frames(self, frame_data):
-        """Parse raw ID3v2.2 frames."""
+        """Parse raw ID3v2.2 frames, storing them under their v2.3 frame IDs."""
         raw_tags = {}
         pos = 0
 
         while pos < len(frame_data) - 6:
-            frame_id = frame_data[pos : pos + 3].decode("ascii", errors="ignore")
+            if not is_valid_frame_id(frame_data[pos : pos + 3]):
+                break
+            frame_id = frame_data[pos : pos + 3].decode("ascii")
             frame_size = struct.unpack(">I", b"\x00" + frame_data[pos + 3 : pos + 6])[0]
 
             if frame_size == 0:
                 break
 
             frame_content = frame_data[pos + 6 : pos + 6 + frame_size]
-            raw_tags[frame_id] = self._decode_id3_text(frame_content)
+            self._store_id3_frame(raw_tags, self._ID3V22_TO_V23.get(frame_id, frame_id), frame_content)
 
             pos += 6 + frame_size
 
@@ -111,127 +140,79 @@ class RawTagExtractor:
         pos = 0
 
         while pos < len(frame_data) - 10:
-            frame_id = frame_data[pos : pos + 4].decode("ascii", errors="ignore")
+            if not is_valid_frame_id(frame_data[pos : pos + 4]):
+                break  # padding or a corrupt frame header
+            frame_id = frame_data[pos : pos + 4].decode("ascii")
 
-            if b"\x00" in frame_id.encode("ascii"):
-                break
-
-            if version == 3:
-                frame_size = struct.unpack(">I", frame_data[pos + 4 : pos + 8])[0]
-            else:
-                frame_size = syncsafe_to_int(frame_data[pos + 4 : pos + 8])
+            frame_size = struct.unpack(">I", frame_data[pos + 4 : pos + 8])[0] if version == 3 else syncsafe_to_int(frame_data[pos + 4 : pos + 8])
 
             if frame_size == 0:
                 break
 
             frame_content = frame_data[pos + 10 : pos + 10 + frame_size]
-
-            if frame_id == "UFID":
-                # UFID structure: owner identifier <text> $00 + identifier
-                # <binary, up to 64 bytes> — unlike TXXX/text frames, there
-                # is no leading text-encoding byte. Picard writes the
-                # MusicBrainz recording (track) ID here, owner
-                # "http://musicbrainz.org", identifier as ASCII text.
-                try:
-                    sep = frame_content.find(b"\x00")
-                    if sep == -1:
-                        sep = len(frame_content)
-                    owner = frame_content[:sep].decode("latin-1", errors="ignore")
-                    identifier = (
-                        frame_content[sep + 1 :].decode("ascii", errors="ignore").strip("\x00")
-                    )
-
-                    storage_key = f"UFID:{owner}" if owner else "UFID"
-                    if storage_key not in raw_tags:
-                        raw_tags[storage_key] = []
-                    raw_tags[storage_key].append(identifier)
-
-                except AttributeError as e:
-                    logger.debug(f"Error parsing UFID frame: {e}")
-            elif frame_id == "TXXX":
-                # TXXX structure: encoding(1) + description(variable) + \x00[\x00] + value
-                # We need to extract the description to build the storage key.
-                try:
-                    encoding = frame_content[0] if frame_content else 0
-                    rest = frame_content[1:]  # everything after the encoding byte
-
-                    if encoding in (0x01, 0x02):
-                        # UTF-16: null terminator is \x00\x00
-                        sep = rest.find(b"\x00\x00")
-                        if sep == -1:
-                            sep = len(rest)
-                        raw_desc = rest[:sep]
-                        raw_val = rest[sep + 2 :]  # skip the 2-byte null terminator
-                        description = raw_desc.decode("utf-16be", errors="ignore").strip("\x00")
-                        value = raw_val.decode("utf-16be", errors="ignore").strip("\x00")
-                    else:
-                        # ISO-8859-1 or UTF-8: null terminator is \x00
-                        sep = rest.find(b"\x00")
-                        if sep == -1:
-                            sep = len(rest)
-                        description = rest[:sep].decode("latin-1", errors="ignore").strip()
-                        value = (
-                            rest[sep + 1 :]
-                            .decode("utf-8" if encoding == 0x03 else "latin-1", errors="ignore")
-                            .strip("\x00")
-                        )
-
-                    # Store under "TXXX:description" so TXXX:PLAYLIST is preserved
-                    storage_key = f"TXXX:{description}" if description else "TXXX"
-                    if storage_key not in raw_tags:
-                        raw_tags[storage_key] = []
-                    raw_tags[storage_key].append(value)
-
-                except AttributeError as e:
-                    logger.debug(f"Error parsing TXXX frame: {e}")
-            else:
-                value = self._decode_id3_text(frame_content)
-
-                if frame_id not in raw_tags:
-                    raw_tags[frame_id] = []
-
-                raw_tags[frame_id].append(value)
+            self._store_id3_frame(raw_tags, frame_id, frame_content)
 
             pos += 10 + frame_size
 
         return raw_tags
 
+    def _store_id3_frame(self, raw_tags, frame_id, content):
+        """Decode one ID3 frame body and append its value(s) under the right raw-tag key."""
+        if frame_id == "APIC" or not content:
+            return
+
+        if frame_id == "UFID":
+            # owner <latin-1> NUL + identifier <binary>; no encoding byte.
+            owner, identifier = split_id3_string(content, 0)
+            key = f"UFID:{owner.decode('latin-1', errors='ignore')}" if owner else "UFID"
+            raw_tags.setdefault(key, []).append(identifier.decode("ascii", errors="ignore").strip("\x00"))
+            return
+
+        if frame_id == "TXXX":
+            encoding = content[0]
+            description, value = split_id3_string(content[1:], encoding)
+            description_text = decode_id3_string(description, encoding).strip()
+            key = f"TXXX:{description_text}" if description_text else "TXXX"
+            raw_tags.setdefault(key, []).append(decode_id3_string(value, encoding))
+            return
+
+        if frame_id in ("COMM", "USLT"):
+            parsed = parse_id3_lang_frame(content)
+            if parsed is None:
+                return
+            encoding, _language, description, text = parsed
+            # Descriptions such as iTunNORM are tool data, not a user comment.
+            key = f"{frame_id}:{description}" if description else frame_id
+            raw_tags.setdefault(key, []).append(decode_id3_string(text, encoding))
+            return
+
+        if frame_id == "PCNT":
+            raw_tags.setdefault(frame_id, []).append(str(int.from_bytes(content, "big")))
+            return
+
+        text = decode_id3_string(content[1:], content[0]) if content[0] <= 3 else decode_id3_string(content, 0)
+        if frame_id in self._PAIRED_LIST_FRAMES:
+            raw_tags.setdefault(frame_id, []).append(text)
+            return
+        # v2.4 stores multiple values separated by NUL.
+        raw_tags.setdefault(frame_id, []).extend(part for part in text.split("\x00") if part)
+
     def _parse_id3v1_tags(self, tag_data):
-        """Parse raw ID3v1 tags."""
+        """Parse a 128-byte ID3v1 tag."""
         return {
-            "TIT2": self._strip_null(tag_data[3:33].decode("latin-1", errors="ignore")),
-            "TPE1": self._strip_null(tag_data[33:63].decode("latin-1", errors="ignore")),
-            "TALB": self._strip_null(tag_data[63:93].decode("latin-1", errors="ignore")),
-            "TYER": self._strip_null(tag_data[93:97].decode("latin-1", errors="ignore")),
-            "COMM": self._strip_null(tag_data[97:127].decode("latin-1", errors="ignore")),
+            "TIT2": tag_data[3:33].decode("latin-1", errors="ignore").strip("\x00 "),
+            "TPE1": tag_data[33:63].decode("latin-1", errors="ignore").strip("\x00 "),
+            "TALB": tag_data[63:93].decode("latin-1", errors="ignore").strip("\x00 "),
+            "TYER": tag_data[93:97].decode("latin-1", errors="ignore").strip("\x00 "),
+            "COMM": tag_data[97:127].decode("latin-1", errors="ignore").strip("\x00 "),
         }
-
-    def _decode_id3_text(self, data):
-        if not data:
-            return ""
-        try:
-            encoding = data[0]
-            text_data = data[1:]
-            if encoding == 0:  # ISO-8859-1
-                return text_data.decode("latin-1", errors="ignore").strip("\x00")
-            if encoding == 1:  # UTF-16 with BOM
-                return text_data.decode("utf-16", errors="ignore").strip("\x00")
-            if encoding == 3:  # UTF-8
-                return text_data.decode("utf-8", errors="ignore").strip("\x00")
-            return text_data.decode("latin-1", errors="ignore").strip("\x00")
-        except (IndexError, TypeError):
-            return data.decode("latin-1", errors="ignore").strip("\x00")
-
-    def _strip_null(self, text):
-        return text.strip("\x00")
 
     # --------------------------------------------------------- Vorbis comment
     # (shared structure behind FLAC's VORBIS_COMMENT block and Ogg
     # Vorbis/Opus's comment header packet)
 
     def _parse_vorbis_comments(self, data):
-        """Parse a raw Vorbis-comment block: vendor string then
-        key=value comment strings. Used by both FLAC and Ogg readers."""
+        """Parse a raw Vorbis-comment block (vendor string, then KEY=value entries)."""
         raw_tags = {}
         pos = 0
 
@@ -299,10 +280,7 @@ class RawTagExtractor:
     # ------------------------------------------------------------------ Ogg
 
     def _extract_ogg_tags(self, data):
-        """Extract raw Vorbis-comment tags from an Ogg Vorbis or Ogg Opus
-        container's second packet (the comment header). Both formats use
-        the same comment-header layout as FLAC's VORBIS_COMMENT block,
-        just behind a different magic prefix."""
+        """Extract raw Vorbis-comment tags from an Ogg Vorbis or Opus comment header packet."""
         raw_tags = {}
 
         try:
@@ -324,11 +302,7 @@ class RawTagExtractor:
     # ------------------------------------------------------------------ MP4
 
     def _extract_mp4_tags(self, data):
-        """Extract raw MP4/M4A tags from moov/udta/meta/ilst without mapping.
-
-        Only text-value atoms are handled generically; trkn/disk are
-        (index, total) integer pairs and are decoded specially.
-        """
+        """Extract raw MP4/M4A tags from moov/udta/meta/ilst without mapping."""
         raw_tags = {}
 
         try:
@@ -380,8 +354,7 @@ class RawTagExtractor:
         return raw_tags
 
     def _parse_mp4_ilst_value(self, data, atom_type, start, end):
-        """Decode a single ilst child atom (e.g. "\\xa9nam") via its nested
-        'data' atom into a display string."""
+        """Decode one ilst child atom through its nested 'data' atom into a display string."""
         data_atom = find_atom(data, b"data", start, end)
         if not data_atom:
             return None
@@ -406,13 +379,7 @@ class RawTagExtractor:
         return value_bytes.decode("utf-8", errors="ignore").strip("\x00")
 
     def _parse_mp4_freeform_atom(self, data, start, end):
-        """Decode a '----' freeform atom's 'mean'/'name'/'data' children.
-
-        Returns (mean, name, value) — mean is the reverse-DNS namespace
-        (e.g. "com.apple.iTunes"), name is the tag's display name (e.g.
-        "MusicBrainz Album Id"), value is its decoded text. Returns None if
-        the atom is missing its 'name' or 'data' child.
-        """
+        """Decode a '----' freeform atom into (mean, name, value), or None if 'name' or 'data' is missing."""
         mean = name = value = None
 
         for child_type, child_start, child_end in iter_atoms(data, start, end):
@@ -426,11 +393,9 @@ class RawTagExtractor:
                 mean = content.decode("utf-8", errors="ignore")
             elif child_type == b"name":
                 name = content.decode("utf-8", errors="ignore")
-            elif child_type == b"data":
-                if len(content) >= 4:
-                    # skip the 4-byte locale field that follows the
-                    # already-stripped type-indicator+flags header
-                    value = content[4:].decode("utf-8", errors="ignore").strip("\x00")
+            elif child_type == b"data" and len(content) >= 4:
+                # Skip the 4-byte locale field after the type-indicator+flags header.
+                value = content[4:].decode("utf-8", errors="ignore").strip("\x00")
 
         if name is None or value is None:
             return None
@@ -452,9 +417,7 @@ class RawTagExtractor:
                     if chunk_id == b"LIST" and pos + 12 <= len(data):
                         list_type = data[pos + 8 : pos + 12]
                         if list_type == b"INFO":
-                            raw_tags.update(
-                                self._parse_info_chunk(data[pos + 12 : pos + 8 + chunk_size])
-                            )
+                            raw_tags.update(self._parse_info_chunk(data[pos + 12 : pos + 8 + chunk_size]))
 
                     # RIFF chunks are padded to an even byte boundary.
                     pos += 8 + chunk_size + (chunk_size & 1)
@@ -465,7 +428,7 @@ class RawTagExtractor:
         return raw_tags
 
     def _parse_info_chunk(self, data):
-        """Parse raw WAV INFO chunk."""
+        """Parse a raw WAV LIST/INFO chunk."""
         raw_tags = {}
         pos = 0
 
@@ -501,12 +464,8 @@ class RawTagExtractor:
 
                     id3_key = self._AIFF_CHUNK_TO_ID3.get(chunk_id)
                     if id3_key:
-                        tag_value = (
-                            data[pos + 8 : pos + 8 + chunk_size]
-                            .decode("ascii", errors="ignore")
-                            .strip("\x00")
-                        )
-                        raw_tags[id3_key] = tag_value
+                        tag_value = data[pos + 8 : pos + 8 + chunk_size].decode("ascii", errors="ignore").strip("\x00")
+                        raw_tags.setdefault(id3_key, []).append(tag_value)
 
                     # IFF/AIFF chunks are padded to an even byte boundary.
                     pos += 8 + chunk_size + (chunk_size & 1)

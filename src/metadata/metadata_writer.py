@@ -1,17 +1,6 @@
-"""
-Module for writing database metadata to audio files.
-Supports ID3v2.3/2.4 (MP3) and Vorbis comments (FLAC, OGG).
-
-MetadataWriter only orchestrates: it pulls a track's data out of the
-database (TrackDataAssembler), maps it to the tag vocabulary for the
-file's format (ID3FrameBuilder / VorbisCommentBuilder), and hands that
-off to the format-specific file writer (MP3FileWriter / FlacFileWriter /
-OggFileWriter) that actually rewrites the file on disk. None of those
-collaborators need the database controller except TrackDataAssembler.
-"""
+"""Writes database metadata to audio files: ID3v2.3 for MP3, Vorbis comments for FLAC and Ogg Vorbis."""
 
 from pathlib import Path
-import shutil
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -23,15 +12,18 @@ from src.metadata.writers.metadata_id3_frame_builder import ID3FrameBuilder
 from src.metadata.writers.metadata_mp3_file_writer import MP3FileWriter
 from src.metadata.writers.metadata_ogg_file_writer import OggFileWriter
 from src.metadata.writers.metadata_vorbis_comment_builder import VorbisCommentBuilder
+from src.metadata.writers.metadata_writer_backup import backup_file, discard_backup, restore_backup
+from src.metadata.writers.metadata_writer_merge import id3_frame_key
 from src.metadata.writers.metadata_writer_types import AudioFormat, WriteMode
 
 __all__ = ["AudioFormat", "MetadataWriter", "WriteMode"]
 
 
 class MetadataWriter:
-    """Writes database metadata (and artwork) to audio files."""
+    """Orchestrates database reads, tag building, and the per-format file writers."""
 
     def __init__(self, controller):
+        """Create the data assembler, tag builders and per-format file writers."""
         self.controller = controller
         self.track_data = TrackDataAssembler(controller)
         self.id3_frame_builder = ID3FrameBuilder()
@@ -52,16 +44,8 @@ class MetadataWriter:
         return AudioFormat.UNKNOWN
 
     def write_metadata_to_file(self, track_id: int, file_path: str, mode: WriteMode = WriteMode.UPDATE_EXISTING) -> bool:
-        """Write database metadata to audio file with complete file handling.
-
-        Callers always write tracks in a loop (the batch dialog, the
-        dev-mode immediate-write hook, multi-track advanced-tab writes) and
-        each already shows its own aggregate status/log message once the
-        loop finishes. This method must not also push a per-file message to
-        the global StatusManager - at loop speed that overwrites the
-        caller's message hundreds of times a second, showing as an
-        unreadable blur in the status bar instead of useful feedback.
-        """
+        """Write a track's database metadata to file_path and clear its needs_tag_write flag on success."""
+        # No per-file StatusManager message: callers loop over many tracks and show one summary.
         try:
             if not Path(file_path).exists():
                 raise FileNotFoundError(f"Audio file not found: {file_path}")
@@ -89,45 +73,35 @@ class MetadataWriter:
             return False
 
     def _write_id3(self, file_path: str, data: dict[str, Any], mode: WriteMode) -> bool:
+        """Write ID3 frames to an MP3 file (MP3FileWriter manages its own backup)."""
         new_frames = self.id3_frame_builder.build_frames(data)
         return self.mp3_writer.write_tags(file_path, new_frames, mode)
 
     def _write_vorbis(self, file_path: str, data: dict[str, Any], mode: WriteMode, audio_format: AudioFormat) -> bool:
-        """Write Vorbis metadata to a FLAC/OGG file.
-
-        Backs up the file first: neither format writer manages its own
-        backup for tag writes (unlike artwork writes, which do), so this
-        is the one place that does.
-        """
-        backup_path = file_path + ".bak"
+        """Write Vorbis comments to a FLAC/Ogg file inside one backup/restore."""
+        backup_path = None
         try:
-            shutil.copy2(file_path, backup_path)
+            # Refuses to overwrite a stale .bak, which may be the last good copy of the file.
+            backup_path = backup_file(file_path)
 
             new_comments = self.vorbis_comment_builder.build_comments(data)
-
-            success = self.flac_writer.write_tags(file_path, new_comments, mode) if audio_format == AudioFormat.FLAC else self.ogg_writer.write_tags(file_path, new_comments, mode)
+            writer = self.flac_writer if audio_format == AudioFormat.FLAC else self.ogg_writer
+            success = writer.write_tags(file_path, new_comments, mode)
 
             if success:
-                Path(backup_path).unlink()
+                discard_backup(backup_path)
             else:
-                shutil.copy2(backup_path, file_path)
-                Path(backup_path).unlink()
-
+                restore_backup(file_path, backup_path)
             return success
 
         except (OSError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error writing Vorbis metadata: {e}")
-            if Path(backup_path).exists():
-                shutil.copy2(backup_path, file_path)
-                Path(backup_path).unlink()
+            if backup_path and Path(backup_path).exists():
+                restore_backup(file_path, backup_path)
             return False
 
     def get_changed_tags(self, track_id: int, file_path: str) -> list[str]:
-        """Compare a file's current on-disk tags to what the database would
-        write, without modifying the file. Returns the sorted list of tag
-        keys (ID3 frame IDs or Vorbis comment names) that differ; an empty
-        list means the file's app-managed tags already match the database.
-        """
+        """Return the sorted tag keys whose on-disk value differs from what the database would write."""
         if not Path(file_path).exists():
             return []
 
@@ -143,24 +117,25 @@ class MetadataWriter:
         return []
 
     def _diff_id3(self, file_path: str, data: dict[str, Any]) -> list[str]:
+        """Return the frame keys (e.g. "TIT2", "TXXX:PLAYLIST") whose bytes differ on disk."""
         new_frames = self.id3_frame_builder.build_frames(data)
-        new_by_id = {f[0:4].decode("ascii", errors="ignore"): f for f in new_frames if len(f) >= 10}
-        existing_by_id = self.mp3_writer.get_existing_frame_map(file_path)
+        new_by_key = {id3_frame_key(f): f for f in new_frames if len(f) >= 10}
+        existing_by_key = self.mp3_writer.get_existing_frame_map(file_path)
 
-        changed = [frame_id for frame_id, frame_bytes in new_by_id.items() if existing_by_id.get(frame_id) != frame_bytes]
-        return sorted(changed)
+        return sorted(key for key, frame_bytes in new_by_key.items() if existing_by_key.get(key) != frame_bytes)
 
     def _diff_vorbis(self, file_path: str, data: dict[str, Any]) -> list[str]:
+        """Return the Vorbis comment names whose values differ on disk."""
         new_comments = self.vorbis_comment_builder.build_comments(data)
 
-        with Path(file_path).open("rb") as f:
-            file_data = f.read()
+        file_data = Path(file_path).read_bytes()
         ext = Path(file_path).suffix.lower()
         existing_comments = self.flac_writer.raw_tag_extractor.extract_raw_tags(file_data, ext)
 
         sanitize = self.flac_writer.vorbis_writer.sanitize_value
 
         def _as_list(value, apply_sanitize=False):
+            """Normalise a tag value to a list of non-empty strings, optionally sanitised."""
             if value is None:
                 return []
             values = value if isinstance(value, list) else [value]
@@ -173,14 +148,7 @@ class MetadataWriter:
         return sorted(changed)
 
     def sync_metadata_to_track(self, track_id: int) -> dict[str, Any]:
-        """Read a track's file tags, compare them to the database, and write
-        only the fields that actually differ.
-
-        Returns {"success": bool, "changed": List[str], "message": str}.
-        "changed" lists the tag keys that were (or would need to be)
-        updated; an empty list with success=True means the file already
-        matches the database.
-        """
+        """Write a track's file only when its tags differ; return {"success", "changed", "message"}."""
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track or not track.track_file_path:
@@ -203,12 +171,7 @@ class MetadataWriter:
             return {"success": False, "changed": [], "message": str(e)}
 
     def write_artwork_to_file(self, file_path: str, role: str, image_bytes: Any) -> bool:
-        """
-        Add/replace (image_bytes given) or remove (image_bytes=None) the
-        `role` ("front"/"rear"/"liner") artwork in an audio file. Dispatches
-        by extension - FLAC and MP3 are supported today, anything else
-        returns False.
-        """
+        """Add/replace (image_bytes given) or remove (None) role artwork in a FLAC or MP3 file; False otherwise."""
         ext = Path(file_path).suffix.lower()
         if ext == ".flac":
             return self.flac_writer.write_artwork(file_path, role, image_bytes)
@@ -218,7 +181,7 @@ class MetadataWriter:
         return False
 
     def write_metadata_to_track(self, track_id: int, mode: WriteMode = WriteMode.UPDATE_EXISTING) -> bool:
-        """Write metadata to a track's audio file using controller helpers."""
+        """Write a track's database metadata to its own file."""
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track or not track.track_file_path:

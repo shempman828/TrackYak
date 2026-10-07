@@ -1,13 +1,20 @@
+"""Technical audio property extraction (duration, bit rate, sample rate, channels)."""
+
 import struct
 
 from src.foundation.logger_config import logger
+from src.metadata.metadata_byte_utils import id3_tag_end
 from src.metadata.metadata_mp4_atoms import find_atom, iter_atoms
+
+# MPEG version bits: 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5 (1 is reserved).
+_MP3_SAMPLE_RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
 
 
 class AudioPropertiesExtractor:
-    """Dedicated audio technical properties extraction."""
+    """Extracts technical audio properties from file bytes."""
 
     def __init__(self):
+        """Register the per-extension property readers."""
         self.format_handlers = {
             ".mp3": self._extract_mp3_properties,
             ".flac": self._extract_flac_properties,
@@ -25,17 +32,7 @@ class AudioPropertiesExtractor:
         }
 
     def extract_audio_properties(self, data, file_ext):
-        """
-        Extract technical audio properties from file bytes already read by
-        the caller.
-
-        Args:
-            data: Full file contents
-            file_ext: File extension (.mp3, .flac, etc.)
-
-        Returns:
-            Dictionary with audio technical properties
-        """
+        """Return the technical audio properties of the file bytes as a dict."""
         properties = {}
 
         try:
@@ -61,36 +58,42 @@ class AudioPropertiesExtractor:
     # ------------------------------------------------------------------ MP3
 
     def _mp3_audio_start(self, data):
-        """Return the offset where MP3 frame data begins, skipping any
-        leading ID3v2 tag. Without this, frame-sync scanning routinely
-        false-positives inside embedded artwork (APIC) bytes, which are
-        full of 0xFF bytes from JPEG markers."""
-        if len(data) >= 10 and data[0:3] == b"ID3":
-            return 10 + self._syncsafe_to_int(data[6:10])
-        return 0
+        """Return the offset where MP3 frames begin, past any ID3v2 tag."""
+        # Without this, sync scanning finds false frames in APIC JPEG bytes (full of 0xFF).
+        return id3_tag_end(data)
 
     def _find_next_mp3_sync(self, data, start):
+        """Return the offset of the next valid MP3 frame header at or after start, or None."""
         pos = start
         while pos < len(data) - 4:
             if data[pos] == 0xFF and (data[pos + 1] & 0xE0) == 0xE0:
                 header = struct.unpack(">I", data[pos : pos + 4])[0]
-                if (header & 0xFFE00000) == 0xFFE00000:
+                if self._is_valid_mp3_header(header):
                     return pos
             pos += 1
         return None
 
+    @staticmethod
+    def _is_valid_mp3_header(header):
+        """Return True if header has frame sync and no reserved version, layer, bit rate or sample rate."""
+        return (header & 0xFFE00000) == 0xFFE00000 and (header >> 19) & 0x3 != 1 and (header >> 17) & 0x3 != 0 and (header >> 12) & 0xF != 0xF and (header >> 10) & 0x3 != 3
+
+    @staticmethod
+    def _mp3_samples_per_frame(header):
+        """Return the samples per frame for the header's MPEG version and layer."""
+        version_bits = (header >> 19) & 0x3
+        layer_bits = (header >> 17) & 0x3
+        if layer_bits == 3:  # Layer I
+            return 384
+        if layer_bits == 2:  # Layer II
+            return 1152
+        return 1152 if version_bits == 3 else 576  # Layer III
+
     def _parse_mp3_vbr_header(self, data, frame_pos, version_bits, channel_mode):
-        """Look for a LAME/Xing "Xing"/"Info" tag or a Fraunhofer "VBRI" tag
-        right after the first frame's side info, and return the
-        encoder-reported {frames, bytes} if present. Virtually every modern
-        encoder writes one of these (CBR included), giving an exact
-        duration/bitrate without scanning the whole stream."""
+        """Return the encoder's {frames, bytes} from a Xing/Info or VBRI header in the first frame, or None."""
         try:
             is_mono = channel_mode == 3
-            if version_bits == 3:  # MPEG1
-                side_info = 17 if is_mono else 32
-            else:  # MPEG2 / 2.5
-                side_info = 9 if is_mono else 17
+            side_info = (17 if is_mono else 32) if version_bits == 3 else (9 if is_mono else 17)
 
             xing_pos = frame_pos + 4 + side_info
             if data[xing_pos : xing_pos + 4] in (b"Xing", b"Info"):
@@ -107,8 +110,7 @@ class AudioPropertiesExtractor:
                     result["bytes"] = struct.unpack(">I", data[p : p + 4])[0]
                 return result or None
 
-            # VBRI sits at a fixed offset (32 bytes after the frame header),
-            # independent of channel mode.
+            # VBRI sits 32 bytes after the frame header, for any channel mode.
             vbri_pos = frame_pos + 4 + 32
             if data[vbri_pos : vbri_pos + 4] == b"VBRI":
                 p = vbri_pos + 4 + 2 + 2 + 2  # skip version, delay, quality
@@ -143,8 +145,7 @@ class AudioPropertiesExtractor:
                 return properties
 
             channels = self._parse_mp3_channels(header)
-            # Layer III samples per frame: 1152 for MPEG1, 576 for MPEG2/2.5.
-            samples_per_frame = 1152 if version_bits == 3 else 576
+            samples_per_frame = self._mp3_samples_per_frame(header)
 
             properties["sample_rate"] = sample_rate
             properties["channels"] = channels
@@ -161,9 +162,7 @@ class AudioPropertiesExtractor:
                         properties["bit_rate"] = bitrate // 1000
                 return properties
 
-            # No encoder VBR header found — fall back to scanning the whole
-            # remaining stream so duration/bitrate reflect the actual track
-            # rather than a handful of frames.
+            # No encoder header: scan the whole stream so duration reflects the full track.
             frame_count = 0
             total_bitrate = 0
             total_samples = 0
@@ -171,19 +170,17 @@ class AudioPropertiesExtractor:
             while scan_pos < len(data) - 4:
                 if data[scan_pos] == 0xFF and (data[scan_pos + 1] & 0xE0) == 0xE0:
                     frame_header = struct.unpack(">I", data[scan_pos : scan_pos + 4])[0]
-                    if (frame_header & 0xFFE00000) != 0xFFE00000:
+                    if not self._is_valid_mp3_header(frame_header):
                         scan_pos += 1
                         continue
 
                     frame_bitrate = self._parse_mp3_bitrate(frame_header)
                     frame_sample_rate = self._parse_mp3_sample_rate(frame_header)
-                    frame_size = self._parse_mp3_frame_size(
-                        frame_header, frame_bitrate, frame_sample_rate
-                    )
+                    frame_size = self._parse_mp3_frame_size(frame_header, frame_bitrate, frame_sample_rate)
 
                     if frame_bitrate and frame_sample_rate and frame_size:
                         total_bitrate += frame_bitrate
-                        total_samples += samples_per_frame
+                        total_samples += self._mp3_samples_per_frame(frame_header)
                         frame_count += 1
                         scan_pos += frame_size
                     else:
@@ -236,9 +233,7 @@ class AudioPropertiesExtractor:
                     bit_depth = ((bits >> 36) & 0x1F) + 1
                     total_samples = bits & 0xFFFFFFFFF  # 36 bits
 
-                    properties.update(
-                        {"sample_rate": sample_rate, "channels": channels, "bit_depth": bit_depth}
-                    )
+                    properties.update({"sample_rate": sample_rate, "channels": channels, "bit_depth": bit_depth})
 
                     # Calculate duration and bitrate
                     if total_samples > 0 and sample_rate > 0:
@@ -285,13 +280,7 @@ class AudioPropertiesExtractor:
                     channels = struct.unpack("<H", fmt_data[2:4])[0]
                     sample_rate = struct.unpack("<I", fmt_data[4:8])[0]
 
-                    properties.update(
-                        {
-                            "audio_format": audio_format,
-                            "channels": channels,
-                            "sample_rate": sample_rate,
-                        }
-                    )
+                    properties.update({"audio_format": audio_format, "channels": channels, "sample_rate": sample_rate})
 
                     # bits_per_sample is within the standard 16-byte PCM fmt
                     # chunk (offset 14:16); the extra bytes some encoders add
@@ -350,9 +339,7 @@ class AudioPropertiesExtractor:
                     # Sample rate (80-bit IEEE 754 extended precision float)
                     sample_rate = self._parse_aiff_sample_rate(comm_data[8:18])
 
-                    properties.update(
-                        {"channels": channels, "bit_depth": bit_depth, "sample_rate": sample_rate}
-                    )
+                    properties.update({"channels": channels, "bit_depth": bit_depth, "sample_rate": sample_rate})
 
                     if sample_rate and total_frames > 0:
                         properties["duration"] = total_frames / sample_rate
@@ -372,9 +359,8 @@ class AudioPropertiesExtractor:
         return properties
 
     def _parse_aiff_sample_rate(self, sample_rate_data):
-        """Decode an 80-bit IEEE 754 extended-precision float, as used by
-        AIFF's COMM sampleRate field: 1 sign bit + 15 exponent bits, then a
-        64-bit mantissa with an explicit (non-implicit) leading integer bit."""
+        """Decode AIFF's 80-bit IEEE 754 extended-precision sample rate."""
+        # 1 sign bit + 15 exponent bits, then a 64-bit mantissa with an explicit integer bit.
         try:
             exponent_word = struct.unpack(">H", sample_rate_data[0:2])[0]
             mantissa = struct.unpack(">Q", sample_rate_data[2:10])[0]
@@ -388,7 +374,7 @@ class AudioPropertiesExtractor:
             # mantissa is already normalized to [2**63, 2**64); dividing by
             # 2**63 gives the [1, 2) significand IEEE 754 assumes.
             value = sign * mantissa * (2.0 ** (exponent - 16383 - 63))
-            return int(round(value))
+            return round(value)
 
         except (struct.error, OverflowError) as e:
             logger.warning(f"Error parsing AIFF sample rate: {e}")
@@ -397,9 +383,7 @@ class AudioPropertiesExtractor:
     # ------------------------------------------------------------------ MP4
 
     def _extract_mp4_properties(self, data):
-        """Extract MP4/M4A/AAC audio technical properties from
-        moov/trak/mdia. Raw ADTS .aac streams (no MP4 container) have no
-        moov atom and simply yield no properties here."""
+        """Extract MP4/M4A audio properties from moov/trak/mdia ({} for raw ADTS .aac)."""
         properties = {}
 
         try:
@@ -523,49 +507,28 @@ class AudioPropertiesExtractor:
     # ------------------------------------------------------------------ Ogg
 
     def _extract_ogg_properties(self, data):
-        """Extract audio technical properties from an Ogg container
-        (Vorbis or Opus), by reading the identification header on the
-        first page and the granule position of the last page."""
+        """Extract Ogg Vorbis/Opus properties from the first page's ID header and the last page's granule."""
         properties = {}
 
         try:
-            if data[0:4] != b"OggS":
+            if data[0:4] != b"OggS" or len(data) < 27:
                 return properties
 
             channels = sample_rate = None
             pre_skip = 0
-            last_granule = None
-            first_page = True
 
-            pos = 0
-            while pos + 27 <= len(data) and data[pos : pos + 4] == b"OggS":
-                granule_position = struct.unpack("<q", data[pos + 6 : pos + 14])[0]
-                page_segments = data[pos + 26]
-                segment_table_start = pos + 27
-                if segment_table_start + page_segments > len(data):
-                    break
-                segment_table = data[segment_table_start : segment_table_start + page_segments]
-                payload_size = sum(segment_table)
-                payload_start = segment_table_start + page_segments
-                payload_end = payload_start + payload_size
+            page_segments = data[26]
+            payload_start = 27 + page_segments
+            payload = data[payload_start : payload_start + sum(data[27:payload_start])]
+            if payload[0:7] == b"\x01vorbis" and len(payload) >= 16:
+                channels = payload[11]
+                sample_rate = struct.unpack("<I", payload[12:16])[0]
+            elif payload[0:8] == b"OpusHead" and len(payload) >= 12:
+                channels = payload[9]
+                pre_skip = struct.unpack("<H", payload[10:12])[0]
+                sample_rate = 48000  # Opus always decodes at 48 kHz
 
-                if first_page:
-                    payload = data[payload_start:payload_end]
-                    if payload[0:7] == b"\x01vorbis" and len(payload) >= 16:
-                        channels = payload[11]
-                        sample_rate = struct.unpack("<I", payload[12:16])[0]
-                    elif payload[0:8] == b"OpusHead" and len(payload) >= 12:
-                        channels = payload[9]
-                        pre_skip = struct.unpack("<H", payload[10:12])[0]
-                        sample_rate = 48000  # Opus always decodes at 48kHz
-                    first_page = False
-
-                if granule_position >= 0:
-                    last_granule = granule_position
-
-                if payload_end <= pos:
-                    break  # malformed/zero-progress page; avoid infinite loop
-                pos = payload_end
+            last_granule = self._last_ogg_granule(data)
 
             if channels:
                 properties["channels"] = channels
@@ -584,10 +547,23 @@ class AudioPropertiesExtractor:
 
         return properties
 
+    @staticmethod
+    def _last_ogg_granule(data):
+        """Return the granule position of the last page that has one, searching back from the end."""
+        pos = len(data)
+        while True:
+            pos = data.rfind(b"OggS", 0, pos)
+            if pos < 0:
+                return None
+            if pos + 14 <= len(data) and data[pos + 4] == 0:  # version byte 0 filters false "OggS" matches
+                granule = struct.unpack("<q", data[pos + 6 : pos + 14])[0]
+                if granule >= 0:
+                    return granule
+
     # -------------------------------------------------------------- MP3 helpers
 
     def _parse_mp3_bitrate(self, header):
-        """Extract bitrate from MP3 frame header."""
+        """Return the frame header's bit rate in bps, or None."""
         bitrate_table = [
             # MPEG Version 1
             [
@@ -629,40 +605,28 @@ class AudioPropertiesExtractor:
         return None
 
     def _parse_mp3_sample_rate(self, header):
-        """Extract sample rate from MP3 frame header."""
-        sample_rate_table = [
-            [44100, 48000, 32000],  # MPEG-1
-            [22050, 24000, 16000],  # MPEG-2
-        ]
-
-        version = (header >> 19) & 0x3
+        """Return the frame header's sample rate in Hz, or None."""
+        rates = _MP3_SAMPLE_RATES.get((header >> 19) & 0x3)
         sr_index = (header >> 10) & 0x3
-
-        table = 0 if version == 3 else 1
-
-        if 0 <= sr_index <= 2:
-            return sample_rate_table[table][sr_index]
-
-        return None
+        if rates is None or sr_index > 2:
+            return None
+        return rates[sr_index]
 
     def _parse_mp3_channels(self, header):
-        """Extract channel mode from MP3 frame header."""
+        """Return the channel count from the frame header's channel mode."""
         mode = (header >> 6) & 0x3
         return 1 if mode == 3 else 2  # Mono = 1, Stereo/Joint/Dual = 2
 
     def _parse_mp3_frame_size(self, header, bitrate, sample_rate):
-        """Calculate MP3 frame size."""
+        """Return the frame size in bytes for a header, bit rate (bps) and sample rate (Hz), or 0."""
         if not bitrate or not sample_rate:
             return 0
 
-        try:
-            padding = (header >> 9) & 0x01
-            return ((144000 * bitrate) // sample_rate) + padding
-        except TypeError:
-            return 0
-
-    def _syncsafe_to_int(self, data):
-        result = 0
-        for byte in data:
-            result = (result << 7) | (byte & 0x7F)
-        return result
+        padding = (header >> 9) & 0x01
+        version_bits = (header >> 19) & 0x3
+        layer_bits = (header >> 17) & 0x3
+        if layer_bits == 3:  # Layer I: 4-byte slots
+            return (12 * bitrate // sample_rate + padding) * 4
+        if layer_bits == 1 and version_bits != 3:  # Layer III, MPEG-2/2.5
+            return 72 * bitrate // sample_rate + padding
+        return 144 * bitrate // sample_rate + padding

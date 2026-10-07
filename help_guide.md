@@ -918,7 +918,14 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
 - **Write Metadata…** — pushes your database edits back into the actual file
   tags, for when you want the files themselves to match what you've cleaned
   up in TrackYak. Scan the library first (dirty tracks only by default, or a
-  full rescan), pick a write mode, optionally preview, then write.
+  full rescan), pick a write mode, optionally preview, then write. Writing
+  works for MP3, FLAC and Ogg Vorbis files; Opus streams (even with an
+  `.ogg` extension) are skipped rather than risk damaging them. "Replace all
+  tags" clears every other tag but always keeps embedded cover art. Cancel
+  stops after the file currently being written and reports how many files
+  were updated; the rest stay flagged, so the next scan finds them again.
+  Ratings are written as 0–100 and read back on the 0–10 scale, and a vinyl
+  track number like "B1" is read back as side B, track 1.
 - **Manage Aliases…** — where merge/split history and alternate names live
   for Genres, Artists, Publishers, and Roles, plus a list of genre names to
   always skip during auto-tagging.

@@ -1,6 +1,4 @@
-"""Shared backup/restore/verify helpers used by the MP3 and FLAC file
-writers when writing tags or artwork.
-"""
+"""Shared atomic-write, backup/restore and verify helpers for the tag and artwork writers."""
 
 from collections.abc import Callable
 import contextlib
@@ -33,15 +31,8 @@ _swept_dirs: set[str] = set()
 
 
 def sweep_stale_temp_files(directory: str, *, min_age_seconds: int = _STALE_TMP_MIN_AGE_S) -> None:
-    """Delete abandoned `.tmp-*` files left in `directory`.
-
-    atomic_write creates its temp with mkstemp and only unlinks it on a
-    handled exception. A SIGKILL / power loss between mkstemp and os.replace
-    leaves the temp stranded next to the target with no cleanup path. This
-    reaps those, but only ones older than `min_age_seconds` so a concurrent
-    in-flight atomic_write in the same directory is never touched. Best
-    effort - every failure is swallowed.
-    """
+    """Best-effort delete of `.tmp-*` files older than min_age_seconds that a killed atomic_write left behind."""
+    # The age limit keeps a concurrent in-flight atomic_write's temp safe.
     now = time.time()
     try:
         entries = list(os.scandir(directory))
@@ -62,12 +53,7 @@ def sweep_stale_temp_files(directory: str, *, min_age_seconds: int = _STALE_TMP_
 
 
 def _copy_xattrs(src: str, dst: str) -> None:
-    """Copy every extended attribute from src to dst (best effort).
-
-    shutil.copymode drops these; on Linux the `user.*` namespace is where
-    some players stash rating tags, so losing them on the swapped-in inode
-    is silent metadata loss.
-    """
+    """Best-effort copy of every extended attribute from src to dst (some players keep ratings in user.*)."""
     if not hasattr(os, "listxattr"):
         return
     try:
@@ -82,16 +68,9 @@ def _copy_xattrs(src: str, dst: str) -> None:
 
 
 def _clone_file_metadata(src: str, dst: str) -> None:
-    """Carry filesystem metadata from src onto the temp that will replace it.
-
-    Restores permission bits, ownership (best effort - needs privilege when
-    uid/gid differ; mkstemp already makes dst caller-owned, which covers the
-    common case), and extended attributes. Timestamps are deliberately NOT
-    copied: dst must keep its fresh mtime so mtime-keyed caches downstream
-    (src/image/artwork_cache.py, src/sync/transcode.py) still see the file
-    as changed. POSIX ACLs beyond the base mode are not copied - there is no
-    stdlib API for them.
-    """
+    """Copy permission bits, ownership and xattrs from src to the temp that replaces it."""
+    # Timestamps are not copied: mtime-keyed caches (artwork_cache, transcode) must see the change.
+    # POSIX ACLs beyond the base mode are not copied (no stdlib API).
     try:
         st = Path(src).stat()
     except OSError:
@@ -105,24 +84,8 @@ def _clone_file_metadata(src: str, dst: str) -> None:
 
 
 def atomic_write(file_path: str, data: bytes) -> None:
-    """Write `data` to file_path via a temp file + atomic rename.
-
-    A straight open(file_path, "wb")/"r+b" rewrite mutates the file's
-    existing inode in place. If another thread or process (e.g. the audio
-    player streaming this exact track) already has the file open, its read
-    position is based on the old byte layout - rewriting the tag/artwork
-    shifts where the audio data starts, so the player's next read lands on
-    the wrong bytes (FLAC decoder desync, corrupt MP3 frames, etc).
-    Writing to a new temp file and renaming it over file_path swaps the
-    directory entry to a new inode; any fd already open on the old one
-    keeps reading its original, untouched bytes until it's closed and
-    reopened.
-
-    Permission bits, ownership, and extended attributes are cloned onto the
-    replacement inode (see _clone_file_metadata); a hard kill mid-write can
-    still strand the temp, so the first write to each directory in this
-    process sweeps that directory's stale `.tmp-*` leftovers first.
-    """
+    """Write data to file_path through a temp file and an atomic rename onto a new inode."""
+    # A new inode keeps the player's open fd on the old bytes, so a playing track does not desync.
     directory = str(Path(file_path).parent)
     if directory not in _swept_dirs:
         _swept_dirs.add(directory)
@@ -141,17 +104,8 @@ def atomic_write(file_path: str, data: bytes) -> None:
 
 
 def backup_file(file_path: str) -> str:
-    """Copy file_path to a sibling .bak file and return its path.
-
-    Refuses (FileExistsError) to overwrite an existing <file>.bak. A
-    leftover backup means an earlier tag/artwork write died after
-    backup_file but before restore_backup/discard_backup ran - so that .bak
-    is the only untouched copy of the original, and file_path itself may
-    already be half-written. Blindly re-copying would replace the pristine
-    backup with the modified file and destroy the last good copy. Callers
-    catch this as "back up failed - abort the write", leaving the stale
-    backup in place for manual recovery.
-    """
+    """Copy file_path to a sibling .bak file and return its path; raise FileExistsError if one exists."""
+    # A leftover .bak is from a write that died mid-way and may be the only good copy, so never overwrite it.
     backup_path = file_path + ".bak"
     if Path(backup_path).exists():
         raise FileExistsError(f"Refusing to overwrite existing backup {backup_path}: a prior write likely failed without restoring. Confirm {file_path} is intact, then move or remove the backup.")
@@ -160,13 +114,7 @@ def backup_file(file_path: str) -> str:
 
 
 def restore_backup(file_path: str, backup_path: str) -> bool:
-    """
-    Best-effort restore of file_path from backup_path. Never raises - a
-    failed restore (e.g. the same permission error that caused the
-    original write to fail) must not crash the caller. On failure, the
-    backup is deliberately left in place for manual recovery instead of
-    being deleted.
-    """
+    """Best-effort restore of file_path from backup_path; never raises, and keeps the backup on failure."""
     try:
         shutil.copy2(backup_path, file_path)
         Path(backup_path).unlink()
@@ -182,18 +130,8 @@ def discard_backup(backup_path: str) -> None:
 
 
 def write_artwork_with_backup(file_path: str, role: str, image_bytes: Any, role_to_type: dict[str, int], mutate: Callable[[], bool], error_context: str) -> bool:
-    """
-    Shared control-flow skeleton for a format's write_artwork: validate
-    `role`, back up the file, run `mutate` (which does the format-specific
-    strip-existing-picture/append-new-picture/serialize and writes the
-    file), then verify the result and restore the backup on any failure.
-
-    `mutate` returns False if it couldn't find anything to write against
-    (e.g. no parseable metadata blocks/tag) - treated the same as any other
-    failure, but without a verification step since nothing was written.
-    `error_context` is folded into the debug log line on an exception (e.g.
-    "artwork" or "MP3 artwork") so failures are still distinguishable by format.
-    """
+    """Back up the file, run the format's mutate(), verify the artwork, and restore the backup on any failure."""
+    # mutate() returns False when there is nothing to write against; no verify is needed then.
     if role not in role_to_type:
         raise ValueError(f"Unknown artwork role: {role}")
 
@@ -221,7 +159,7 @@ def write_artwork_with_backup(file_path: str, role: str, image_bytes: Any, role_
         discard_backup(backup_path)
         return True
 
-    except (OSError, struct.error, Image.DecompressionBombError) as e:
+    except (OSError, ValueError, struct.error, Image.DecompressionBombError) as e:
         logger.debug(f"Error writing {error_context} to {file_path}: {e}")
         if backup_path and Path(backup_path).exists():
             restore_backup(file_path, backup_path)

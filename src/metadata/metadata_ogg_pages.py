@@ -1,12 +1,7 @@
-"""Minimal Ogg page/packet reader and writer, shared by audio-properties
-and tag extraction/writing for .ogg/.opus containers.
+"""Minimal Ogg page/packet reader and writer (RFC 3533) for .ogg/.opus tag reads and writes."""
 
-Reconstructs logical packets from physical pages by following each page's
-lacing values (segment table), per the Ogg bitstream spec (RFC 3533):  a
-255-byte segment means the packet continues into the next segment (and,
-if it's the last segment on the page, into the next page); any shorter
-segment ends the packet.
-"""
+# Lacing: a 255-byte segment continues the packet (onto the next page if it is the last
+# segment); any shorter segment ends it.
 
 from collections.abc import Iterator
 import struct
@@ -15,17 +10,12 @@ from src.foundation.logger_config import logger
 
 
 def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:
-    """Yield up to max_packets reconstructed packets from the first
-    logical stream at the start of data. Sufficient for header packets
-    (identification, comment), which always come first, in order, before
-    any audio packet."""
+    """Yield up to max_packets reconstructed packets from the start of data (enough for the header packets)."""
     pos = 0
     current = bytearray()
     packets_yielded = 0
 
-    while (
-        pos + 27 <= len(data) and data[pos : pos + 4] == b"OggS" and packets_yielded < max_packets
-    ):
+    while pos + 27 <= len(data) and data[pos : pos + 4] == b"OggS" and packets_yielded < max_packets:
         page_segments = data[pos + 26]
         seg_table_start = pos + 27
         if seg_table_start + page_segments > len(data):
@@ -59,14 +49,12 @@ def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:
 
 
 def _make_crc_table() -> list[int]:
+    """Build the lookup table for ogg_crc32."""
     table = []
     for i in range(256):
         r = i << 24
         for _ in range(8):
-            if r & 0x80000000:
-                r = ((r << 1) ^ 0x04C11DB7) & 0xFFFFFFFF
-            else:
-                r = (r << 1) & 0xFFFFFFFF
+            r = ((r << 1) ^ 0x04C11DB7) & 0xFFFFFFFF if r & 0x80000000 else (r << 1) & 0xFFFFFFFF
         table.append(r)
     return table
 
@@ -75,10 +63,8 @@ _CRC_TABLE = _make_crc_table()
 
 
 def ogg_crc32(data: bytes) -> int:
-    """Ogg's page checksum: CRC-32 with polynomial 0x04C11DB7, computed
-    MSB-first with no reflection and no final XOR - distinct from the
-    far more common zlib/CRC-32 variant. The page's own checksum field
-    (bytes 22:26) must be zeroed in `data` before calling this."""
+    """Compute the Ogg page checksum (MSB-first CRC-32, poly 0x04C11DB7; not zlib's CRC-32)."""
+    # The page's own checksum field (bytes 22:26) must be zeroed in data first.
     crc = 0
     for byte in data:
         crc = ((crc << 8) & 0xFFFFFFFF) ^ _CRC_TABLE[((crc >> 24) & 0xFF) ^ byte]
@@ -86,8 +72,7 @@ def ogg_crc32(data: bytes) -> int:
 
 
 def iter_pages(data: bytes) -> Iterator[dict]:
-    """Yield each Ogg page in data as a dict of its header fields plus
-    payload bytes and its (start, end) byte span."""
+    """Yield each Ogg page as a dict of header fields, payload, and its (start, end) span."""
     pos = 0
     while pos + 27 <= len(data) and data[pos : pos + 4] == b"OggS":
         header_type = data[pos + 5]
@@ -119,22 +104,10 @@ def iter_pages(data: bytes) -> Iterator[dict]:
         pos = payload_end
 
 
-def _build_single_page(
-    serial_number: int,
-    sequence_number: int,
-    granule_position: int,
-    header_type: int,
-    segment_table: bytes,
-    payload: bytes,
-) -> bytes:
-    """Serialize one page from already-computed lacing values, filling in
-    a correct checksum. Raises if segment_table needs more than the 255
-    entries a page's one-byte segment count can hold."""
+def _build_single_page(serial_number: int, sequence_number: int, granule_position: int, header_type: int, segment_table: bytes, payload: bytes) -> bytes:
+    """Serialize one page with a correct checksum; raise ValueError for more than 255 segments."""
     if len(segment_table) > 255:
-        logger.error(
-            f"Cannot build Ogg page: segment table has {len(segment_table)} "
-            "entries, exceeding the 255-entry limit"
-        )
+        logger.error(f"Cannot build Ogg page: segment table has {len(segment_table)} entries, exceeding the 255-entry limit")
         raise ValueError("Ogg page cannot have more than 255 segments")
 
     header = bytearray()
@@ -154,9 +127,7 @@ def _build_single_page(
 
 
 def _lace_payload(payload: bytes) -> list[int]:
-    """Split one packet's length into Ogg lacing segment values: 255-byte
-    chunks, terminated by a segment shorter than 255 (an explicit 0 if
-    the packet's length is an exact multiple of 255)."""
+    """Split a packet length into lacing values: 255s, then one shorter value (0 for an exact multiple)."""
     segments = []
     n = len(payload)
     i = 0
@@ -169,21 +140,9 @@ def _lace_payload(payload: bytes) -> list[int]:
     return segments
 
 
-def build_pages(
-    packets: list[bytes],
-    serial_number: int,
-    start_sequence_number: int,
-    first_page_flag: bool = True,
-) -> tuple[bytes, int]:
-    """Serialize a list of complete packets into one or more Ogg pages,
-    using standard lacing. A packet only spans multiple pages if its own
-    lacing needs more than the 255 segments a single page can hold (the
-    continued-packet header bit is set correctly in that case); this
-    never happens for the small header packets this module writes in
-    practice, but is handled rather than assumed away.
-
-    Returns (page_bytes, next_sequence_number).
-    """
+def build_pages(packets: list[bytes], serial_number: int, start_sequence_number: int, first_page_flag: bool = True) -> tuple[bytes, int]:
+    """Serialize complete packets into Ogg pages, returning (page_bytes, next_sequence_number)."""
+    # A packet spans pages only when it needs more than 255 segments; the continued bit is then set.
     pages = bytearray()
     seq = start_sequence_number
     pending_segments: list[int] = []
@@ -192,6 +151,7 @@ def build_pages(
     continues_from_prev = False
 
     def flush_page():
+        """Emit the pending segments as one page and reset the page state."""
         nonlocal seq, pending_segments, pending_payload
         nonlocal first_page_emitted, continues_from_prev
         header_type = 0
@@ -242,23 +202,9 @@ def build_pages(
 
 
 def replace_comment_packet(data: bytes, new_comment_packet: bytes) -> bytes | None:
-    """Rebuild an Ogg Vorbis file with its comment-header packet (the 2nd
-    of the stream's 3 header packets) replaced.
-
-    Every real encoder (libvorbis/oggenc, ffmpeg, ...) flushes the 3
-    header packets onto their own page(s) before any audio packet
-    begins - confirmed against real ffmpeg output, not assumed. That
-    means only the page(s) holding those 3 packets ever need to be
-    re-laid-out; every audio page's payload, granule position, and flags
-    are carried through byte-for-byte, just renumbered and
-    re-checksummed to stay contiguous with however many pages the new
-    header now spans.
-
-    Returns the new file bytes, or None if this file doesn't have that
-    standard shape (e.g. a multiplexed multi-stream file, or a header
-    packet sharing a page with the start of audio data) - callers should
-    treat that as "can't safely rewrite this file" rather than guess.
-    """
+    """Return an Ogg Vorbis file's bytes with the comment packet replaced, or None if the layout is not safe to rewrite."""
+    # Encoders put the 3 Vorbis header packets on their own pages, so only those pages are rebuilt;
+    # audio pages carry through, renumbered only when the header page count changes.
     pages = list(iter_pages(data))
     if len(pages) < 2:
         logger.warning(f"Cannot rewrite Ogg comment packet: file has only {len(pages)} page(s)")
@@ -272,10 +218,7 @@ def replace_comment_packet(data: bytes, new_comment_packet: bytes) -> bytes | No
 
     for page in pages:
         if page["serial_number"] != serial_number:
-            logger.warning(
-                "Cannot rewrite Ogg comment packet: file is a multiplexed "
-                "multi-stream file, which is out of scope"
-            )
+            logger.warning("Cannot rewrite Ogg comment packet: file is a multiplexed multi-stream file, which is out of scope")
             return None  # multiplexed multi-stream file - out of scope
 
         seg_table = page["segment_table"]
@@ -297,46 +240,30 @@ def replace_comment_packet(data: bytes, new_comment_packet: bytes) -> bytes | No
         if header_pages_end is not None or len(packets) >= 3:
             break
 
-    if header_pages_end is None:
-        logger.warning(
-            "Cannot rewrite Ogg comment packet: could not locate the end of "
-            "the header pages (unexpected file layout)"
-        )
+    if not packets or not packets[0].startswith(b"\x01vorbis"):
+        # Opus/Speex/FLAC-in-Ogg have a different header layout; a Vorbis rewrite would corrupt them.
+        logger.warning("Cannot rewrite Ogg comment packet: stream is not Ogg Vorbis")
         return None
 
-    # The identification header gets its own page, separate from the
-    # comment+setup pages - not just because that's spec-legal lacing,
-    # but because real-world readers (confirmed against mutagen) assume
-    # it specifically: they parse the identification header as "read one
-    # page", then start a fresh page-read loop for the comment header,
-    # so any bytes sharing that first page beyond packet 1 are silently
-    # never seen. This matches what every real encoder already does.
-    id_header_bytes, seq_after_id = build_pages(
-        [packets[0]], serial_number, pages[0]["sequence_number"], first_page_flag=True
-    )
-    comment_setup_bytes, next_sequence = build_pages(
-        [new_comment_packet, packets[2]], serial_number, seq_after_id, first_page_flag=False
-    )
+    if header_pages_end is None:
+        logger.warning("Cannot rewrite Ogg comment packet: could not locate the end of the header pages (unexpected file layout)")
+        return None
+
+    # The identification header gets its own page: readers such as mutagen read it as "one page".
+    id_header_bytes, seq_after_id = build_pages([packets[0]], serial_number, pages[0]["sequence_number"], first_page_flag=True)
+    comment_setup_bytes, next_sequence = build_pages([new_comment_packet, packets[2]], serial_number, seq_after_id, first_page_flag=False)
     new_header_bytes = id_header_bytes + comment_setup_bytes
+
+    audio_pages = [page for page in pages if page["start"] >= header_pages_end]
+    if not audio_pages or audio_pages[0]["sequence_number"] == next_sequence:
+        # Same page count as before: the audio pages are already numbered correctly, so copy them byte for byte.
+        return new_header_bytes + data[header_pages_end:]
 
     tail = bytearray()
     seq = next_sequence
-    for page in pages:
-        if page["start"] < header_pages_end:
-            continue
-        tail.extend(
-            _build_single_page(
-                serial_number,
-                seq,
-                page["granule_position"],
-                page["header_type"],
-                page["segment_table"],
-                page["payload"],
-            )
-        )
+    for page in audio_pages:
+        tail.extend(_build_single_page(serial_number, seq, page["granule_position"], page["header_type"], page["segment_table"], page["payload"]))
         seq += 1
 
-    logger.debug(
-        f"Rebuilt Ogg file with new comment packet: {len(new_header_bytes) + len(tail)} bytes total"
-    )
+    logger.debug(f"Rebuilt Ogg file with new comment packet: {len(new_header_bytes) + len(tail)} bytes total")
     return new_header_bytes + bytes(tail)

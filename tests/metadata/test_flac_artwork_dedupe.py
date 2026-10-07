@@ -26,10 +26,7 @@ import pytest
 
 from scripts.dedupe_flac_duplicate_pictures import _indices_to_drop, dedupe_pictures_in_flac
 from src.metadata.metadata_artwork import ArtworkExtractor
-from src.metadata.metadata_image_utils import (
-    find_picture_index_for_role,
-    find_picture_indices_for_role,
-)
+from src.metadata.metadata_image_utils import find_picture_index_for_role, find_picture_indices_for_role
 from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.writers.metadata_writer_flac_picture import FlacPictureWriter
 
@@ -79,6 +76,12 @@ def test_untyped_single_picture_still_maps_to_front():
     assert find_picture_indices_for_role([(0,), (0,)], "front", _unpack_type) == []
 
 
+def _metadata_blocks(flac):
+    data = flac.read_bytes()
+    writer = FlacFileWriter()
+    return writer._parse_metadata_blocks(data, writer._prefix_length(data))
+
+
 # --- AC2 / AC3 -------------------------------------------------------------
 
 
@@ -86,7 +89,7 @@ def test_write_artwork_collapses_duplicate_front_blocks(tmp_path):
     flac = tmp_path / "dup.flac"
     _make_flac(flac, [_front_block(60, (200, 0, 0)), _front_block(12, (0, 0, 200))])
     # sanity: the raw file really does carry two PICTURE blocks
-    raw_pics = [b for b in FlacFileWriter()._find_metadata_blocks(str(flac)) if b[0] == 6]
+    raw_pics = [b for b in _metadata_blocks(flac) if b[0] == 6]
     assert len(raw_pics) == 2
 
     new_cover = _png(40, (0, 200, 0))
@@ -103,7 +106,7 @@ def test_write_artwork_removal_strips_all_duplicate_blocks(tmp_path):
 
     assert FlacFileWriter().write_artwork(str(flac), "front", None) is True
 
-    raw_pics = [b for b in FlacFileWriter()._find_metadata_blocks(str(flac)) if b[0] == 6]
+    raw_pics = [b for b in _metadata_blocks(flac) if b[0] == 6]
     assert raw_pics == []
 
 

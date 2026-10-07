@@ -1,78 +1,62 @@
-"""Applies WriteMode (ADD_ONLY/UPDATE_EXISTING/REPLACE_ALL) semantics when
-combining freshly-built tag data with whatever a file already has on disk.
-"""
+"""Applies WriteMode semantics when combining freshly-built tags with a file's existing tags."""
 
 from src.foundation.logger_config import logger
+from src.metadata.metadata_byte_utils import decode_id3_string, parse_id3_lang_frame, split_id3_string
 from src.metadata.writers.metadata_writer_types import WriteMode
 
+# Artwork is managed by the artwork writers, so tag writes never remove it, even in REPLACE_ALL.
+_ID3_PICTURE_FRAMES = frozenset({"APIC", "PIC"})
+_VORBIS_PICTURE_KEYS = frozenset({"METADATA_BLOCK_PICTURE", "COVERART"})
 
-def merge_id3_frames(
-    existing_frames: list[tuple[str, bytes]], new_frames: list[bytes], mode: WriteMode
-) -> list[bytes]:
-    """Combine a file's existing ID3 frames with freshly-built ones.
 
-    Args:
-        existing_frames: (frame_id, full_frame_bytes) pairs already found
-            in the file (frame_bytes already re-headered as v2.3).
-        new_frames: Frame bytes just built from database data.
-        mode: How to reconcile the two.
+def id3_frame_key(frame: bytes) -> str:
+    """Return the identity of a full v2.3-headered frame: its ID, plus description/owner/language where the spec allows repeats."""
+    frame_id = frame[0:4].decode("ascii", errors="ignore")
+    body = frame[10:]
+    if not body:
+        return frame_id
+    if frame_id == "TXXX":
+        description, _ = split_id3_string(body[1:], body[0])
+        return f"TXXX:{decode_id3_string(description, body[0])}"
+    if frame_id == "UFID":
+        owner, _ = split_id3_string(body, 0)
+        return f"UFID:{owner.decode('latin-1', errors='ignore')}"
+    if frame_id in ("COMM", "USLT"):
+        parsed = parse_id3_lang_frame(body)
+        if parsed:
+            _, language, description, _ = parsed
+            return f"{frame_id}:{language}:{description}"
+    return frame_id
 
-    Returns:
-        The full list of frame bytes to write.
-    """
-    logger.debug(
-        f"Merging {len(new_frames)} new ID3 frames with "
-        f"{len(existing_frames)} existing frames using {mode.name}"
-    )
+
+def merge_id3_frames(existing_frames: list[tuple[str, bytes]], new_frames: list[bytes], mode: WriteMode) -> list[bytes]:
+    """Combine a file's existing (frame_id, v2.3 frame bytes) pairs with new frame bytes, per mode."""
+    logger.debug(f"Merging {len(new_frames)} new ID3 frames with {len(existing_frames)} existing frames using {mode.name}")
     if mode == WriteMode.REPLACE_ALL:
-        return list(new_frames)
+        pictures = [frame_bytes for frame_id, frame_bytes in existing_frames if frame_id in _ID3_PICTURE_FRAMES]
+        return pictures + list(new_frames)
+
+    existing_keys = {id3_frame_key(frame_bytes) for _, frame_bytes in existing_frames}
+    preserved = [frame_bytes for _, frame_bytes in existing_frames]
 
     if mode == WriteMode.ADD_ONLY:
-        # Existing wins for any frame ID already present; new frames only
-        # fill in IDs the file doesn't have at all.
-        existing_ids = {frame_id for frame_id, _ in existing_frames}
-        added = [
-            f for f in new_frames if f[0:4].decode("ascii", errors="ignore") not in existing_ids
-        ]
-        preserved = [frame_bytes for _, frame_bytes in existing_frames]
-        return preserved + added
+        # Existing wins; new frames only fill keys the file does not have.
+        return preserved + [frame for frame in new_frames if id3_frame_key(frame) not in existing_keys]
 
-    # UPDATE_EXISTING: new values win for any frame ID the app builds;
-    # anything else already in the file (e.g. embedded artwork, or a tag
-    # this app doesn't map) is carried through unchanged.
-    new_frame_ids = {f[0:4].decode("ascii", errors="ignore") for f in new_frames if len(f) >= 4}
-    preserved = [
-        frame_bytes for frame_id, frame_bytes in existing_frames if frame_id not in new_frame_ids
-    ]
+    # UPDATE_EXISTING: new values win for each key the app builds; everything else carries through.
+    new_keys = {id3_frame_key(frame) for frame in new_frames if len(frame) >= 4}
+    preserved = [frame_bytes for frame_bytes in preserved if id3_frame_key(frame_bytes) not in new_keys]
     return preserved + list(new_frames)
 
 
-def merge_vorbis_comments(
-    existing: dict[str, object], new: dict[str, object], mode: WriteMode
-) -> dict[str, object]:
-    """Combine a file's existing Vorbis comments with freshly-built ones.
-
-    Args:
-        existing: Tag name -> value (or list of values), as read off disk.
-        new: Tag name -> value (or list of values), just built from
-            database data.
-        mode: How to reconcile the two.
-
-    Returns:
-        The merged comment dict to serialize and write.
-    """
-    logger.debug(
-        f"Merging {len(new)} new Vorbis comments with "
-        f"{len(existing)} existing comments using {mode.name}"
-    )
+def merge_vorbis_comments(existing: dict[str, object], new: dict[str, object], mode: WriteMode) -> dict[str, object]:
+    """Combine a file's existing Vorbis comments with new ones, per mode."""
+    logger.debug(f"Merging {len(new)} new Vorbis comments with {len(existing)} existing comments using {mode.name}")
     if mode == WriteMode.REPLACE_ALL:
-        return dict(new)
+        pictures = {key: value for key, value in existing.items() if key in _VORBIS_PICTURE_KEYS}
+        return {**pictures, **new}
 
     if mode == WriteMode.ADD_ONLY:
-        # Existing wins for any key already present; new only fills in
-        # keys the file doesn't have at all.
         return {**new, **existing}
 
-    # UPDATE_EXISTING: new wins for any key it defines; anything else
-    # already in the file is carried through unchanged.
     return {**existing, **new}

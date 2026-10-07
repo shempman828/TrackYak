@@ -54,7 +54,7 @@ def _make_mp3(path, frames: list[bytes]) -> None:
 
 
 def _apic_count(path) -> int:
-    return sum(1 for fid, _, _ in MP3FileWriter()._find_frames(str(path)) if fid == "APIC")
+    return sum(1 for fid, _, _ in MP3FileWriter()._parse_frames(path.read_bytes()) if fid == "APIC")
 
 
 # --- AC1 / AC2 -------------------------------------------------------------
@@ -88,9 +88,7 @@ def test_write_artwork_removal_strips_all_duplicate_frames(tmp_path):
 
 def test_non_picture_frame_survives_dedup_write(tmp_path):
     mp3 = tmp_path / "dup.mp3"
-    _make_mp3(
-        mp3, [_tit2("Keep Me"), _apic("front", 60, (200, 0, 0)), _apic("front", 12, (0, 0, 200))]
-    )
+    _make_mp3(mp3, [_tit2("Keep Me"), _apic("front", 60, (200, 0, 0)), _apic("front", 12, (0, 0, 200))])
 
     assert MP3FileWriter().write_artwork(str(mp3), "front", _png(40, (0, 200, 0))) is True
 

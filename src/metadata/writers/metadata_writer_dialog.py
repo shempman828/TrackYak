@@ -1,12 +1,9 @@
-"""
-PySide6 dialog for writing database metadata to audio files.
-Streamlined version - entire library updates only.
-"""
+"""Dialog for writing database metadata to the library's audio files."""
 
 from pathlib import Path
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -17,18 +14,7 @@ from src.metadata.metadata_writer import MetadataWriter, WriteMode
 
 
 class MetadataScannerWorker(CancellableWorker):
-    """Worker thread that collects tracks eligible for a metadata write.
-
-    Emits finished with {track_id: bool} where True = has a valid file
-    and should be written. The dialog then passes all True IDs straight
-    to the write worker — no diff comparison, always write if eligible.
-
-    By default only tracks flagged Track.needs_tag_write (something the DB
-    knows changed since the last write) are considered, instead of every
-    track in the library. Pass full_rescan=True to fall back to the old
-    behavior of checking every track, for reconciling files edited outside
-    the app.
-    """
+    """Collects the tracks that have a file to write: needs_tag_write tracks, or all with full_rescan."""
 
     progress = Signal(int, int)  # current, total
     # object, not dict: PySide marshals a queued dict signal via QVariantMap,
@@ -38,14 +24,17 @@ class MetadataScannerWorker(CancellableWorker):
     log_message = Signal(str)
 
     def __init__(self, metadata_writer, full_rescan: bool = False, parent=None):
+        """Keep the writer (for its controller) and the scan scope."""
         super().__init__(parent)
         self.metadata_writer = metadata_writer
         self.full_rescan = full_rescan
 
     def cancel(self):
+        """Request cancellation; the scan stops before the next track."""
         self.request_cancel()
 
     def run(self):
+        """Scan the tracks and emit finished with {track_id: has_writable_file}."""
         try:
             controller = self.metadata_writer.controller
             tracks = controller.get.get_all_entities("Track") if self.full_rescan else controller.get.get_all_entities("Track", needs_tag_write=1)
@@ -91,7 +80,7 @@ class MetadataScannerWorker(CancellableWorker):
 
 
 class MetadataWriteWorker(CancellableWorker):
-    """Worker thread for metadata writing operations."""
+    """Writes database metadata to each track's file, in order."""
 
     progress = Signal(int, int, int)  # current, total, track_id
     # object, not dict: see MetadataScannerWorker.finished for why a
@@ -100,17 +89,18 @@ class MetadataWriteWorker(CancellableWorker):
     log_message = Signal(str)
 
     def __init__(self, metadata_writer: MetadataWriter, track_ids: list[int], mode: WriteMode, parent=None):
+        """Keep the writer, the tracks to write, and the write mode."""
         super().__init__(parent)
         self.metadata_writer = metadata_writer
         self.track_ids = track_ids
         self.mode = mode
 
     def cancel(self):
-        """Cancel the operation."""
+        """Request cancellation; the write stops after the current file."""
         self.request_cancel()
 
     def run(self):
-        """Execute the metadata writing operation."""
+        """Write each track and emit finished with {track_id: success} for the tracks attempted."""
         total = len(self.track_ids)
         results = {}
 
@@ -123,45 +113,44 @@ class MetadataWriteWorker(CancellableWorker):
 
                 try:
                     success = self.metadata_writer.write_metadata_to_track(track_id, self.mode)
-                    results[track_id] = success
-
-                    if success:
-                        self.log_message.emit(f"✓ Updated track {track_id}")
-                    else:
-                        self.log_message.emit(f"✗ Failed to update track {track_id}")
-
-                except RuntimeError as e:
-                    logger.error(f"Error updating track {track_id}: {e}")
+                except Exception as e:
+                    # Intentional broad boundary catch: one bad file must not end the run or kill the thread.
+                    logger.exception(f"Error updating track {track_id}")
                     self.log_message.emit(f"✗ Error updating track {track_id}: {e!s}")
-                    results[track_id] = False
+                    success = False
+                else:
+                    self.log_message.emit(f"✓ Updated track {track_id}" if success else f"✗ Failed to update track {track_id}")
+                results[track_id] = success
         finally:
             self._release_db_session()
-
-        self.finished.emit(results)
+            # Always emitted, so the dialog never stays locked.
+            self.finished.emit(results)
 
 
 class MetadataWriteDialog(QDialog):
-    """Streamlined dialog for writing metadata to all audio files."""
+    """Scans for tracks to write, then writes database metadata to their audio files."""
 
     def __init__(self, controller, parent=None):
+        """Build the dialog for the given database controller."""
         super().__init__(parent)
         self.controller = controller
         self.metadata_writer = MetadataWriter(controller)
         self.status_manager = StatusManager
         self.scanner_thread: MetadataScannerWorker | None = None
         self.writer_thread: MetadataWriteWorker | None = None
-        self.scan_results: dict[int, tuple] = {}  # track_id: (needs_update, diff_summary)
+        self.scan_results: dict[int, bool] = {}  # track_id -> has a writable file
+        self.tracks_to_update: list[int] = []
+        self._cancelled = False
 
         self.setWindowTitle("Update Audio File Metadata")
         self.setMinimumSize(600, 500)
         self.init_ui()
 
     def init_ui(self):
-        """Initialize the UI."""
+        """Build the widgets."""
         layout = QVBoxLayout(self)
 
-        # Header
-        header_label = QLabel("Sync all audio files with database metadata")
+        header_label = QLabel("Write database metadata to audio files")
         header_label.setProperty("title", True)
         layout.addWidget(header_label)
 
@@ -172,7 +161,7 @@ class MetadataWriteDialog(QDialog):
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Add missing tags only (safe)", WriteMode.ADD_ONLY)
         self.mode_combo.addItem("Update existing tags (recommended)", WriteMode.UPDATE_EXISTING)
-        self.mode_combo.addItem("Replace all tags (overwrites everything)", WriteMode.REPLACE_ALL)
+        self.mode_combo.addItem("Replace all tags (keeps embedded artwork)", WriteMode.REPLACE_ALL)
         self.mode_combo.setCurrentIndex(1)  # Default to UPDATE_EXISTING
 
         mode_layout.addWidget(QLabel("How should metadata be written?"))
@@ -212,7 +201,7 @@ class MetadataWriteDialog(QDialog):
         self.update_btn = QPushButton("Update All Files")
         self.update_btn.clicked.connect(self.start_update)
         self.update_btn.setEnabled(False)
-        self.update_btn.setStyleSheet("font-weight: bold;")
+        self.update_btn.setDefault(True)
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.cancel_operation)
@@ -225,25 +214,22 @@ class MetadataWriteDialog(QDialog):
 
         layout.addLayout(button_layout)
 
-        # Log output
         log_group = QGroupBox("Log")
         log_layout = QVBoxLayout(log_group)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(150)
-        font = QFont("Courier New", 9)
-        self.log_output.setFont(font)
+        self.log_output.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
 
         log_layout.addWidget(self.log_output)
-        layout.addWidget(log_group)
+        layout.addWidget(log_group, 1)  # the log takes the spare height
 
         # Status bar
         self.status_label = QLabel("Ready to scan library")
         layout.addWidget(self.status_label)
 
     def log_message(self, message: str):
-        """Add a message to the log."""
+        """Append a message to the log."""
         self.log_output.append(message)
 
     def update_status(self, message: str):
@@ -251,20 +237,17 @@ class MetadataWriteDialog(QDialog):
         self.status_label.setText(message)
 
     def start_scan(self):
-        """Start scanning the library for metadata differences."""
-        # Disable UI during scan
+        """Start the scan worker."""
+        self._cancelled = False
         self.scan_btn.setEnabled(False)
         self.update_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.progress_group.setVisible(True)
 
-        # Start status manager task
-        self.status_manager.start_task("Scanning library for metadata differences")
-
-        # Clear previous results
+        self.status_manager.start_task("Scanning library for tracks to write")
         self.scan_results = {}
+        self.tracks_to_update = []
 
-        # Start scanner thread
         self.scanner_thread = MetadataScannerWorker(self.metadata_writer, full_rescan=self.full_rescan_check.isChecked())
         self.scanner_thread.progress.connect(self.update_scan_progress)
         self.scanner_thread.finished.connect(self.on_scan_finished)
@@ -273,20 +256,24 @@ class MetadataWriteDialog(QDialog):
 
         scan_kind = "full library" if self.full_rescan_check.isChecked() else "dirty"
         self.log_message(f"=== Starting {scan_kind} scan ===")
-        self.update_status(f"Scanning {scan_kind} tracks for metadata differences...")
+        self.update_status(f"Scanning {scan_kind} tracks for writable files...")
 
     def update_scan_progress(self, current: int, total: int):
-        """Update scan progress display."""
+        """Show scan progress."""
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
         self.progress_label.setText(f"Scanning: {current}/{total} tracks")
 
     def on_scan_finished(self, results):
-        """Handle completion of library scan.
-
-        results is {track_id: bool} — True means the file exists and should
-        be written.  No tuple unpacking needed.
-        """
+        """Enable Update for the tracks the scan found, unless the scan was cancelled."""
+        if self._cancelled:
+            # Partial results after a cancel are not a complete list of tracks to write.
+            self.scan_results = {}
+            self.tracks_to_update = []
+            self.update_btn.setEnabled(False)
+            self.scan_btn.setEnabled(True)
+            self.progress_group.setVisible(False)
+            return
         self.scan_results = results
         scan_kind = "full library" if self.full_rescan_check.isChecked() else "dirty"
 
@@ -313,8 +300,8 @@ class MetadataWriteDialog(QDialog):
         self.log_message(f"=== Scan complete ({scan_kind}): {eligible_count}/{total_count} files eligible for update ===")
 
     def start_update(self):
-        """Start updating metadata for all tracks that need it."""
-        if not hasattr(self, "tracks_to_update") or not self.tracks_to_update:
+        """Start the write worker for the scanned tracks (or log a dry run)."""
+        if not self.tracks_to_update:
             show_status_message(self, "No files need metadata updates.")
             return
 
@@ -328,16 +315,14 @@ class MetadataWriteDialog(QDialog):
             self.status_manager.show_message("Dry run complete", 3000)
             return
 
-        # Disable UI during operation
+        self._cancelled = False
         self.scan_btn.setEnabled(False)
         self.update_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.progress_group.setVisible(True)
 
-        # Start status manager task
         self.status_manager.start_task(f"Updating {len(track_ids)} files")
 
-        # Start writer thread
         self.writer_thread = MetadataWriteWorker(self.metadata_writer, track_ids, mode)
         self.writer_thread.progress.connect(self.update_write_progress)
         self.writer_thread.finished.connect(self.on_update_finished)
@@ -348,29 +333,35 @@ class MetadataWriteDialog(QDialog):
         self.update_status(f"Updating {len(track_ids)} files...")
 
     def update_write_progress(self, current: int, total: int, track_id: int):
-        """Update write progress display."""
+        """Show write progress."""
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
         self.progress_label.setText(f"Updating: {current}/{total} (Track ID: {track_id})")
 
     def on_update_finished(self, results: dict[int, bool]):
-        """Handle completion of metadata update."""
+        """Show the write summary; a cancelled run reports how many files were written before the stop."""
         success_count = sum(1 for success in results.values() if success)
         total_count = len(results)
 
-        # Update status manager
-        if success_count == total_count:
-            self.status_manager.end_task(f"Successfully updated all {total_count} files", 5000)
-        else:
-            self.status_manager.end_task(f"Updated {success_count}/{total_count} files", 5000)
-
-        # Re-enable UI
         self.scan_btn.setEnabled(True)
         self.update_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self.progress_group.setVisible(False)
 
-        # Show results
+        if self._cancelled:
+            planned = len(self.tracks_to_update)
+            logger.info(f"Metadata update cancelled: {success_count}/{planned} files updated")
+            self.log_message(f"=== Update cancelled: {success_count} of {planned} files updated ===")
+            self.update_status(f"Cancelled - {success_count} of {planned} files updated")
+            # The remaining tracks keep needs_tag_write, so the next scan finds them again.
+            self.tracks_to_update = []
+            return
+
+        if success_count == total_count:
+            self.status_manager.end_task(f"Successfully updated all {total_count} files", 5000)
+        else:
+            self.status_manager.end_task(f"Updated {success_count}/{total_count} files", 5000)
+
         logger.info(f"Metadata update complete: {success_count}/{total_count} files updated successfully")
         self.log_message(f"=== Update complete: {success_count}/{total_count} successful ===")
         self.update_status(f"Updated {success_count}/{total_count} files successfully")
@@ -381,33 +372,34 @@ class MetadataWriteDialog(QDialog):
             QMessageBox.warning(self, "Completed with Errors", f"Updated {success_count} files successfully, {total_count - success_count} failed")
 
     def cancel_operation(self):
-        """Cancel the current operation (scan or write)."""
+        """Cancel the running scan or write, if any."""
         if self.scanner_thread and self.scanner_thread.isRunning():
+            self._cancelled = True
             self.scanner_thread.cancel()
-            self.scanner_thread.wait(3000)
             self.log_message("Scan cancelled")
             self.status_manager.end_task("Scan cancelled", 3000)
+            self.update_status("Scan cancelled")
         elif self.writer_thread and self.writer_thread.isRunning():
+            self._cancelled = True
             self.writer_thread.cancel()
-            self.writer_thread.wait(3000)
-            self.log_message("Update cancelled")
+            self.log_message("Cancelling - finishing the current file...")
             self.status_manager.end_task("Update cancelled", 3000)
-
-        # Reset UI
-        self.scan_btn.setEnabled(True)
-        self.update_btn.setEnabled(len(self.scan_results) > 0)
+            self.update_status("Cancelling...")
+        else:
+            return
         self.cancel_btn.setEnabled(False)
-        self.progress_group.setVisible(False)
-        self.update_status("Operation cancelled")
 
     def closeEvent(self, event):
-        """Handle dialog close event."""
-        # Cancel any running operations
+        """Cancel any running work and wait for the worker, so no QThread outlives the dialog."""
         self.cancel_operation()
+        for worker in (self.scanner_thread, self.writer_thread):
+            if worker and worker.isRunning():
+                # Each loop checks the cancel flag per track, so this returns after the current file.
+                worker.wait()
         event.accept()
 
 
 def show_metadata_write_dialog(controller, parent=None):
-    """Convenience function to show the metadata write dialog."""
+    """Show the metadata write dialog modally."""
     dialog = MetadataWriteDialog(controller, parent)
     dialog.exec()

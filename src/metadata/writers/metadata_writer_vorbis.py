@@ -1,44 +1,23 @@
-"""
-Vorbis comment block writer for FLAC and OGG files.
-
-Key design: Vorbis comments support repeated keys (e.g. multiple GENRE tags).
-We accept Dict[str, str | List[str]] and expand lists into repeated comment entries.
-This is the correct format per the Vorbis I specification and expected by Picard.
-"""
+"""Vorbis comment block writer for FLAC and Ogg files."""
 
 import struct
-from typing import Union
 
 from src.foundation.logger_config import logger
 
 
 class VorbisCommentWriter:
-    """Handles writing Vorbis comments to FLAC/OGG files."""
+    """Serializes a tag dict into a raw Vorbis comment block."""
 
     VENDOR_STRING = "MusicLibrary Database Writer"
 
     def __init__(self):
+        """Set the vendor string written into each block."""
         self.vendor_string = self.VENDOR_STRING
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    def build_vorbis_comments(self, comments: dict[str, str | list[str]]) -> bytes:
+        """Build a raw comment block (no Ogg framing); list values become repeated entries."""
+        comments = comments or {}  # an empty dict still gives a valid empty block
 
-    def build_vorbis_comments(self, comments: dict[str, Union[str, list[str]]]) -> bytes:
-        """Build a complete Vorbis comment block from a tag dict.
-
-        Values may be a plain string or a list of strings. Lists are expanded
-        into repeated comment entries (e.g. multiple GENRE= lines), which is
-        the correct Vorbis specification behaviour and what Picard expects.
-
-        Returns raw bytes suitable for embedding in a FLAC metadata block
-        or an OGG Vorbis page (without the Vorbis packet framing byte).
-        """
-        if not comments:
-            # Still write a valid empty comment block
-            comments = {}
-
-        # Flatten to list of (field, value) pairs, expanding lists
         pairs: list[tuple[str, str]] = []
         for field, value in comments.items():
             if value is None or value == "":
@@ -65,18 +44,8 @@ class VorbisCommentWriter:
         logger.debug(f"Built Vorbis comment block with {len(pairs)} entries")
         return vendor_block + comment_count + comment_data
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def sanitize_value(self, value: str) -> str:
-        """Sanitise a tag value: strip newlines, leave = unescaped in value.
-
-        Public so callers comparing on-disk tags against freshly-built ones
-        (e.g. a metadata diff) can apply the same normalisation before
-        comparing, rather than flagging a value as "changed" purely because
-        it round-trips through this escaping.
-        """
+        """Replace newlines with spaces and strip the value; public so diffs apply the same normalisation."""
         if not value:
             return ""
         # Newlines are illegal in Vorbis comment values

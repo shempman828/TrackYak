@@ -11,7 +11,7 @@ cover. This script keeps the **largest** picture per type (by encoded byte
 length) and strips the rest, so exactly one picture per type remains.
 
 Block surgery reuses `FlacFileWriter`'s own primitives
-(`_find_metadata_blocks` / `_serialize_blocks` / `atomic_write`), so a
+(`_parse_metadata_blocks` / `_serialize_blocks` / `atomic_write`), so a
 leading ID3v2 tag, the audio frames, padding, seektable, and every
 non-duplicated block pass through byte-for-byte unchanged - identical to
 what a normal in-app artwork write does.
@@ -47,9 +47,7 @@ def find_flac_paths(db_path: str = DB_PATH) -> list[str]:
     """Every FLAC track path the library knows about."""
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute(
-            "SELECT track_file_path FROM tracks WHERE track_file_path LIKE '%.flac'"
-        ).fetchall()
+        rows = conn.execute("SELECT track_file_path FROM tracks WHERE track_file_path LIKE '%.flac'").fetchall()
     finally:
         conn.close()
     return [r[0] for r in rows if r[0]]
@@ -116,16 +114,13 @@ def dedupe_pictures_in_flac(path: str, *, apply: bool, keep_backup: bool = True)
     """
     writer = FlacFileWriter()
 
-    blocks = writer._find_metadata_blocks(path)
-    if not blocks:
-        return {"status": "error", "error": "no readable FLAC metadata blocks"}
-
     # Read only the metadata region for the scan - never the (huge) audio
     # frames - so a full-library pass isn't gated on disk throughput. The
     # apply branch re-reads the whole file once a rewrite is actually due.
-    metadata_end = blocks[-1][1] + blocks[-1][2]
-    with Path(path).open("rb") as f:
-        header_data = f.read(metadata_end)
+    header_data = ArtworkExtractor()._read_flac_metadata_prefix(path)
+    blocks = writer._parse_metadata_blocks(header_data, writer._prefix_length(header_data))
+    if not blocks:
+        return {"status": "error", "error": "no readable FLAC metadata blocks"}
 
     raw_blocks = [(bt, header_data[pos : pos + size]) for bt, pos, size in blocks]
     picture_blocks = _picture_blocks(raw_blocks)
@@ -139,30 +134,21 @@ def dedupe_pictures_in_flac(path: str, *, apply: bool, keep_backup: bool = True)
     if not drop:
         return {"status": "clean", "dropped": [], "kept_by_type": kept_by_type}
 
-    dropped = [
-        {"index": idx, "picture_type": ptype, "size": size}
-        for idx, ptype, size in picture_blocks
-        if idx in drop
-    ]
+    dropped = [{"index": idx, "picture_type": ptype, "size": size} for idx, ptype, size in picture_blocks if idx in drop]
 
     if not apply:
         return {"status": "would-fix", "dropped": dropped, "kept_by_type": kept_by_type}
 
     drop_set = set(drop)
     kept_picture_indices = {idx for idx, _, _ in picture_blocks} - drop_set
-    unreadable = sorted(
-        idx for idx in kept_picture_indices if not _decodes_as_image(raw_blocks[idx][1])
-    )
+    unreadable = sorted(idx for idx in kept_picture_indices if not _decodes_as_image(raw_blocks[idx][1]))
     if unreadable:
-        return {
-            "status": "error",
-            "error": f"picture block(s) {unreadable} we'd keep don't decode; not touching file",
-        }
+        return {"status": "error", "error": f"picture block(s) {unreadable} we'd keep don't decode; not touching file"}
 
     with Path(path).open("rb") as f:
         file_data = f.read()
     audio_tail = writer._audio_tail(file_data, blocks)
-    prefix = file_data[: writer._prefix_length(path)]
+    prefix = file_data[: writer._prefix_length(file_data)]
     new_blocks = [rb for i, rb in enumerate(raw_blocks) if i not in drop_set]
     new_data = writer._serialize_blocks(new_blocks, audio_tail, prefix)
 
@@ -183,12 +169,7 @@ def dedupe_pictures_in_flac(path: str, *, apply: bool, keep_backup: bool = True)
         discard_backup(backup_path)
         return {"status": "fixed", "dropped": dropped, "kept_by_type": kept_by_type}
 
-    return {
-        "status": "fixed",
-        "dropped": dropped,
-        "kept_by_type": kept_by_type,
-        "backup": backup_path,
-    }
+    return {"status": "fixed", "dropped": dropped, "kept_by_type": kept_by_type, "backup": backup_path}
 
 
 def _verify(path: str, expected_kept_by_type: dict[int, int]) -> str | None:
@@ -199,9 +180,9 @@ def _verify(path: str, expected_kept_by_type: dict[int, int]) -> str | None:
 
     counts: dict[int, int] = defaultdict(int)
     sizes: dict[int, int] = {}
-    for _, ptype, size in _picture_blocks(
-        [(bt, data[pos : pos + sz]) for bt, pos, sz in FlacFileWriter()._find_metadata_blocks(path)]
-    ):
+    writer = FlacFileWriter()
+    blocks = writer._parse_metadata_blocks(data, writer._prefix_length(data))
+    for _, ptype, size in _picture_blocks([(bt, data[pos : pos + sz]) for bt, pos, sz in blocks]):
         counts[ptype] += 1
         sizes[ptype] = size
 
@@ -209,21 +190,14 @@ def _verify(path: str, expected_kept_by_type: dict[int, int]) -> str | None:
         if counts.get(ptype) != 1:
             return f"post-write: expected 1 picture of type {ptype}, found {counts.get(ptype, 0)}"
         if sizes.get(ptype) != expected_size:
-            return (
-                f"post-write: type {ptype} size {sizes.get(ptype)} != "
-                f"expected kept size {expected_size}"
-            )
+            return f"post-write: type {ptype} size {sizes.get(ptype)} != expected kept size {expected_size}"
     return None
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="rewrite files (default: dry run)")
-    parser.add_argument(
-        "--discard-backups",
-        action="store_true",
-        help="delete each sibling .bak after a verified write",
-    )
+    parser.add_argument("--discard-backups", action="store_true", help="delete each sibling .bak after a verified write")
     parser.add_argument("--db", default=DB_PATH, help=f"library DB path (default: {DB_PATH})")
     args = parser.parse_args()
 
@@ -238,9 +212,7 @@ def main():
             missing += 1
             continue
 
-        result = dedupe_pictures_in_flac(
-            path, apply=args.apply, keep_backup=not args.discard_backups
-        )
+        result = dedupe_pictures_in_flac(path, apply=args.apply, keep_backup=not args.discard_backups)
         status = result["status"]
 
         if status == "clean":
@@ -261,10 +233,7 @@ def main():
         print(f"  {path}")
         print(f"      drop: {drops}   keep: {keeps}")
 
-    print(
-        f"\n{clean} already clean, {missing} missing on disk, {errors} error(s)."
-        + ("" if args.apply else "\n\nDry run - pass --apply to rewrite.")
-    )
+    print(f"\n{clean} already clean, {missing} missing on disk, {errors} error(s)." + ("" if args.apply else "\n\nDry run - pass --apply to rewrite."))
 
 
 if __name__ == "__main__":

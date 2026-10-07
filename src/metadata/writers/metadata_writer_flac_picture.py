@@ -6,19 +6,13 @@ import struct
 from PIL import Image
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_image_utils import (
-    ARTWORK_ROLE_TO_TYPE,
-    ARTWORK_TYPE_TO_ROLE,
-    determine_image_format,
-    mime_type_for_format,
-)
+from src.metadata.metadata_image_utils import ARTWORK_ROLE_TO_TYPE, ARTWORK_TYPE_TO_ROLE, determine_image_format, mime_type_for_format
 
 _MODE_BIT_DEPTHS = {"1": 1, "L": 8, "P": 8, "RGB": 24, "RGBA": 32, "CMYK": 32, "I": 32, "F": 32}
 
 
 class FlacPictureWriter:
-    """Builds METADATA_BLOCK_PICTURE payloads, per the MusicBrainz/ID3-APIC
-    picture-type convention used by the reader (ArtworkExtractor)."""
+    """Builds METADATA_BLOCK_PICTURE payloads using the shared MusicBrainz/ID3 picture-type convention."""
 
     ROLE_TO_TYPE = ARTWORK_ROLE_TO_TYPE
     TYPE_TO_ROLE = ARTWORK_TYPE_TO_ROLE
@@ -53,8 +47,5 @@ class FlacPictureWriter:
         payload += struct.pack(">I", 0)  # colors used - 0 means not indexed/palette
         payload += struct.pack(">I", len(image_bytes))
         payload += image_bytes
-        logger.debug(
-            f"Built FLAC picture block: role={role}, format={format_type}, "
-            f"{width}x{height}, {len(image_bytes)} bytes"
-        )
+        logger.debug(f"Built FLAC picture block: role={role}, format={format_type}, {width}x{height}, {len(image_bytes)} bytes")
         return bytes(payload)

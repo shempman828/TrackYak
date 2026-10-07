@@ -7,35 +7,17 @@ from src.foundation.logger_config import logger
 
 _FORMAT_TO_MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "BMP": "image/bmp"}
 
-# MusicBrainz/ID3-APIC picture-type convention used to assign a role to
-# each embedded picture, shared by every format's reader and writer so they
-# all agree on which picture "is" the front/rear/liner cover. Picard uses
-# type 5 ("Leaflet page") for liner/booklet art.
+# MusicBrainz/ID3 picture-type convention shared by every reader and writer.
+# Picard uses type 5 ("Leaflet page") for liner/booklet art.
 ARTWORK_ROLE_TO_TYPE = {"front": 3, "rear": 4, "liner": 5}
 ARTWORK_TYPE_TO_ROLE = {v: k for k, v in ARTWORK_ROLE_TO_TYPE.items()}
 
 
-def find_picture_indices_for_role(
-    items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]
-) -> list[int]:
-    """
-    Find *every* index in `items` of a picture that represents `role`,
-    using a typed + untyped-fallback-to-front rule: pictures whose type
-    maps to `role` win; if none do and role is "front" and there's
-    exactly one picture with no resolvable type, that one is treated as
-    the (untyped) front cover.
-
-    Normally the returned list has 0 or 1 entry, but a file that a
-    third-party tagger appended a second same-type picture to (instead of
-    replacing the first) yields more than one - writers strip all of them
-    before re-embedding so the file ends up with a single picture per
-    role. Indices are returned in ascending order.
-
-    `picture_type_for_item(item)` returns the item's raw picture-type
-    integer, or None if `item` isn't a picture at all (or its type can't
-    be parsed) - such items are ignored entirely, matching
-    ArtworkExtractor.extract_artwork_by_role so readers and writers agree.
-    """
+def find_picture_indices_for_role(items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]) -> list[int]:
+    """Return the ascending indices of every picture in items that represents role."""
+    # Typed pictures win; with none, a single untyped picture is the front cover.
+    # More than one index means a tagger appended a duplicate; writers strip them all.
+    # picture_type_for_item returns None for non-pictures, which are ignored.
     typed_indices: dict[str, list[int]] = {}
     untyped_indices = []
 
@@ -58,11 +40,8 @@ def find_picture_indices_for_role(
     return []
 
 
-def find_picture_index_for_role(
-    items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]
-) -> int | None:
-    """First index representing `role` (see find_picture_indices_for_role),
-    or None. Used by the MP3 writer, which replaces a single APIC frame."""
+def find_picture_index_for_role(items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]) -> int | None:
+    """Return the first index that represents role, or None."""
     indices = find_picture_indices_for_role(items, role, picture_type_for_item)
     return indices[0] if indices else None
 
@@ -83,10 +62,7 @@ def determine_image_format(image_data: bytes, mime_type: str = "") -> str | None
     if "png" in mime_type.lower():
         return "PNG"
 
-    logger.debug(
-        f"Unrecognized image format (mime_type={mime_type!r}); "
-        "could not determine format from magic bytes"
-    )
+    logger.debug(f"Unrecognized image format (mime_type={mime_type!r}); could not determine format from magic bytes")
     return None
 
 

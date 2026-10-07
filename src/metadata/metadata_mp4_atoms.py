@@ -1,17 +1,11 @@
-"""Minimal MP4/M4A atom (box) tree walker, shared by audio-properties and
-tag extraction for .m4a/.mp4/.m4b files.
-
-Only implements enough of ISO/IEC 14496-12 to locate specific atoms by
-type and iterate direct children - not a general-purpose MP4 parser.
-"""
+"""Minimal MP4/M4A atom (box) walker: finds atoms by type and iterates direct children."""
 
 from collections.abc import Iterator
 import struct
 
 
 def iter_atoms(data: bytes, start: int, end: int) -> Iterator[tuple[bytes, int, int]]:
-    """Yield (atom_type, payload_start, payload_end) for each direct child
-    atom in data[start:end]."""
+    """Yield (atom_type, payload_start, payload_end) for each direct child atom in data[start:end]."""
     pos = start
     while pos + 8 <= end:
         size = struct.unpack(">I", data[pos : pos + 4])[0]
@@ -34,8 +28,7 @@ def iter_atoms(data: bytes, start: int, end: int) -> Iterator[tuple[bytes, int, 
 
 
 def find_atom(data: bytes, atom_type: bytes, start: int, end: int) -> tuple[int, int] | None:
-    """Return (payload_start, payload_end) of the first direct child atom
-    matching atom_type, or None if not found."""
+    """Return (payload_start, payload_end) of the first direct child atom of atom_type, or None."""
     for child_type, child_start, child_end in iter_atoms(data, start, end):
         if child_type == atom_type:
             return child_start, child_end

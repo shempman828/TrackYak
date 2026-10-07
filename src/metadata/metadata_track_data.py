@@ -1,7 +1,4 @@
-"""Assembles everything the ID3/Vorbis tag builders need about a track
-into one plain dict, so those builders don't need any database access of
-their own - every database read for a metadata write happens here, once.
-"""
+"""Assembles everything the tag builders need about a track into one dict, so they need no database access."""
 
 from typing import Any
 
@@ -11,15 +8,14 @@ from src.foundation.logger_config import logger
 
 
 class TrackDataAssembler:
-    """Pulls a track's full metadata - the track itself, its album, disc,
-    artists, genres, moods, publishers, places, playlist names, and
-    sibling track/disc counts - into one dict via the DB controller."""
+    """Reads a track and its album, disc, credits, genres, moods, publishers, places and playlists into one dict."""
 
     def __init__(self, controller):
+        """Keep the database controller used for every read."""
         self.controller = controller
 
     def get_track_data(self, track_id: int) -> dict[str, Any]:
-        """Get complete track data from database using controller helpers."""
+        """Return the complete track-data dict for track_id, or {} if the track is missing or a read fails."""
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track:
@@ -33,40 +29,25 @@ class TrackDataAssembler:
             if track.disc_id:
                 disc = self.controller.get.get_entity_object("Disc", disc_id=track.disc_id)
 
-            track_artist_roles = self.controller.get.get_all_entities(
-                "TrackArtistRole", track_id=track_id
-            )
-            artists_with_roles = []
-            for tar in track_artist_roles:
-                artist = self.controller.get.get_entity_object("Artist", artist_id=tar.artist_id)
-                role = self.controller.get.get_entity_object("Role", role_id=tar.role_id)
-                if artist and role:
-                    artists_with_roles.append(
-                        {
-                            "artist": artist,
-                            "role": role,
-                            "credited_name": tar.credited_name,
-                            "artist_mbid": artist.MBID,
-                        }
-                    )
+            # Track and album credits often repeat the same artists and roles, so look each up once.
+            artist_cache: dict[int, Any] = {}
+            role_cache: dict[int, Any] = {}
 
-            album_artists_with_roles = []
-            if album:
-                album_roles = self.controller.get.get_all_entities(
-                    "AlbumRoleAssociation", album_id=album.album_id
-                )
-                for ar in album_roles:
-                    artist = self.controller.get.get_entity_object("Artist", artist_id=ar.artist_id)
-                    role = self.controller.get.get_entity_object("Role", role_id=ar.role_id)
+            def credits_with_roles(rows) -> list[dict[str, Any]]:
+                """Resolve credit rows into artist/role dicts, skipping rows whose artist or role is missing."""
+                credits = []
+                for row in rows:
+                    if row.artist_id not in artist_cache:
+                        artist_cache[row.artist_id] = self.controller.get.get_entity_object("Artist", artist_id=row.artist_id)
+                    if row.role_id not in role_cache:
+                        role_cache[row.role_id] = self.controller.get.get_entity_object("Role", role_id=row.role_id)
+                    artist, role = artist_cache[row.artist_id], role_cache[row.role_id]
                     if artist and role:
-                        album_artists_with_roles.append(
-                            {
-                                "artist": artist,
-                                "role": role,
-                                "credited_name": ar.credited_name,
-                                "artist_mbid": artist.MBID,
-                            }
-                        )
+                        credits.append({"artist": artist, "role": role, "credited_name": row.credited_name, "artist_mbid": artist.MBID})
+                return credits
+
+            artists_with_roles = credits_with_roles(self.controller.get.get_all_entities("TrackArtistRole", track_id=track_id))
+            album_artists_with_roles = credits_with_roles(self.controller.get.get_all_entities("AlbumRoleAssociation", album_id=album.album_id)) if album else []
 
             track_genres = self.controller.get.get_all_entities("TrackGenre", track_id=track_id)
             genres = []
@@ -75,9 +56,7 @@ class TrackDataAssembler:
                 if genre:
                     genres.append(genre)
 
-            mood_tracks = self.controller.get.get_all_entities(
-                "MoodTrackAssociation", track_id=track_id
-            )
+            mood_tracks = self.controller.get.get_all_entities("MoodTrackAssociation", track_id=track_id)
             moods = []
             for mt in mood_tracks:
                 mood = self.controller.get.get_entity_object("Mood", mood_id=mt.mood_id)
@@ -86,19 +65,13 @@ class TrackDataAssembler:
 
             publishers = []
             if album:
-                album_publishers = self.controller.get.get_all_entities(
-                    "AlbumPublisher", album_id=album.album_id
-                )
+                album_publishers = self.controller.get.get_all_entities("AlbumPublisher", album_id=album.album_id)
                 for ap in album_publishers:
-                    publisher = self.controller.get.get_entity_object(
-                        "Publisher", publisher_id=ap.publisher_id
-                    )
+                    publisher = self.controller.get.get_entity_object("Publisher", publisher_id=ap.publisher_id)
                     if publisher and publisher.publisher_name:
                         publishers.append(publisher.publisher_name)
 
-            place_associations = self.controller.get.get_all_entities(
-                "PlaceAssociation", entity_id=track_id, entity_type="Track"
-            )
+            place_associations = self.controller.get.get_all_entities("PlaceAssociation", entity_id=track_id, entity_type="Track")
             places = []
             for pa in place_associations:
                 place = self.controller.get.get_entity_object("Place", place_id=pa.place_id)
@@ -113,9 +86,7 @@ class TrackDataAssembler:
 
             album_disc_count = None
             if album:
-                sibling_discs = self.controller.get.get_all_entities(
-                    "Disc", album_id=album.album_id
-                )
+                sibling_discs = self.controller.get.get_all_entities("Disc", album_id=album.album_id)
                 if sibling_discs and len(sibling_discs) > 1:
                     album_disc_count = len(sibling_discs)
 
@@ -138,35 +109,20 @@ class TrackDataAssembler:
             return {}
 
     def _get_playlist_names_for_track(self, track_id: int) -> list:
-        """Return a sorted list of playlist names this track belongs to.
-
-        Excludes smart playlists — those are generated dynamically and
-        don't need to be stored in file tags.
-
-        Args:
-            track_id: The database ID of the track.
-
-        Returns:
-            A list of playlist name strings, e.g. ["My Favourites", "Workout Mix"].
-            Returns an empty list if the track is in no playlists or on error.
-        """
+        """Return the sorted, de-duplicated names of the non-smart playlists that hold the track."""
         try:
-            playlist_track_rows = self.controller.get.get_all_entities(
-                "PlaylistTracks", track_id=track_id
-            )
+            playlist_track_rows = self.controller.get.get_all_entities("PlaylistTracks", track_id=track_id)
             if not playlist_track_rows:
                 return []
 
             names = []
             for pt in playlist_track_rows:
-                playlist = self.controller.get.get_entity_object(
-                    "Playlist", playlist_id=pt.playlist_id
-                )
-                # Skip smart playlists — they regenerate themselves
+                playlist = self.controller.get.get_entity_object("Playlist", playlist_id=pt.playlist_id)
+                # Smart playlists regenerate themselves, so they are not stored in tags.
                 if playlist and playlist.playlist_name and not playlist.is_smart:
                     names.append(playlist.playlist_name)
 
-            return sorted(set(names))  # Deduplicate and sort for consistency
+            return sorted(set(names))
 
         except SQLAlchemyError as e:
             logger.debug(f"Error fetching playlist names for track {track_id}: {e}")

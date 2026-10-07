@@ -1,7 +1,4 @@
-"""Low-level FLAC file surgery: finding, preserving, and replacing
-metadata blocks in an existing file, for both tag and artwork writes.
-Works entirely on file paths and byte blobs - no database access.
-"""
+"""Low-level FLAC file surgery for tag and artwork writes; no database access."""
 
 from pathlib import Path
 import struct
@@ -19,222 +16,128 @@ from src.metadata.writers.metadata_writer_vorbis import VorbisCommentWriter
 
 
 class FlacFileWriter:
-    """Reads/writes the Vorbis comment block and artwork directly against
-    a FLAC file, preserving whatever the app doesn't itself manage."""
+    """Reads/writes the Vorbis comment block and artwork in a FLAC file, keeping blocks the app does not manage."""
 
     def __init__(self):
+        """Create the comment and picture builders and the raw tag reader."""
         self.vorbis_writer = VorbisCommentWriter()
         self.flac_picture_writer = FlacPictureWriter()
         self.raw_tag_extractor = RawTagExtractor()
 
     def write_tags(self, file_path: str, new_comments: dict, mode: WriteMode) -> bool:
-        """Replace file_path's Vorbis comment block with a merge of
-        new_comments and whatever's already there, per WriteMode.
-
-        No backup handling here - the caller (MetadataWriter) wraps both
-        the FLAC and OGG tag-write paths in one shared backup/restore,
-        the same way the original single-file implementation did.
-        """
+        """Replace the Vorbis comment block with new_comments merged into the existing ones per mode."""
+        # No backup here: MetadataWriter wraps the FLAC and OGG tag writes in one backup/restore.
         try:
-            with Path(file_path).open("rb") as f:
-                file_data = f.read()
+            file_data = Path(file_path).read_bytes()
 
             existing_comments = self.raw_tag_extractor.extract_raw_tags(file_data, ".flac")
             merged = merge_vorbis_comments(existing_comments, new_comments, mode)
             new_comment_block = self.vorbis_writer.build_vorbis_comments(merged)
 
-            return self._replace_comment_block(file_path, new_comment_block)
+            return self._replace_comment_block(file_path, file_data, new_comment_block)
 
-        except (OSError, AttributeError, struct.error) as e:
+        except (OSError, AttributeError, struct.error, ValueError) as e:
             logger.debug(f"Error writing FLAC metadata: {e}")
             return False
 
-    def _replace_comment_block(self, file_path: str, new_comment_block: bytes) -> bool:
-        """Replace the Vorbis comment block (type 4); every other block,
-        and the audio frames, pass through byte-for-byte unchanged."""
-        try:
-            blocks = self._find_metadata_blocks(file_path)
-            if not blocks:
-                return False
-
-            with Path(file_path).open("rb") as f:
-                file_data = f.read()
-
-            audio_tail = self._audio_tail(file_data, blocks)
-            prefix = file_data[: self._prefix_length(file_path)]
-
-            # Keep every block except the existing Vorbis comment (type 4),
-            # then append the new comment block last.
-            ordered_blocks = []
-            for block_type, pos, size in blocks:
-                if block_type == 4:  # VORBIS_COMMENT - replaced below
-                    continue
-                ordered_blocks.append((block_type, file_data[pos : pos + size]))
-
-            if new_comment_block:
-                ordered_blocks.append((4, new_comment_block))
-
-            new_data = self._serialize_blocks(ordered_blocks, audio_tail, prefix)
-
-            atomic_write(file_path, new_data)
-
-            return True
-
-        except (OSError, struct.error) as e:
-            logger.debug(f"Error writing FLAC metadata: {e}")
+    def _replace_comment_block(self, file_path: str, file_data: bytes, new_comment_block: bytes) -> bool:
+        """Replace the VORBIS_COMMENT block (type 4); other blocks and the audio pass through unchanged."""
+        prefix_length = self._prefix_length(file_data)
+        blocks = self._parse_metadata_blocks(file_data, prefix_length)
+        if not blocks:
             return False
+
+        ordered_blocks = [(block_type, file_data[pos : pos + size]) for block_type, pos, size in blocks if block_type != 4]
+        if new_comment_block:
+            ordered_blocks.append((4, new_comment_block))
+
+        atomic_write(file_path, self._serialize_blocks(ordered_blocks, self._audio_tail(file_data, blocks), file_data[:prefix_length]))
+        return True
 
     def write_artwork(self, file_path: str, role: str, image_bytes: Any) -> bool:
-        """
-        Add/replace (image_bytes given) or remove (image_bytes=None) the
-        PICTURE block for `role` ("front"/"rear"/"liner") in a FLAC file.
-        PICTURE blocks for other roles, and all non-PICTURE blocks, pass
-        through byte-for-byte unchanged.
-        """
+        """Add/replace (image_bytes given) or remove (None) the PICTURE block for role; other blocks carry through."""
 
         def mutate() -> bool:
-            blocks = self._find_metadata_blocks(file_path)
+            """Rewrite the file with role's PICTURE blocks replaced; False if it has no metadata blocks."""
+            file_data = Path(file_path).read_bytes()
+            prefix_length = self._prefix_length(file_data)
+            blocks = self._parse_metadata_blocks(file_data, prefix_length)
             if not blocks:
                 return False
 
-            with Path(file_path).open("rb") as f:
-                file_data = f.read()
-
-            audio_tail = self._audio_tail(file_data, blocks)
-            prefix = file_data[: self._prefix_length(file_path)]
-
-            # Offsets are only valid against the original file, so slice out
-            # every block's payload up front.
-            raw_blocks = [
-                (block_type, file_data[pos : pos + size]) for block_type, pos, size in blocks
-            ]
-
+            # Offsets are only valid against the original bytes, so slice every payload first.
+            raw_blocks = [(block_type, file_data[pos : pos + size]) for block_type, pos, size in blocks]
             target_indices = set(self._find_picture_indices_for_role(raw_blocks, role))
-
-            new_blocks = [
-                (block_type, payload)
-                for idx, (block_type, payload) in enumerate(raw_blocks)
-                if idx not in target_indices
-            ]
+            new_blocks = [(block_type, payload) for idx, (block_type, payload) in enumerate(raw_blocks) if idx not in target_indices]
 
             if image_bytes is not None:
-                new_picture_payload = self.flac_picture_writer.build_picture_block(
-                    role, image_bytes
-                )
-                new_blocks.append((6, new_picture_payload))
+                new_blocks.append((6, self.flac_picture_writer.build_picture_block(role, image_bytes)))
 
-            new_data = self._serialize_blocks(new_blocks, audio_tail, prefix)
-
-            atomic_write(file_path, new_data)
-
+            atomic_write(file_path, self._serialize_blocks(new_blocks, self._audio_tail(file_data, blocks), file_data[:prefix_length]))
             return True
 
-        return write_artwork_with_backup(
-            file_path, role, image_bytes, FlacPictureWriter.ROLE_TO_TYPE, mutate, "artwork"
-        )
+        return write_artwork_with_backup(file_path, role, image_bytes, FlacPictureWriter.ROLE_TO_TYPE, mutate, "artwork")
 
-    def _prefix_length(self, file_path: str) -> int:
-        """
-        Bytes before the "fLaC" marker that must be preserved as-is on
-        write - 0 normally, or the length of a leading ID3v2 tag some
-        (non-standard, but real) FLAC files have. Returns -1 if no "fLaC"
-        marker can be found at all.
-        """
-        try:
-            with Path(file_path).open("rb") as f:
-                header = f.read(10)
-                if header[0:4] == b"fLaC":
-                    return 0
-                if header[0:3] == b"ID3" and len(header) == 10:
-                    id3_end = 10 + syncsafe_to_int(header[6:10])
-                    f.seek(id3_end)
-                    if f.read(4) == b"fLaC":
-                        return id3_end
-        except OSError as e:
-            logger.debug(f"Error checking FLAC prefix for {file_path}: {e}")
+    def _prefix_length(self, file_data: bytes) -> int:
+        """Return the byte count before the "fLaC" marker (a leading ID3v2 tag), or -1 if there is no marker."""
+        if file_data[0:4] == b"fLaC":
+            return 0
+        if file_data[0:3] == b"ID3" and len(file_data) >= 10:
+            # Non-standard, but real files carry a leading ID3 tag that must survive a rewrite.
+            id3_end = 10 + syncsafe_to_int(file_data[6:10])
+            if file_data[id3_end : id3_end + 4] == b"fLaC":
+                return id3_end
         return -1
 
-    def _find_metadata_blocks(self, file_path: str) -> list[tuple[int, int, int]]:
-        """Find FLAC metadata blocks and their positions."""
+    def _parse_metadata_blocks(self, file_data: bytes, prefix_length: int) -> list[tuple[int, int, int]]:
+        """Return (block_type, payload_start, payload_size) for each metadata block."""
         blocks = []
-        try:
-            prefix_length = self._prefix_length(file_path)
-            if prefix_length < 0:
-                return blocks
+        if prefix_length < 0:
+            return blocks
 
-            with Path(file_path).open("rb") as f:
-                f.seek(prefix_length + 4)
-
-                # Read metadata blocks
-                while True:
-                    header = f.read(4)
-                    if len(header) < 4:
-                        break
-
-                    is_last = (header[0] & 0x80) >> 7
-                    block_type = header[0] & 0x7F
-                    block_size = struct.unpack(">I", b"\x00" + header[1:4])[0]
-
-                    current_pos = f.tell()
-                    blocks.append((block_type, current_pos, block_size))
-
-                    # Skip block data
-                    f.seek(block_size, 1)
-
-                    if is_last:
-                        break
-
-        except OSError as e:
-            logger.debug(f"Error finding FLAC metadata blocks: {e}")
+        pos = prefix_length + 4
+        while pos + 4 <= len(file_data):
+            header = file_data[pos : pos + 4]
+            is_last = header[0] & 0x80
+            block_type = header[0] & 0x7F
+            block_size = struct.unpack(">I", b"\x00" + header[1:4])[0]
+            if pos + 4 + block_size > len(file_data):
+                logger.debug("FLAC metadata block overruns the file; stopping block scan")
+                break
+            blocks.append((block_type, pos + 4, block_size))
+            pos += 4 + block_size
+            if is_last:
+                break
 
         return blocks
 
     def _audio_tail(self, file_data: bytes, blocks: list[tuple[int, int, int]]) -> bytes:
-        """Bytes after the last metadata block - the actual audio frames,
-        which must always be carried through untouched on any FLAC write."""
+        """Return the bytes after the last metadata block (the audio frames)."""
         if not blocks:
             return b""
         _, last_pos, last_size = blocks[-1]
         return file_data[last_pos + last_size :]
 
-    def _serialize_blocks(
-        self, ordered_blocks: list[tuple[int, bytes]], audio_tail: bytes, prefix: bytes = b""
-    ) -> bytes:
-        """
-        Given an ordered list of (block_type, payload_bytes) - not including
-        the "fLaC" magic - serialize a complete FLAC metadata-block stream
-        followed by audio_tail (the untouched audio frame bytes). Recomputes
-        the is_last bit on the final metadata block only; every block's own
-        payload bytes are written through unchanged. `prefix` is carried
-        through untouched before the "fLaC" magic - normally empty, but a
-        leading ID3v2 tag on non-standard (but real) FLAC files must survive
-        a rewrite exactly as it was.
-        """
+    def _serialize_blocks(self, ordered_blocks: list[tuple[int, bytes]], audio_tail: bytes, prefix: bytes = b"") -> bytes:
+        """Serialize prefix + "fLaC" + blocks (is_last set on the final one) + audio_tail."""
         out = bytearray(prefix)
         out += b"fLaC"
         for i, (block_type, payload) in enumerate(ordered_blocks):
+            if len(payload) >= 1 << 24:
+                # The block size field is 24 bits; a larger payload would corrupt the stream.
+                raise ValueError(f"FLAC metadata block of {len(payload)} bytes exceeds the 16 MiB limit")
             is_last = 1 if i == len(ordered_blocks) - 1 else 0
-            block_header = struct.pack(">B", (is_last << 7) | (block_type & 0x7F))
-            block_header += struct.pack(">I", len(payload))[1:]  # 3-byte size
-            out += block_header
+            out += struct.pack(">B", (is_last << 7) | (block_type & 0x7F))
+            out += struct.pack(">I", len(payload))[1:]  # 3-byte size
             out += payload
         out += audio_tail
         return bytes(out)
 
     def _find_picture_indices_for_role(self, raw_blocks: list[tuple[int, bytes]], role: str):
-        """
-        Find the indices of every existing PICTURE block that represents
-        `role`, using the same typed + untyped-fallback-to-front rule as
-        ArtworkExtractor.extract_artwork_by_role, so the writer and reader
-        agree on which picture "is" the front/rear/liner cover. Normally
-        0 or 1 block, but a file a third-party tagger appended a duplicate
-        same-type picture to has more than one - all of them are stripped
-        before the new picture is embedded, so the file ends up with a
-        single picture per role and the reader's "keep first" ambiguity
-        never bites.
-        """
+        """Return the indices of every PICTURE block that represents role (duplicates included)."""
 
         def picture_type_for_block(item: tuple[int, bytes]):
+            """Return a PICTURE block's picture type, or None for other blocks."""
             block_type, payload = item
             if block_type != 6 or len(payload) < 4:  # PICTURE block, has a type field
                 return None

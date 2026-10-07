@@ -1,34 +1,17 @@
-"""Maps a track-data dict (from TrackDataAssembler) to a Vorbis comment
-tag dict. A pure function of its input - no database access of its own;
-the sibling track/disc counts and playlist names that TRACKTOTAL/
-DISCTOTAL/PLAYLIST need are expected to already be in `data`, put there
-by TrackDataAssembler.
-"""
+"""Maps a TrackDataAssembler track-data dict to a Vorbis comment tag dict."""
 
 from typing import Any
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_mapping import (
-    VORBIS_ALBUM_MAPPINGS,
-    VORBIS_DISC_MAPPINGS,
-    VORBIS_TRACK_MAPPINGS,
-)
-from src.metadata.metadata_text import (
-    build_iso_date_string,
-    format_track_number,
-    group_artists_by_tag,
-)
+from src.metadata.metadata_mapping import VORBIS_ALBUM_MAPPINGS, VORBIS_DISC_MAPPINGS, VORBIS_TRACK_MAPPINGS
+from src.metadata.writers.metadata_tag_helpers import build_iso_date_string, format_track_number, group_artists_by_tag
 
 
 class VorbisCommentBuilder:
     """Builds the Vorbis comment tag dict a track's data should have."""
 
     def build_comments(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Build Vorbis comments from track data.
-
-        Returns Dict[str, str | List[str]]. Lists produce repeated tag keys
-        in the output block (e.g. GENRE=Rock / GENRE=Blues as separate entries).
-        """
+        """Build {tag: value or list of values} from track data; lists become repeated entries."""
         comments = {}
         track = data["track"]
         album = data["album"]
@@ -60,7 +43,7 @@ class VorbisCommentBuilder:
 
         for tag_name, mapping in VORBIS_TRACK_MAPPINGS.items():
             field_name = mapping["field"]
-            if field_name in SKIP_TRACK_FIELDS:
+            if field_name in SKIP_TRACK_FIELDS or mapping.get("read_only"):
                 continue
             if tag_name == "TRACKNUMBER":
                 # Vinyl side + number (e.g. "B1") when the track has a side,
@@ -71,10 +54,9 @@ class VorbisCommentBuilder:
             if field_value is not None and field_value != "":
                 _set(tag_name, field_value)
 
-        # RATING: store as 0–100 integer (widely supported scale)
+        # The database stores 0-10; the RATING tag convention is 0-100 (the reader scales back).
         if track.user_rating is not None:
-            # DB stores 0–10; tag convention is 0–100
-            scaled = int(round(float(track.user_rating) * 10))
+            scaled = round(float(track.user_rating) * 10)
             _set("RATING", scaled)
 
         # ----------------------------------------------------------------
@@ -82,6 +64,8 @@ class VorbisCommentBuilder:
         # ----------------------------------------------------------------
         if album:
             for tag_name, mapping in VORBIS_ALBUM_MAPPINGS.items():
+                if mapping.get("read_only"):
+                    continue  # e.g. ALBUMSORT is a sort key, not the album name
                 field_name = mapping["field"]
                 field_value = getattr(album, field_name, None)
                 if field_value is not None and field_value != "":
@@ -92,6 +76,8 @@ class VorbisCommentBuilder:
         # ----------------------------------------------------------------
         if disc:
             for tag_name, mapping in VORBIS_DISC_MAPPINGS.items():
+                if mapping.get("read_only"):
+                    continue
                 field_name = mapping["field"]
                 field_value = getattr(disc, field_name, None)
                 if field_value is not None and field_value != "":
@@ -113,25 +99,19 @@ class VorbisCommentBuilder:
         # ----------------------------------------------------------------
         # Album release date
         if album:
-            release_date = build_iso_date_string(
-                album, ["release_year", "release_month", "release_day"]
-            )
+            release_date = build_iso_date_string(album, ["release_year", "release_month", "release_day"])
             if release_date:
                 _set("DATE", release_date)
                 _set("YEAR", str(album.release_year))
 
         # Track recording date
-        recording_date = build_iso_date_string(
-            track, ["recorded_year", "recorded_month", "recorded_day"]
-        )
+        recording_date = build_iso_date_string(track, ["recorded_year", "recorded_month", "recorded_day"])
         if recording_date:
             _set("RECORDINGDATE", recording_date)
             _set("RECORDEDDATE", recording_date)  # alias used by some taggers
 
         # Track composed date
-        composed_date = build_iso_date_string(
-            track, ["composed_year", "composed_month", "composed_day"]
-        )
+        composed_date = build_iso_date_string(track, ["composed_year", "composed_month", "composed_day"])
         if composed_date:
             _set("COMPOSEDDATE", composed_date)
 
@@ -176,18 +156,15 @@ class VorbisCommentBuilder:
         # tag so each artist credit's mbid is encoded whenever the artist
         # has one.
         ID_TAG_MAP = {"ARTIST": "MUSICBRAINZ_ARTISTID", "ALBUMARTIST": "MUSICBRAINZ_ALBUMARTISTID"}
-        ID_TAG_MAP.update(
-            {tag: f"MUSICBRAINZ_{tag}ID" for tag in ROLE_TO_TAG.values() if tag not in ID_TAG_MAP}
-        )
+        ID_TAG_MAP.update({tag: f"MUSICBRAINZ_{tag}ID" for tag in ROLE_TO_TAG.values() if tag not in ID_TAG_MAP})
 
         all_artist_data = artists_with_roles + album_artists_with_roles
-        artists_by_tag, mbids_by_tag = group_artists_by_tag(
-            all_artist_data, ROLE_TO_TAG, ID_TAG_MAP, dedupe=True
-        )
+        artists_by_tag, mbids_by_tag = group_artists_by_tag(all_artist_data, ROLE_TO_TAG, ID_TAG_MAP, dedupe=True)
 
         # Accumulate into the same per-tag lists for the PERFORMER fallback
         # below, so emitting the entries later applies one dedup rule.
         def _add_artist(tag, name):
+            """Append name under tag unless it is empty or already present."""
             if not name:
                 return
             names = artists_by_tag.setdefault(tag, [])
@@ -251,8 +228,6 @@ class VorbisCommentBuilder:
         playlist_names = data.get("playlist_names") or []
         if playlist_names:
             _set_list("PLAYLIST", playlist_names)
-            logger.debug(
-                f"Writing Vorbis PLAYLIST tags for track {track.track_id}: {playlist_names}"
-            )
+            logger.debug(f"Writing Vorbis PLAYLIST tags for track {track.track_id}: {playlist_names}")
 
         return comments

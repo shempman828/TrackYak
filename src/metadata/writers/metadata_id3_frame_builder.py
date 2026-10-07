@@ -1,7 +1,4 @@
-"""Maps a track-data dict (from TrackDataAssembler) to a list of ID3
-frame bytes, driven by the ID3_*_MAPPINGS tables. A pure function of its
-input - no database access of its own.
-"""
+"""Maps a TrackDataAssembler track-data dict to a list of ID3 frame bytes."""
 
 from typing import Any
 
@@ -16,22 +13,34 @@ from src.metadata.metadata_mapping import (
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
 )
-from src.metadata.metadata_text import (
-    build_iso_date_string,
-    format_track_number,
-    group_artists_by_tag,
-)
 from src.metadata.writers.metadata_id3_writer import ID3TagWriter
+from src.metadata.writers.metadata_tag_helpers import build_iso_date_string, format_track_number, group_artists_by_tag
+
+_ROLE_TO_FRAME = {"Composer": "TCOM", "Primary Artist": "TPE1", "Album Artist": "TPE2", "Lyricist": "TEXT", "Original Lyricist": "TOLY", "Original Performer": "TOPE", "Conductor": "TPE3"}
+
+# MusicBrainz Picard convention: a TXXX artist-ID frame beside each artist frame, so re-imports
+# can resolve identity when the display name is an alias. Non-Picard roles get an analogous description.
+_ID_FRAME_MAP = {"TPE1": "MusicBrainz Artist Id", "TPE2": "MusicBrainz Album Artist Id"}
+_ID_FRAME_MAP.update({frame_id: f"MusicBrainz {role_name} Id" for role_name, frame_id in _ROLE_TO_FRAME.items() if frame_id not in _ID_FRAME_MAP})
 
 
 class ID3FrameBuilder:
     """Builds the list of ID3 frames a track's data should have."""
 
     def __init__(self):
+        """Create the frame writer."""
         self.id3_writer = ID3TagWriter()
 
+    def _keyed_frame(self, tag_id: str, value: Any) -> bytes:
+        """Build a frame for a mapping key, routing "TXXX:desc" and "UFID:owner" keys to their frame types."""
+        if tag_id.startswith("TXXX:"):
+            return self.id3_writer.create_txxx_frame(tag_id[5:], str(value))
+        if tag_id.startswith("UFID:"):
+            return self.id3_writer.create_ufid_frame(tag_id[5:], str(value))
+        return self.id3_writer.create_text_frame(tag_id, str(value))
+
     def build_frames(self, data: dict[str, Any]) -> list[bytes]:
-        """Build ID3 frames from track data with complete role handling."""
+        """Build ID3 frames from track data."""
         frames = []
         track = data["track"]
         album = data["album"]
@@ -42,162 +51,95 @@ class ID3FrameBuilder:
         moods = data["moods"]
         publishers = data["publishers"]
 
-        # Track mappings
         for tag_id, mapping in ID3_TRACK_MAPPINGS.items():
-            field_name = mapping["field"]
             if tag_id == "TRCK":
-                # Vinyl side + number (e.g. "B1") when the track has a side,
-                # so records get labeled the way they're actually printed.
+                # Vinyl side + number (e.g. "B1") when the track has a side.
                 track_number_text = format_track_number(track)
                 if track_number_text:
                     frames.append(self.id3_writer.create_text_frame(tag_id, track_number_text))
                 continue
-            field_value = getattr(track, field_name, None)
-            if field_value is not None and field_value != "":
-                if mapping["type"] == str:  # noqa: E721
-                    if tag_id == "USLT":  # Lyrics
-                        frames.append(self.id3_writer.create_lyrics_frame(str(field_value)))
-                    elif tag_id == "COMM":  # Comment
-                        frames.append(self.id3_writer.create_comment_frame(str(field_value)))
-                    else:
-                        frames.append(self.id3_writer.create_text_frame(tag_id, str(field_value)))
-                elif mapping["type"] == int:  # noqa: E721
-                    frames.append(self.id3_writer.create_number_frame(tag_id, int(field_value)))
-                elif mapping["type"] == float:  # noqa: E721
-                    frames.append(self.id3_writer.create_float_frame(tag_id, float(field_value)))
+            field_value = getattr(track, mapping["field"], None)
+            if field_value is None or field_value == "":
+                continue
+            if tag_id == "USLT":
+                frames.append(self.id3_writer.create_lyrics_frame(str(field_value)))
+            elif tag_id == "COMM":
+                frames.append(self.id3_writer.create_comment_frame(str(field_value)))
+            elif tag_id == "PCNT":
+                frames.append(self.id3_writer.create_counter_frame(int(field_value)))
+            elif tag_id == "TLEN":
+                # TLEN is milliseconds; the database stores seconds.
+                frames.append(self.id3_writer.create_number_frame(tag_id, round(float(field_value) * 1000)))
+            elif mapping["type"] is int:
+                frames.append(self.id3_writer.create_number_frame(tag_id, int(field_value)))
+            elif mapping["type"] is float:
+                frames.append(self.id3_writer.create_float_frame(tag_id, float(field_value)))
+            else:
+                frames.append(self._keyed_frame(tag_id, field_value))
 
-        # Album mappings
-        for tag_id, mapping in ID3_ALBUM_MAPPINGS.items():
-            if album:
-                field_name = mapping["field"]
-                field_value = getattr(album, field_name, None)
+        if album:
+            for tag_id, mapping in ID3_ALBUM_MAPPINGS.items():
+                field_value = getattr(album, mapping["field"], None)
                 if field_value is not None and field_value != "":
-                    frames.append(self.id3_writer.create_text_frame(tag_id, str(field_value)))
+                    frames.append(self._keyed_frame(tag_id, field_value))
 
-        # Artist mappings with proper role handling
-        role_to_frame_map = {
-            "Composer": "TCOM",
-            "Primary Artist": "TPE1",
-            "Album Artist": "TPE2",
-            "Lyricist": "TEXT",
-            "Original Lyricist": "TOLY",
-            "Original Performer": "TOPE",
-            "Conductor": "TPE3",
-        }
+        # Album artists count here only under the "Album Artist" role.
+        combined_artists = list(artists_with_roles) + [artist_data for artist_data in album_artists_with_roles if artist_data["role"].role_name == "Album Artist"]
+        artists_by_frame, mbids_by_frame = group_artists_by_tag(combined_artists, _ROLE_TO_FRAME, _ID_FRAME_MAP)
 
-        # MusicBrainz Picard convention: alongside the display name, also
-        # write a stable per-artist ID as a TXXX frame so re-imports can
-        # resolve identity even when the display name is an alias override,
-        # not the artist's canonical name. TPE1/TPE2 use Picard's standard
-        # TXXX descriptions; every other role gets an analogous
-        # "MusicBrainz {Role} Id" description so each artist credit's mbid
-        # is encoded whenever the artist has one.
-        id_frame_map = {"TPE1": "MusicBrainz Artist Id", "TPE2": "MusicBrainz Album Artist Id"}
-        id_frame_map.update(
-            {
-                frame_id: f"MusicBrainz {role_name} Id"
-                for role_name, frame_id in role_to_frame_map.items()
-                if frame_id not in id_frame_map
-            }
-        )
-
-        # Group artists by role for each frame type. Album artists only
-        # count here under the "Album Artist" role, matching the original
-        # (pre-consolidation) per-source filtering.
-        combined_artists = list(artists_with_roles) + [
-            artist_data
-            for artist_data in album_artists_with_roles
-            if artist_data["role"].role_name == "Album Artist"
-        ]
-        artists_by_frame, mbids_by_frame = group_artists_by_tag(
-            combined_artists, role_to_frame_map, id_frame_map
-        )
-
-        # Create frames for each artist type
         for frame_id, artist_names in artists_by_frame.items():
             if artist_names:
-                artist_text = " / ".join(artist_names)
-                frames.append(self.id3_writer.create_text_frame(frame_id, artist_text))
+                frames.append(self.id3_writer.create_text_frame(frame_id, " / ".join(artist_names)))
 
-        # Create the paired MusicBrainz ID TXXX frames, in the same order.
-        # group_artists_by_tag already keys mbids_by_frame by the mapped
-        # TXXX description (id_frame_map's values), not the source frame id.
+        # mbids_by_frame is keyed by TXXX description (the _ID_FRAME_MAP values).
         for txxx_description, mbids in mbids_by_frame.items():
             if mbids:
-                mbid_text = " / ".join(mbids)
-                frames.append(self.id3_writer.create_txxx_frame(txxx_description, mbid_text))
+                frames.append(self.id3_writer.create_txxx_frame(txxx_description, " / ".join(mbids)))
 
-        # Genre mappings
-        for tag_id, mapping in ID3_GENRE_MAPPINGS.items():
-            if genres:
-                genre_names = [genre.genre_name for genre in genres if genre.genre_name]
-                if genre_names:
-                    genre_text = " / ".join(genre_names)
-                    frames.append(self.id3_writer.create_text_frame(tag_id, genre_text))
+        genre_names = [genre.genre_name for genre in genres if genre.genre_name]
+        if genre_names:
+            frames.extend(self.id3_writer.create_text_frame(tag_id, " / ".join(genre_names)) for tag_id in ID3_GENRE_MAPPINGS)
 
-        # Mood mappings
-        for tag_id, mapping in ID3_MOOD_MAPPINGS.items():
-            if moods:
-                mood_names = [mood.mood_name for mood in moods if mood.mood_name]
-                if mood_names:
-                    mood_text = " / ".join(mood_names)
-                    frames.append(self.id3_writer.create_text_frame(tag_id, mood_text))
+        mood_names = [mood.mood_name for mood in moods if mood.mood_name]
+        if mood_names:
+            frames.extend(self.id3_writer.create_text_frame(tag_id, " / ".join(mood_names)) for tag_id in ID3_MOOD_MAPPINGS)
 
-        # Publisher mappings
-        for tag_id, field_name in ID3_PUBLISHER_MAPPINGS.items():
-            if publishers:
-                publisher_text = " / ".join(publishers)
-                frames.append(self.id3_writer.create_text_frame(tag_id, publisher_text))
+        if publishers:
+            frames.extend(self.id3_writer.create_text_frame(tag_id, " / ".join(publishers)) for tag_id in ID3_PUBLISHER_MAPPINGS)
 
-        # Disc mappings
-        for tag_id, mapping in ID3_DISC_MAPPINGS.items():
-            if disc:
-                field_name = mapping["field"]
-                field_value = getattr(disc, field_name, None)
+        if disc:
+            for tag_id, mapping in ID3_DISC_MAPPINGS.items():
+                field_value = getattr(disc, mapping["field"], None)
                 if field_value is not None:
                     frames.append(self.id3_writer.create_number_frame(tag_id, int(field_value)))
 
-        # Date mappings with proper formatting. A single-field mapping
-        # (type "year") and a 3-field one (type "date") are both just an
-        # ISO date string truncated to however many fields resolved.
+        # "year" and "date" mappings are both an ISO date string truncated to the fields that resolve.
         for tag_id, mapping in ID3_DATE_MAPPINGS.items():
-            entity_type = mapping.get("target")
-            entity = track if entity_type == "track" else album
+            entity = track if mapping.get("target") == "track" else album
             if not entity:
                 continue
-
             date_text = build_iso_date_string(entity, mapping.get("fields", []))
             if date_text:
                 frames.append(self.id3_writer.create_text_frame(tag_id, date_text))
 
-        # Handle special mappings (TMCL, TIPL)
+        all_artists_data = artists_with_roles + album_artists_with_roles
         for tag_id, mapping in ID3_SPECIAL_MAPPINGS.items():
-            if mapping["type"] == "special":
-                # Build role/artist pairs
-                role_artist_pairs = []
+            if mapping["type"] != "special":
+                continue
+            separator = mapping["separator"]
+            role_artist_pairs = [f"{artist_data['role'].role_name}{separator}{artist_data['credited_name']}" for artist_data in _named_credits(all_artists_data)]
+            if role_artist_pairs:
+                frames.append(self.id3_writer.create_text_frame(tag_id, separator.join(role_artist_pairs)))
 
-                # Include both track and album artists
-                all_artists_data = artists_with_roles + album_artists_with_roles
-
-                for artist_data in all_artists_data:
-                    role_name = artist_data["role"].role_name
-                    artist_name = artist_data["credited_name"]
-                    if role_name and artist_name:
-                        role_artist_pairs.append(f"{role_name}{mapping['separator']}{artist_name}")
-
-                if role_artist_pairs:
-                    special_text = mapping["separator"].join(role_artist_pairs)
-                    frames.append(self.id3_writer.create_text_frame(tag_id, special_text))
-
-        # ----------------------------------------------------------------
-        # Playlist tags — written as TXXX:PLAYLIST
-        # Multiple playlists are joined with " ; " in a single TXXX frame
-        # because ID3 only allows one TXXX frame per description name.
-        # ----------------------------------------------------------------
+        # One TXXX frame per description is allowed, so playlists are joined with " ; ".
         playlist_names = data.get("playlist_names") or []
         if playlist_names:
-            joined = " ; ".join(playlist_names)
-            frames.append(self.id3_writer.create_txxx_frame("PLAYLIST", joined))
+            frames.append(self.id3_writer.create_txxx_frame("PLAYLIST", " ; ".join(playlist_names)))
             logger.debug(f"Writing ID3 TXXX:PLAYLIST for track {track.track_id}: {playlist_names}")
 
-        return frames
+        return [frame for frame in frames if frame]
+
+
+def _named_credits(artist_data_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the artist credits that have both a role name and a credited name."""
+    return [artist_data for artist_data in artist_data_list if artist_data["role"].role_name and artist_data["credited_name"]]
