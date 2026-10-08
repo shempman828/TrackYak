@@ -72,6 +72,15 @@ album with the typed name even when one by that name already exists. Typing
 the name and confirming without picking that row still reuses the existing
 album.
 
+### Status bar
+
+Long jobs — imports, analysis, device sync — show a progress message in the
+status bar at the bottom of the window while they run. If a short message
+(e.g. "Analysis resumed") appears during a job, the job's own message comes
+back when the short one expires, and the bar hides once every job has
+finished. This also applies to messages from jobs that run in the
+background, such as device sync.
+
 ---
 
 # Navigation Views
@@ -884,6 +893,13 @@ Double-click any queued track to jump to it immediately.
   synchronously, so an edit touching many tracks at once (e.g. a bulk
   multi-select edit) can briefly pause the UI while every affected file is
   rewritten.
+  Settings live in `config/config.ini` and are written safely (a crash
+  during a save cannot leave a half-written file). If you edit that file by
+  hand and a value is not valid (e.g. `volume = loud`), the app uses that
+  setting's default instead of failing to start. The UI scale is limited to
+  50–300 %, and thin 1px borders stay visible at small scales. Themes load
+  from the app's own `themes/` folder, whichever directory you start the app
+  from.
 - **Exit** (`Ctrl+Q`) — closes the app.
 
 ## Library Statistics

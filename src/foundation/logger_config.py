@@ -1,3 +1,5 @@
+"""App-wide logger setup with console and rotating-file handlers."""
+
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -5,22 +7,22 @@ from src.foundation.asset_paths import LOGS_DIR
 
 
 def setup_logging(config=None):
-    """Setup logging with optional configuration"""
+    """Configure and return the app logger, using `config` values when given."""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    LOG_FILE = str(LOGS_DIR / "app.log")
+    log_file = str(LOGS_DIR / "app.log")
 
-    # Get logger
     logger = logging.getLogger("musiclib")
-    logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
+    logger.setLevel(logging.DEBUG)  # Lowest level; the handlers filter.
+    # Do not also pass records to root handlers, which would print each message two times.
+    logger.propagate = False
 
-    # Clear any existing handlers
+    # Close removed handlers, or each reconfigure leaks an open log file handle.
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
+        handler.close()
 
     # Create formatter
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s")
 
     # Setup handlers based on config
     if config:
@@ -46,9 +48,7 @@ def setup_logging(config=None):
 
     # File handler with rotation
     if file_enabled:
-        file_handler = RotatingFileHandler(
-            LOG_FILE, maxBytes=max_file_size, backupCount=backup_count, encoding="utf-8"
-        )
+        file_handler = RotatingFileHandler(log_file, maxBytes=max_file_size, backupCount=backup_count, encoding="utf-8")
         file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -61,6 +61,6 @@ logger = setup_logging()
 
 
 def reconfigure_logging(config):
-    """Reconfigure logging with new settings"""
+    """Rebuild the app logger's handlers from `config`."""
     global logger
     logger = setup_logging(config)

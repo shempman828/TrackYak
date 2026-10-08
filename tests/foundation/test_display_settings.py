@@ -6,6 +6,7 @@ Scaling must always run against a theme's original, unscaled QSS text --
 these tests also guard against a caller compounding the factor by scaling
 an already-scaled stylesheet.
 """
+
 import ast
 from pathlib import Path
 
@@ -18,14 +19,17 @@ from src.foundation.display_settings import DisplaySettings, scale_qss_pixel_val
 def test_scales_font_size_px():
     assert scale_qss_pixel_values("font-size: 10px;", 1.5) == "font-size: 15px;"
 
+
 def test_scales_padding_and_margin():
     qss = "padding: 8px;\nmargin-left: 4px;"
     assert scale_qss_pixel_values(qss, 0.5) == "padding: 4px;\nmargin-left: 2px;"
+
 
 def test_scales_width_height_and_border_radius():
     qss = "min-width: 20px;\nheight: 40px;\nborder-radius: 8px;"
     expected = "min-width: 30px;\nheight: 60px;\nborder-radius: 12px;"
     assert scale_qss_pixel_values(qss, 1.5) == expected
+
 
 def test_scales_every_value_in_multi_value_shorthand():
     """Regression: padding/margin/border-radius shorthand can carry 2-4
@@ -33,33 +37,37 @@ def test_scales_every_value_in_multi_value_shorthand():
     must scale independently, not just the first.
     """
     assert scale_qss_pixel_values("padding: 2px 8px;", 2.0) == "padding: 4px 16px;"
-    assert (
-        scale_qss_pixel_values("border-radius: 8px 8px 0 0;", 1.5)
-        == "border-radius: 12px 12px 0 0;"
-    )
+    assert scale_qss_pixel_values("border-radius: 8px 8px 0 0;", 1.5) == "border-radius: 12px 12px 0 0;"
+
 
 def test_scales_only_the_width_in_border_shorthand():
     qss = "border-bottom: 2px solid rgba(133, 153, 234, 0.4);"
     expected = "border-bottom: 3px solid rgba(133, 153, 234, 0.4);"
     assert scale_qss_pixel_values(qss, 1.5) == expected
 
+
 def test_leaves_non_px_units_untouched():
     qss = "font-size: 1.05em; padding: 8%; border-radius: 4pt;"
     assert scale_qss_pixel_values(qss, 2.0) == qss
+
 
 def test_leaves_properties_outside_allow_list_untouched():
     qss = "background-position: 10px 5px;"
     assert scale_qss_pixel_values(qss, 2.0) == qss
 
+
 def test_scale_of_one_is_identity_modulo_formatting():
     qss = "font-size: 12px;"
     assert scale_qss_pixel_values(qss, 1.0) == "font-size: 12px;"
 
+
 def test_negative_margin_scales_correctly():
     assert scale_qss_pixel_values("margin-top: -10px;", 0.5) == "margin-top: -5px;"
 
+
 def test_fractional_result_is_not_truncated():
     assert scale_qss_pixel_values("font-size: 12px;", 1.1) == "font-size: 13.2px;"
+
 
 def test_ui_scale_change_reapplies_from_original_not_from_already_scaled(tmp_path, qapp):
     """Regression for compounding: DisplaySettings must re-scale from the
@@ -77,6 +85,7 @@ def test_ui_scale_change_reapplies_from_original_not_from_already_scaled(tmp_pat
 
     settings.set_ui_scale(1.0)
     assert "font-size: 10px;" in qapp.styleSheet()
+
 
 def test_preview_ui_scale_in_only_restyles_given_roots(tmp_path, qapp):
     """Regression: the scale-slider debounce handler used to call
@@ -106,6 +115,7 @@ def test_preview_ui_scale_in_only_restyles_given_roots(tmp_path, qapp):
     # only set_ui_scale() commits that.
     assert "15px" not in qapp.styleSheet()
 
+
 # ---- test_no_unscaled_inline_styles.py ---------------------------------------
 # Guardrail: every inline widget.setStyleSheet() call in src/ that sets a
 # scalable sizing property (font-size, padding, border-radius, etc.) must go
@@ -123,6 +133,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 _EXEMPT_FILES = {SRC_ROOT / "display" / "display_settings.py"}
 
+
 def _literal_text(node: ast.expr) -> str:
     """Concatenate the literal (non-interpolated) text of a string or
     f-string AST node. Returns "" for anything else (e.g. a plain
@@ -131,12 +142,9 @@ def _literal_text(node: ast.expr) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
-        return "".join(
-            part.value
-            for part in node.values
-            if isinstance(part, ast.Constant) and isinstance(part.value, str)
-        )
+        return "".join(part.value for part in node.values if isinstance(part, ast.Constant) and isinstance(part.value, str))
     return ""
+
 
 def _find_violations(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -158,6 +166,7 @@ def _find_violations(path: Path) -> list[str]:
             violations.append(f"{path}:{node.lineno}")
     return violations
 
+
 def test_no_raw_setstylesheet_with_scalable_sizing_outside_display_settings():
     violations = []
     for path in sorted(SRC_ROOT.rglob("*.py")):
@@ -172,3 +181,97 @@ def test_no_raw_setstylesheet_with_scalable_sizing_outside_display_settings():
         "src.foundation.display_settings.apply_scaled_style(widget, qss) "
         "instead:\n" + "\n".join(violations)
     )
+
+
+# ---- finalize audit: display robustness --------------------------------------
+def test_hairline_px_values_never_scale_below_one_px():
+    assert scale_qss_pixel_values("border: 1px solid red;", 0.8) == "border: 1px solid red;"
+    assert scale_qss_pixel_values("margin-top: -1px;", 0.5) == "margin-top: -1px;"
+    assert scale_qss_pixel_values("padding: 0px;", 0.5) == "padding: 0px;"
+
+
+def test_ui_scale_and_font_size_are_clamped(qapp):
+    settings = DisplaySettings(app=qapp, config=None)
+    settings.set_ui_scale(0)
+    assert settings.ui_scale == 0.5
+    settings.set_ui_scale(99)
+    assert settings.ui_scale == 3.0
+    settings.set_ui_scale(float("nan"))
+    assert settings.ui_scale == 1.0
+    settings.set_font_size(0)
+    assert settings.font_size == 1
+
+
+def test_default_theme_dir_is_absolute(qapp):
+    from src.foundation.asset_paths import THEMES_DIR
+
+    assert DisplaySettings(app=qapp, config=None).theme_dir == THEMES_DIR
+
+
+class _FakeConfig:
+    """Minimal Config stand-in that records saves."""
+
+    def __init__(self, theme_dir, theme):
+        self.themes_dir = theme_dir
+        self._theme = theme
+        self.saves = 0
+
+    def get_ui_scale(self):
+        return 1.0
+
+    def get_font_family(self):
+        return "Inter"
+
+    def get_font_size(self):
+        return 10
+
+    def get_display_theme(self):
+        return self._theme
+
+    def set_display_theme(self, name):
+        self._theme = name
+
+    def get_menu_bar_auto_hide(self):
+        return False
+
+    def get_blur_explicit_art(self):
+        return False
+
+    def get_censor_explicit_words(self):
+        return False
+
+    def save(self):
+        self.saves += 1
+
+
+def test_apply_all_applies_theme_without_saving_config(tmp_path, qapp):
+    (tmp_path / "t.qss").write_text("QLabel { font-size: 10px; }")
+    cfg = _FakeConfig(tmp_path, "t")
+    settings = DisplaySettings(app=qapp, config=cfg)
+    emitted = []
+    settings.display_changed.connect(lambda: emitted.append(1))
+
+    settings.apply_all()
+
+    assert "font-size: 10px;" in qapp.styleSheet()
+    assert cfg.saves == 0
+    assert emitted == [1]
+
+
+def test_apply_all_keeps_theme_name_on_unreadable_theme(tmp_path, qapp):
+    (tmp_path / "bad.qss").write_bytes(b"\xff\xfe\xfa invalid utf-8")
+    cfg = _FakeConfig(tmp_path, "bad")
+    settings = DisplaySettings(app=qapp, config=cfg)
+
+    settings.apply_all()  # logged, not raised
+
+    assert settings.theme_name == "bad"
+    assert cfg.get_display_theme() == "bad"
+
+
+def test_apply_all_clears_missing_theme(tmp_path, qapp):
+    cfg = _FakeConfig(tmp_path, "gone")
+    settings = DisplaySettings(app=qapp, config=cfg)
+    settings.apply_all()
+    assert settings.theme_name is None
+    assert cfg.get_display_theme() == ""

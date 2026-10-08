@@ -89,3 +89,30 @@ def test_relocate_swallows_move_errors(monkeypatch, tmp_path):
 
     monkeypatch.setattr(asset_paths.shutil, "move", boom)
     asset_paths._migrate_legacy_cache_locations()  # logged, not raised
+
+
+def test_dev_mode_user_dir_matches_base_dir():
+    assert asset_paths.USER_DIR == asset_paths.BASE_DIR
+    assert asset_paths.CONFIG_DIR.parent == asset_paths.USER_DIR
+    assert asset_paths.THEMES_DIR.parent == asset_paths.BASE_DIR
+
+
+def test_frozen_mode_keeps_user_data_out_of_meipass(monkeypatch, tmp_path):
+    import importlib
+    import sys
+
+    meipass = tmp_path / "_MEI123"
+    exe_dir = tmp_path / "app"
+    exe_dir.mkdir()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "TrackYak"))
+    try:
+        frozen = importlib.reload(asset_paths)
+        assert meipass / "assets" == frozen.ASSETS_DIR
+        assert meipass / "themes" == frozen.THEMES_DIR
+        for d in (frozen.CONFIG_DIR, frozen.LOGS_DIR, frozen.CACHE_DIR, frozen.PLAYLISTS_DIR, frozen.IMAGES_DIR, frozen.CHARTS_DIR):
+            assert exe_dir in d.parents
+    finally:
+        monkeypatch.undo()
+        importlib.reload(asset_paths)

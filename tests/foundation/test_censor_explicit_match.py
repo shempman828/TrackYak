@@ -38,10 +38,7 @@ def test_whole_word_match_returns_true():
 
 # AC5 -------------------------------------------------------------------------
 def test_substring_does_not_false_positive():
-    assert (
-        censor.text_contains_explicit_words("take a class, polish the brass")
-        is False
-    )
+    assert censor.text_contains_explicit_words("take a class, polish the brass") is False
 
 
 def test_match_is_case_insensitive():
@@ -50,10 +47,7 @@ def test_match_is_case_insensitive():
 
 # AC6 -------------------------------------------------------------------------
 def test_phrase_entry_matches():
-    assert (
-        censor.text_contains_explicit_words("I saw you kiss the sky last night")
-        is True
-    )
+    assert censor.text_contains_explicit_words("I saw you kiss the sky last night") is True
 
 
 def test_empty_or_none_text_returns_false():
@@ -71,6 +65,7 @@ def test_missing_wordlist_file_returns_false(tmp_path, monkeypatch):
 
 # AC14 ------------------------------------------------------------------------
 def test_wordlist_hot_reloads_on_change(tmp_path, monkeypatch):
+    monkeypatch.setattr(censor, "_RECHECK_INTERVAL_S", 0.0)
     wordlist = tmp_path / "explicit_words.txt"
     wordlist.write_text("shit\n")
     monkeypatch.setattr(censor, "_WORDLIST_PATH", wordlist)
@@ -86,3 +81,22 @@ def test_wordlist_hot_reloads_on_change(tmp_path, monkeypatch):
     os.utime(wordlist, (future, future))
 
     assert censor.text_contains_explicit_words("newword here") is True
+
+
+def test_wordlist_mtime_check_is_throttled(monkeypatch):
+    """Repeated calls within the recheck interval must not stat the word list again."""
+    assert censor.text_contains_explicit_words("shit") is True
+    calls = []
+    real_path = censor._WORDLIST_PATH
+
+    class _CountingPath(type(real_path)):
+        def stat(self, *a, **k):
+            calls.append(1)
+            return super().stat(*a, **k)
+
+    counting = _CountingPath(real_path)
+    censor._cache["path"] = counting
+    monkeypatch.setattr(censor, "_WORDLIST_PATH", counting)
+    for _ in range(50):
+        censor.text_contains_explicit_words("shit")
+    assert calls == []

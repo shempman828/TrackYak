@@ -1,4 +1,5 @@
-# paths.py
+"""Absolute paths to the app's asset, data, config and cache directories."""
+
 from pathlib import Path
 import shutil
 import sys
@@ -7,30 +8,31 @@ from PySide6.QtGui import QIcon
 
 # --- Base Directories --------------------------------------------------------
 
-# Handle both development and frozen (PyInstaller / fbs) modes
-BASE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+_FROZEN = getattr(sys, "frozen", False)
+# Read-only bundled files. In a frozen (PyInstaller) build this is the temp extract dir.
+BASE_DIR = Path(sys._MEIPASS) if _FROZEN else Path(__file__).resolve().parents[2]
+# Writable user data. Must persist across runs, so a frozen build uses the executable's dir, not _MEIPASS.
+USER_DIR = Path(sys.executable).resolve().parent if _FROZEN else BASE_DIR
 
 # --- Core Directories --------------------------------------------------------
 
 ASSETS_DIR = BASE_DIR / "assets"
-IMAGES_DIR = BASE_DIR / "images"
-LOGS_DIR = BASE_DIR / "logs"
-PLAYLISTS_DIR = BASE_DIR / "playlists"
 THEMES_DIR = BASE_DIR / "themes"
-CONFIG_DIR = BASE_DIR / "config"
-# Top-level home for regenerable on-disk caches (e.g. sync's MP3 transcode
-# cache). Safe to delete wholesale; never holds source-of-truth data.
-CACHE_DIR = BASE_DIR / "cache"
+IMAGES_DIR = USER_DIR / "images"
+LOGS_DIR = USER_DIR / "logs"
+PLAYLISTS_DIR = USER_DIR / "playlists"
+CONFIG_DIR = USER_DIR / "config"
+# Regenerable caches only; safe to delete wholesale.
+CACHE_DIR = USER_DIR / "cache"
 
 # --- Subdirectories ----------------------------------------------------------
 
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
 IMAGECACHE_DIR = CACHE_DIR / "imagecache"
-# Downsampled per-track amplitude envelopes for the Player Dock's waveform
-# seek bar. One tiny .npy per track identity; fully regenerable from the
-# audio file, so safe to wipe wholesale.
+# Per-track waveform envelopes for the Player Dock seek bar; regenerable.
 WAVEFORMCACHE_DIR = CACHE_DIR / "waveforms"
-CHARTS_DIR = ASSETS_DIR / "charts"
+# Downloaded chart CSVs are written at runtime, so they live under USER_DIR.
+CHARTS_DIR = USER_DIR / "assets" / "charts"
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -66,17 +68,13 @@ def icon(name: str) -> QIcon:
 
 
 def theme(name: str) -> str:
-    """Return absolute path to a theme file inside /assets/themes."""
+    """Return absolute path to a theme file inside /themes."""
     return str(THEMES_DIR / name)
 
 
 def resolve_theme_assets(stylesheet: str) -> str:
-    """Substitute the ASSETS_DIR_PLACEHOLDER token in a QSS stylesheet.
-
-    Qt resolves relative url() paths in a stylesheet against the process's
-    working directory, which breaks in packaged/frozen builds or when the
-    app is launched from elsewhere. ASSETS_DIR already accounts for that.
-    """
+    """Replace the ASSETS_DIR_PLACEHOLDER token in a QSS stylesheet with the absolute assets path."""
+    # Qt resolves relative url() paths against the CWD, which breaks frozen builds and other launch dirs.
     return stylesheet.replace("ASSETS_DIR_PLACEHOLDER", ASSETS_DIR.as_posix())
 
 
@@ -91,15 +89,9 @@ def cache(name: str) -> str:
 
 
 def _migrate_legacy_cache_locations():
-    """One-time relocate of regenerable caches that predate CACHE_DIR.
-
-    ``analysis_cache.json`` used to live in ``config/`` and the artwork
-    thumbnail cache in ``images/imagecache/``; both now belong under
-    ``cache/``. Every entry here is fully regenerable, so any failure is
-    logged and ignored — the cache just rebuilds in its new home. Runs
-    before the mkdir loop so ``shutil.move`` of the old ``imagecache/``
-    directory renames cleanly instead of nesting inside a fresh target.
-    """
+    """Move legacy cache files from config/ and images/ into cache/."""
+    # Best-effort: the caches are regenerable, so failures are only logged.
+    # Runs before the mkdir loop, so moving images/imagecache/ renames instead of nesting.
     from src.foundation.logger_config import logger
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -121,7 +113,7 @@ def ensure_directories_exist():
 
     _migrate_legacy_cache_locations()
 
-    for path in [ASSETS_DIR, IMAGES_DIR, LOGS_DIR, PLAYLISTS_DIR, ARTIST_IMAGES_DIR, IMAGECACHE_DIR, WAVEFORMCACHE_DIR, THEMES_DIR, CHARTS_DIR, CACHE_DIR]:
+    for path in [ASSETS_DIR, IMAGES_DIR, LOGS_DIR, PLAYLISTS_DIR, CONFIG_DIR, ARTIST_IMAGES_DIR, IMAGECACHE_DIR, WAVEFORMCACHE_DIR, THEMES_DIR, CHARTS_DIR, CACHE_DIR]:
         if not path.exists():
             logger.info(f"Creating missing directory: {path}")
         path.mkdir(parents=True, exist_ok=True)

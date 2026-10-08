@@ -1,5 +1,6 @@
-# display_settings.py
-from pathlib import Path
+"""App-wide theme, font, UI-scale and display-option manager."""
+
+import math
 import re
 import weakref
 
@@ -7,7 +8,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.foundation.asset_paths import resolve_theme_assets
+from src.foundation.asset_paths import THEMES_DIR, resolve_theme_assets
 from src.foundation.logger_config import logger
 
 # QSS properties whose px values should track the UI scale slider.
@@ -48,21 +49,20 @@ _SCALABLE_QSS_PROPS = (
 _SCALABLE_QSS_PATTERN = re.compile(r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)([^;}]+)")
 _PX_VALUE_PATTERN = re.compile(r"(-?\d+(?:\.\d+)?)px\b")
 
+MIN_UI_SCALE = 0.5
+MAX_UI_SCALE = 3.0
+
 
 def scale_qss_pixel_values(qss: str, scale: float) -> str:
-    """Scale px-valued sizing properties (font-size, padding, margins,
-    widths/heights, border-radius, etc.) in a stylesheet by `scale`.
-
-    Scales every px value in a property, not just the first -- shorthand
-    like "padding: 2px 8px;" or "border-radius: 8px 8px 0 0;" needs each
-    value scaled independently.
-
-    Always pass the theme's original, unscaled QSS text — scaling an
-    already-scaled stylesheet would compound the factor on every call.
-    """
+    """Scale every px value of the sizing properties in a stylesheet by `scale`."""
+    # Always pass the original, unscaled QSS: scaling scaled text compounds the factor.
 
     def _replace_px(match: re.Match) -> str:
-        scaled = float(match.group(1)) * scale
+        original = float(match.group(1))
+        scaled = original * scale
+        # Keep 1px+ values (hairline borders) at 1px or more, or Qt can draw them as 0.
+        if abs(original) >= 1 and abs(scaled) < 1:
+            scaled = math.copysign(1.0, original)
         text = f"{scaled:.2f}".rstrip("0").rstrip(".")
         return f"{text}px"
 
@@ -74,15 +74,7 @@ def scale_qss_pixel_values(qss: str, scale: float) -> str:
 
 
 class DisplaySettings(QObject):
-    """
-    Centralized display settings manager.
-
-    Responsibilities:
-    - Load and apply QSS themes
-    - Control global font and font size
-    - Apply UI scaling
-    - Control menu bar auto-hide behavior
-    """
+    """Load and apply the QSS theme, app font, UI scale and display options."""
 
     display_changed = Signal()
     # Emitted specifically when auto-hide changes so the menu bar can respond immediately
@@ -100,25 +92,21 @@ class DisplaySettings(QObject):
 
         # If config is provided, load settings from it
         if config:
-            self.ui_scale = float(config.get_ui_scale())
+            self.ui_scale = _clamp_scale(float(config.get_ui_scale()))
             self.font_family = config.get_font_family()
-            self.font_size = int(config.get_font_size())
+            self.font_size = max(1, int(config.get_font_size()))
             # Normalize falsy values (None, "") to None so callers can rely on truthiness
             theme = config.get_display_theme()
             self.theme_name: str | None = theme if theme else None
-            self.theme_dir = Path(config.themes_dir)
-
-            # Load menu bar auto-hide from config (defaults to False = always visible)
-            self.menu_bar_auto_hide: bool = config.config.getboolean(
-                "display", "menu_bar_auto_hide", fallback=False
-            )
+            self.theme_dir = config.themes_dir
+            self.menu_bar_auto_hide: bool = config.get_menu_bar_auto_hide()
 
             # Explicit-content display options
             self.blur_explicit_art: bool = config.get_blur_explicit_art()
             self.censor_explicit_words: bool = config.get_censor_explicit_words()
         else:
             # Default settings
-            self.theme_dir = Path("themes")
+            self.theme_dir = THEMES_DIR
             self.theme_name: str | None = None
             self.ui_scale: float = 1.0
             self.font_family: str = "Inter"
@@ -141,17 +129,8 @@ class DisplaySettings(QObject):
     # ---------------------------------------------------------
 
     def set_theme(self, theme_name: str):
-        """Load and apply a QSS theme by name. Expects <theme_name>.qss in theme_dir."""
-        qss_path = self.theme_dir / f"{theme_name}.qss"
-
-        if not qss_path.exists():
-            raise FileNotFoundError(f"Theme not found: {qss_path}")
-
-        qss = qss_path.read_text(encoding="utf-8")
-
-        self._raw_qss = resolve_theme_assets(qss)
-        self._apply_stylesheet()
-        self.theme_name = theme_name
+        """Load, apply and persist the theme <theme_name>.qss from theme_dir."""
+        self._load_theme(theme_name)
 
         if self.config:
             self.config.set_display_theme(theme_name)
@@ -160,12 +139,23 @@ class DisplaySettings(QObject):
         logger.info(f"Applied theme: {theme_name}")
         self.display_changed.emit()
 
+    def _load_theme(self, theme_name: str):
+        """Read and apply <theme_name>.qss without persisting; raises OSError or UnicodeDecodeError."""
+        qss_path = self.theme_dir / f"{theme_name}.qss"
+        if not qss_path.exists():
+            raise FileNotFoundError(f"Theme not found: {qss_path}")
+
+        self._raw_qss = resolve_theme_assets(qss_path.read_text(encoding="utf-8"))
+        self._apply_stylesheet()
+        self.theme_name = theme_name
+
     # ---------------------------------------------------------
     # UI scale
     # ---------------------------------------------------------
 
     def set_ui_scale(self, scale: float):
-        """Set UI scale factor and persist immediately. Typical values: 0.9, 1.0, 1.1, 1.25"""
+        """Set the UI scale factor (clamped to 0.5-3.0) and persist it."""
+        scale = _clamp_scale(scale)
         self.ui_scale = scale
 
         if self.config:
@@ -178,23 +168,10 @@ class DisplaySettings(QObject):
         self.display_changed.emit()
 
     def preview_ui_scale_in(self, scale: float, roots: list[QWidget]):
-        """Live-preview a scale change against only the given widget
-        subtrees, instead of the whole app.
-
-        `set_ui_scale()` calls `QApplication.setStyleSheet()`, which
-        re-polishes every live widget under the app -- including ones
-        sitting hidden behind another tab. For a widget tree that grows
-        with the library (e.g. the album grid, which never destroys
-        off-screen cards), that re-polish is O(total widget count) and can
-        take tens of seconds even though nothing outside `roots` is even
-        visible. Setting the same scaled stylesheet directly on just the
-        on-screen roots cascades to their descendants and looks identical,
-        for a fraction of the cost.
-
-        Does not persist and does not touch widgets outside `roots` --
-        call set_ui_scale() once to commit for real (this also corrects
-        every widget this preview skipped).
-        """
+        """Preview a scale change on only the given widget subtrees, without persisting."""
+        # An app-wide setStyleSheet re-polishes every live widget (O(widgets), slow for big grids);
+        # call set_ui_scale() to commit, which also corrects the widgets this preview skipped.
+        scale = _clamp_scale(scale)
         self.ui_scale = scale
         self._apply_font()
         if self._raw_qss is not None:
@@ -219,7 +196,8 @@ class DisplaySettings(QObject):
         self.display_changed.emit()
 
     def set_font_size(self, size: int):
-        """Set font size and persist immediately."""
+        """Set the font size (minimum 1 pt) and persist it."""
+        size = max(1, int(size))
         self.font_size = size
 
         if self.config:
@@ -230,17 +208,17 @@ class DisplaySettings(QObject):
         self.display_changed.emit()
 
     def _apply_font(self):
-        """Apply scaled font globally."""
-        scaled_size = max(1, int(self.font_size * self.ui_scale))
+        """Apply the scaled font globally."""
         font = QFont(self.font_family)
-        font.setPointSize(scaled_size)
+        font.setPointSize(self._scaled_font_size())
         self.app.setFont(font)
 
-    def _apply_stylesheet(self):
-        """Re-scale the loaded theme's raw QSS by ui_scale and apply it.
+    def _scaled_font_size(self) -> int:
+        """Return the font size multiplied by ui_scale, truncated, minimum 1 pt."""
+        return max(1, int(self.font_size * self.ui_scale))
 
-        No-op if no theme is loaded (self._raw_qss is None).
-        """
+    def _apply_stylesheet(self):
+        """Scale the loaded theme's raw QSS by ui_scale and apply it app-wide (no-op without a theme)."""
         if self._raw_qss is None:
             return
         self.app.setStyleSheet(scale_qss_pixel_values(self._raw_qss, self.ui_scale))
@@ -250,15 +228,8 @@ class DisplaySettings(QObject):
     # ---------------------------------------------------------
 
     def style_widget(self, widget: QWidget, qss: str):
-        """Scale-aware replacement for widget.setStyleSheet() on one-off
-        inline styles (e.g. a caption's "font-size: 10px;").
-
-        The widget is tracked via a weak reference and automatically
-        re-scaled and re-applied whenever ui_scale changes, so callers
-        don't need to reconnect to display_changed themselves. Nothing
-        to clean up when the widget is destroyed -- the weak reference
-        drops on its own.
-        """
+        """Apply an inline stylesheet that is re-scaled automatically when ui_scale changes."""
+        # Weakly tracked: nothing to clean up when the widget is destroyed.
         self._styled_widgets[widget] = qss
         widget.setStyleSheet(scale_qss_pixel_values(qss, self.ui_scale))
 
@@ -277,15 +248,11 @@ class DisplaySettings(QObject):
     # ---------------------------------------------------------
 
     def set_menu_bar_auto_hide(self, enabled: bool):
-        """
-        Enable or disable menu bar auto-hide.
-        When enabled, the menu bar hides until the user moves the mouse over it.
-        The setting is saved to config immediately.
-        """
+        """Enable or disable menu bar auto-hide and persist it."""
         self.menu_bar_auto_hide = enabled
 
         if self.config:
-            self.config.config.set("display", "menu_bar_auto_hide", str(enabled).lower())
+            self.config.set_menu_bar_auto_hide(enabled)
             self.config.save()
 
         logger.debug(f"Menu bar auto-hide set to {enabled}")
@@ -334,59 +301,62 @@ class DisplaySettings(QObject):
     # ---------------------------------------------------------
 
     def apply_all(self):
-        """Re-apply all current settings. Call once during app startup."""
+        """Re-apply all current settings once at app startup, without rewriting config."""
         if self.theme_name:
             try:
-                self.set_theme(self.theme_name)
+                self._load_theme(self.theme_name)
+                logger.info(f"Applied theme: {self.theme_name}")
             except FileNotFoundError:
-                # Stored theme is gone — fall back gracefully and clear the
-                # stale name so we don't retry it on the next startup.
+                # Stored theme is gone: clear the stale name so the next startup does not retry it.
                 logger.warning(f"Stored theme {self.theme_name!r} not found; clearing")
                 self.theme_name = None
                 if self.config:
                     self.config.set_display_theme("")
                     self.config.save()
+            except (OSError, UnicodeDecodeError) as e:
+                # Keep the stored name: a read error (e.g. permissions) can be temporary.
+                logger.error(f"Could not load theme {self.theme_name!r}: {e}")
 
         # Always apply the font: the QSS theme does not set the app font.
         self._apply_font()
+        self.display_changed.emit()
 
     # ---------------------------------------------------------
     # Getters
     # ---------------------------------------------------------
 
     def get_settings(self):
-        """Get all current display settings as a dictionary."""
+        """Return all current display settings as a dict."""
         return {
             "theme": self.theme_name,
             "ui_scale": self.ui_scale,
             "font_family": self.font_family,
             "font_size": self.font_size,
-            "scaled_font_size": max(1, int(self.font_size * self.ui_scale)),
+            "scaled_font_size": self._scaled_font_size(),
             "menu_bar_auto_hide": self.menu_bar_auto_hide,
             "blur_explicit_art": self.blur_explicit_art,
             "censor_explicit_words": self.censor_explicit_words,
         }
 
     def get_available_themes(self) -> list[str]:
-        """Get sorted list of available theme names (stems of *.qss files)."""
+        """Return the sorted names (file stems) of the available .qss themes."""
         if not self.theme_dir.exists():
             return []
         return sorted(f.stem for f in self.theme_dir.glob("*.qss"))
 
 
 def apply_scaled_style(widget: QWidget, qss: str) -> None:
-    """Scale-aware replacement for widget.setStyleSheet() on one-off inline
-    styles -- use this anywhere a widget gets a literal stylesheet string
-    with sizing properties (font-size, padding, etc.) so it stays in sync
-    with the UI scale slider.
-
-    Falls back to a plain, unscaled setStyleSheet() if no app-wide
-    DisplaySettings is attached (e.g. tests that build widgets without
-    going through run.py's bootstrap) -- there's nothing to track or
-    rescale against in that case.
-    """
+    """Scale-aware replacement for widget.setStyleSheet() on inline styles with sizing properties."""
     display_settings = getattr(QApplication.instance(), "display_settings", None)
+    # No app-wide DisplaySettings (e.g. tests without run.py bootstrap): apply unscaled.
     if display_settings is None:
         widget.setStyleSheet(qss)
         return
     display_settings.style_widget(widget, qss)
+
+
+def _clamp_scale(scale: float) -> float:
+    """Clamp a UI scale factor to [MIN_UI_SCALE, MAX_UI_SCALE]; non-finite values become 1.0."""
+    if not math.isfinite(scale):
+        return 1.0
+    return min(MAX_UI_SCALE, max(MIN_UI_SCALE, scale))
