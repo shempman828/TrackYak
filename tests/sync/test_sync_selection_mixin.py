@@ -13,12 +13,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QTreeWidgetItem
 import pytest
 
 from src.sync import sync_selection_mixin
 from src.sync.device_card import format_file_size
 from src.sync.sync_selection_mixin import SyncSelectionMixin
+from src.sync.sync_selection_tree import SyncSelectionTree
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -50,7 +51,7 @@ class _Host(SyncSelectionMixin):
     """Minimal carrier for the mixin: real widgets, no full SyncView."""
 
     def __init__(self, *, checked=False, enabled=True, bitrate="320"):
-        self.sync_tree = QTreeWidget()
+        self.sync_tree = SyncSelectionTree()
         self.sync_manager = _SummingManager(self)
         self.track_count_label = QLabel()
         self.transcode_mp3_check = QCheckBox()
@@ -160,7 +161,7 @@ class _LoaderStub(QObject):
 
 class _TreeHost(SyncSelectionMixin):
     def __init__(self):
-        self.sync_tree = QTreeWidget()
+        self.sync_tree = SyncSelectionTree()
         self.track_count_label = QLabel()
         self.transcode_mp3_check = QCheckBox()
         self.bitrate_combo = QComboBox()
@@ -201,7 +202,7 @@ def test_refresh_does_not_load_inline(stub_loader):  # perf-AC9
     labels = [
         host.sync_tree.topLevelItem(i).text(0) for i in range(host.sync_tree.topLevelItemCount())
     ]
-    assert labels == ["PLAYLISTS  (1)", "MOODS  (0)"]
+    assert labels == ["PLAYLISTS", "MOODS"]
 
 
 def test_repeat_refresh_calls_are_coalesced(stub_loader):  # perf-AC10
@@ -238,7 +239,7 @@ def test_selection_reapplied_after_async_load(stub_loader):  # perf-AC12
         if it.checkState(0) == Qt.Checked
     ]
     assert checked == [7]
-    assert "1 playlist(s)" in host.track_count_label.text()  # _update_selected_items ran
+    assert "1 playlist " in host.track_count_label.text()  # _update_selected_items ran
 
 
 def test_selection_summary_uses_deduped_manager_totals_not_a_per_item_sum(stub_loader):
@@ -277,7 +278,7 @@ def test_selection_summary_uses_deduped_manager_totals_not_a_per_item_sum(stub_l
     text = host.track_count_label.text()
     assert "3 tracks" in text  # from the manager, not the 6 a per-item sum gives
     assert text.endswith(format_file_size(7_000_000))  # not 15 MB
-    assert "2 playlist(s)" in text and "1 mood(s)" in text
+    assert "2 playlists" in text and "1 mood " in text
 
 
 def test_failed_load_keeps_existing_tree(stub_loader):  # perf-AC14

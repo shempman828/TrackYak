@@ -1,7 +1,8 @@
 """
 SyncExecutionMixin rendering: the prune pass is surfaced to the user -- the
-confirm dialog warns that untracked files will be removed, and the Log tab
-lists what got removed plus a running total.
+confirm dialog warns that untracked files will be removed, and the text log
+(the Activity page's "Show log" section) lists what got removed plus a
+running total.
 """
 
 from unittest.mock import Mock
@@ -23,6 +24,10 @@ class _Host(SyncExecutionMixin):
         self.progress_bar = Mock()
         self.status_manager = Mock()
         self._set_sync_ui_state = Mock()
+        self._show_sync_result = Mock()
+        self.activity = Mock()
+        self.sync_worker = None
+        self._selection_totals = (3, 0, 0, 0.0)
 
 
 def test_on_prune_complete_lists_removed_files():  # AC10

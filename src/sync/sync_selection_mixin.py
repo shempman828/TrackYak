@@ -1,20 +1,20 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QTreeWidgetItem
 
 from src.foundation.logger_config import logger
-from src.sync.device_card import format_file_size
+from src.sync.device_card import format_file_size, plural
 from src.sync.sync_items_loader import SyncItemsLoader
+from src.sync.sync_selection_tree import SyncSelectionTree
 
 
 class SyncSelectionMixin:
     """
-    Playlist/mood checklist tree and the derived selection state (track
-    count label, sync button enablement) for SyncView.
+    Playlist/mood checklist tree and the derived selection state (selection
+    summary in the bottom bar, sync button enablement) for SyncView.
 
-    Expects the host class to provide: self.sync_tree, self.sync_manager,
-    self.current_profile, self.profiles, self.profile_store,
-    self.clear_before_sync_check, self.track_count_label, self.sync_btn,
+    Expects the host class to provide: self.sync_tree (a SyncSelectionTree),
+    self.sync_manager, self.current_profile, self.profiles,
+    self.profile_store, self.track_count_label, self.sync_btn,
     self.transcode_mp3_check, self.bitrate_combo.
     """
 
@@ -32,11 +32,7 @@ class SyncSelectionMixin:
 
         def add_level(parent_id, node: QTreeWidgetItem):
             for it in children_map.get(parent_id, []):
-                tree_item = QTreeWidgetItem(node, [f"{it['name']}  ({it['track_count']} tracks)"])
-                tree_item.setFlags(tree_item.flags() | Qt.ItemIsUserCheckable)
-                tree_item.setCheckState(0, Qt.Unchecked)
-                tree_item.setToolTip(0, it.get("description") or "")
-                tree_item.setData(0, Qt.UserRole, it)
+                tree_item = SyncSelectionTree.make_item(node, it)
                 add_level(it[id_key], tree_item)
 
         add_level(None, parent_item)
@@ -96,24 +92,36 @@ class SyncSelectionMixin:
         self.sync_tree.blockSignals(True)
         self.sync_tree.clear()
 
-        header_font = QFont()
-        header_font.setBold(True)
-
-        playlists_header = QTreeWidgetItem(self.sync_tree, [f"PLAYLISTS  ({len(playlists)})"])
-        playlists_header.setFlags(Qt.ItemIsEnabled)
-        playlists_header.setFont(0, header_font)
+        playlists_header = self.sync_tree.add_section("PLAYLISTS")
         self._add_hierarchy(playlists_header, playlists, "playlist_id")
 
-        moods_header = QTreeWidgetItem(self.sync_tree, [f"MOODS  ({len(moods)})"])
-        moods_header.setFlags(Qt.ItemIsEnabled)
-        moods_header.setFont(0, header_font)
+        moods_header = self.sync_tree.add_section("MOODS")
         self._add_hierarchy(moods_header, moods, "mood_id")
 
         self.sync_tree.expandAll()
+        # Re-apply a filter typed while the old tree was on screen.
+        self.sync_tree.set_filter_text(self.sync_tree.filter_text())
         self.sync_tree.blockSignals(False)
+        self._update_tree_placeholder()
 
         if self.current_profile:
             self._apply_profile_selection()
+        else:
+            self.sync_tree.update_section_counts()
+
+    def _update_tree_placeholder(self):
+        """Pick the text the tree paints while it has no visible rows."""
+        if self.sync_tree.filter_text():
+            text = "No playlists or moods match the filter."
+        elif self.sync_tree.topLevelItemCount() == 0:
+            text = "Loading playlists and moods…"
+        else:
+            text = "There are no playlists or moods yet. Create one in the library first."
+        self.sync_tree.set_placeholder_text(text)
+
+    def _on_sync_filter_changed(self, text: str):
+        self.sync_tree.set_filter_text(text)
+        self._update_tree_placeholder()
 
     def _apply_profile_selection(self):
         """Tick the checkboxes that match the current profile's saved playlist/mood IDs."""
@@ -147,11 +155,12 @@ class SyncSelectionMixin:
                     playlist_ids.append(data["playlist_id"])
         self.current_profile.playlist_ids = playlist_ids
         self.current_profile.mood_ids = mood_ids
-        self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
         self.profile_store.save(self.profiles)
 
     def _update_selected_items(self):
-        """Rebuild self.selected_items and update the track count label."""
+        """Rebuild self.selected_items and update the selection summary label."""
+        self.sync_tree.refresh_partial_states()
+        self.sync_tree.update_section_counts()
         self.selected_items = []
         playlist_ids = []
         mood_ids = []
@@ -168,24 +177,20 @@ class SyncSelectionMixin:
             # One deduped query, not a sum of per-item aggregates: a track in
             # two selected playlists (or a playlist and a mood) must count once,
             # the same way it lands on the device only once.
+            self._selection_totals = self.sync_manager.selection_totals(playlist_ids, mood_ids)
             total_tracks, total_size, total_lossless_size, total_lossless_duration = (
-                self.sync_manager.selection_totals(playlist_ids, mood_ids)
+                self._selection_totals
             )
-            n_playlists = len(playlist_ids)
-            n_moods = len(mood_ids)
-            parts = []
-            if n_playlists:
-                parts.append(f"{n_playlists} playlist(s)")
-            if n_moods:
-                parts.append(f"{n_moods} mood(s)")
             size_text = self._selection_size_text(
                 total_size, total_lossless_size, total_lossless_duration
             )
             self.track_count_label.setText(
-                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  {size_text}"
+                f"{selection_description(len(playlist_ids), len(mood_ids))}  ·  "
+                f"{plural(total_tracks, 'track')}  ·  {size_text}"
             )
         else:
-            self.track_count_label.setText("")
+            self._selection_totals = (0, 0, 0, 0.0)
+            self.track_count_label.setText("Nothing selected")
 
         self._update_sync_button_state()
 
@@ -210,21 +215,25 @@ class SyncSelectionMixin:
         self._update_selected_items()
         self._save_current_profile_selections()
 
-    def _select_all_items(self):
+    def _on_sync_tree_bulk_changed(self):
+        """A context-menu "with sub-items" change (made with signals blocked)."""
+        self._update_selected_items()
+        self._save_current_profile_selections()
+
+    def _set_visible_items_checked(self, state):
+        """Tick/untick every row the filter shows; hidden rows keep their state."""
         self.sync_tree.blockSignals(True)
-        for item in self._iter_sync_items():
-            item.setCheckState(0, Qt.Checked)
+        for item in list(self.sync_tree.visible_checkable_items()):
+            item.setCheckState(0, state)
         self.sync_tree.blockSignals(False)
         self._update_selected_items()
         self._save_current_profile_selections()
 
+    def _select_all_items(self):
+        self._set_visible_items_checked(Qt.Checked)
+
     def _select_no_items(self):
-        self.sync_tree.blockSignals(True)
-        for item in self._iter_sync_items():
-            item.setCheckState(0, Qt.Unchecked)
-        self.sync_tree.blockSignals(False)
-        self._update_selected_items()
-        self._save_current_profile_selections()
+        self._set_visible_items_checked(Qt.Unchecked)
 
     def _expand_all_items(self):
         self.sync_tree.expandAll()
@@ -238,9 +247,23 @@ class SyncSelectionMixin:
 
     def _update_sync_button_state(self):
         """Enable the sync button only when a valid destination and selection exist."""
-        if not self.current_profile or not self.selected_items:
-            self.sync_btn.setEnabled(False)
-            return
+        if not self.current_profile:
+            reason = "Select or create a profile first."
+        elif not (self.current_profile.device_uri or self.current_profile.path):
+            reason = "Set a destination for this profile in Options."
+        elif not self.selected_items:
+            reason = "Select at least one playlist or mood."
+        else:
+            reason = ""
+        self.sync_btn.setEnabled(not reason)
+        self.sync_btn.setToolTip(reason or "Copy the selection to the destination.")
 
-        has_destination = bool(self.current_profile.device_uri) or bool(self.current_profile.path)
-        self.sync_btn.setEnabled(has_destination)
+
+def selection_description(n_playlists: int, n_moods: int) -> str:
+    """'3 playlists + 1 mood' -- the playlist/mood part of a selection summary."""
+    parts = []
+    if n_playlists:
+        parts.append(plural(n_playlists, "playlist"))
+    if n_moods:
+        parts.append(plural(n_moods, "mood"))
+    return " + ".join(parts)

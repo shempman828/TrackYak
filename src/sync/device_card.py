@@ -1,5 +1,4 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from src.common.widgets.style_utils import set_style_property
@@ -17,12 +16,23 @@ def format_file_size(bytes_size):
     return f"{bytes_size:.2f} PB"
 
 
+def plural(count: int, noun: str) -> str:
+    """'1 track' / '2 tracks' (thousands separated)."""
+    return f"{count:,} {noun}{'' if count == 1 else 's'}"
+
+
+# Glyphs for the profile's destination kind, shared with SyncView's header.
+DEVICE_GLYPH = "📱"
+FOLDER_GLYPH = "📁"
+
+
 class DeviceCard(QFrame):
     """
     A clickable card representing one sync profile in the sidebar.
 
-    Shows the profile name, sync type (Android USB / Folder), and
-    a live connection badge when an Android device is linked.
+    Layout: a destination icon (phone / folder) on the left; the profile
+    name with a connection badge, the destination path, and a short
+    selection summary on the right.
 
     on_click is a callable that receives this card — avoids fragile
     parent() chains through scroll area viewports.
@@ -34,16 +44,26 @@ class DeviceCard(QFrame):
         self._on_click = on_click
         self.setObjectName("DeviceCard")
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(64)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._selected = False
         self._connected = False
+        self._track_total: int | None = None
         self._build()
 
     def _build(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(3)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 10, 12, 10)
+        layout.setSpacing(10)
+
+        self.icon_label = QLabel()
+        self.icon_label.setObjectName("DeviceCardIcon")
+        self.icon_label.setFixedSize(34, 34)
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.icon_label, 0, Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
 
         # Top row: name + badge
         top_row = QHBoxLayout()
@@ -51,9 +71,6 @@ class DeviceCard(QFrame):
 
         self.name_label = QLabel(self.profile.name)
         self.name_label.setObjectName("CardTitle")
-        font = QFont()
-        font.setBold(True)
-        self.name_label.setFont(font)
         top_row.addWidget(self.name_label, 1)
 
         self.badge = QLabel()
@@ -62,13 +79,22 @@ class DeviceCard(QFrame):
         self.badge.setObjectName("CardBadge")
         top_row.addWidget(self.badge)
 
-        layout.addLayout(top_row)
+        text_col.addLayout(top_row)
 
-        # Subtitle: path or device info
+        # Destination: device music folder or local path
         self.sub_label = QLabel()
         self.sub_label.setObjectName("CardSub")
-        self.sub_label.setWordWrap(True)
-        layout.addWidget(self.sub_label)
+        # Width comes from the card, not the (elided) text, so a long path
+        # can never push the sidebar wider.
+        self.sub_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        text_col.addWidget(self.sub_label)
+
+        # What this profile syncs
+        self.selection_label = QLabel()
+        self.selection_label.setObjectName("CardSelection")
+        text_col.addWidget(self.selection_label)
+
+        layout.addLayout(text_col, 1)
 
         self._refresh_display()
 
@@ -77,17 +103,41 @@ class DeviceCard(QFrame):
         self.name_label.setText(self.profile.name)
 
         if self.profile.is_mtp:
+            self.icon_label.setText(DEVICE_GLYPH)
             if self._connected:
-                self.badge.setText("● USB")
+                self.badge.setText("● Connected")
                 set_style_property(self.badge, "state", "connected")
             else:
-                self.badge.setText("○ USB")
+                self.badge.setText("○ Offline")
                 set_style_property(self.badge, "state", "disconnected")
-            self.sub_label.setText(self.profile.music_path or "No path set")
+            destination = self.profile.music_path or "No music folder set"
         else:
-            self.badge.setText("📁 Folder")
+            self.icon_label.setText(FOLDER_GLYPH)
+            self.badge.setText("Folder")
             set_style_property(self.badge, "state", "folder")
-            self.sub_label.setText(self.profile.path or "No folder set")
+            destination = self.profile.path or "No folder set"
+        self._set_elided(self.sub_label, destination)
+
+        n_playlists = len(self.profile.playlist_ids)
+        n_moods = len(self.profile.mood_ids)
+        parts = []
+        if n_playlists:
+            parts.append(plural(n_playlists, "playlist"))
+        if n_moods:
+            parts.append(plural(n_moods, "mood"))
+        if self._track_total is not None and parts:
+            parts.append(plural(self._track_total, "track"))
+        self.selection_label.setText("  ·  ".join(parts) if parts else "Nothing selected")
+
+    def _set_elided(self, label: QLabel, text: str):
+        """Keep long paths on one line: elide the middle, full text in the tooltip."""
+        width = max(label.width(), 140)
+        label.setText(label.fontMetrics().elidedText(text, Qt.ElideMiddle, width))
+        label.setToolTip(text)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_display()
 
     def set_selected(self, selected: bool):
         self._selected = selected
@@ -95,6 +145,11 @@ class DeviceCard(QFrame):
 
     def set_connected(self, connected: bool):
         self._connected = connected
+        self._refresh_display()
+
+    def set_track_total(self, total: int | None):
+        """Show the profile's de-duplicated track count (known once it has been opened)."""
+        self._track_total = total
         self._refresh_display()
 
     def update_profile(self, profile: SyncProfile):

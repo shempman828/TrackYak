@@ -1538,62 +1538,6 @@ QLabel[coverPlaceholder="true"] {
     color: #555e7a;
 }
 
-/* ── SPECIAL: SyncView DeviceCard ────────────────────────────────────────────── */
-DeviceCard {
-    background: rgba(17, 18, 26, 0.6);
-    border: 1px solid #1e1f2b;
-    border-radius: 8px;
-}
-
-DeviceCard:hover {
-    background: rgba(133, 153, 234, 0.07);
-    border-color: rgba(133, 153, 234, 0.3);
-}
-
-DeviceCard[selected="true"] {
-    background: rgba(133, 153, 234, 0.15);
-    border: 1px solid rgba(133, 153, 234, 0.5);
-}
-
-/* SyncView DeviceCard subtitle — always dim */
-QLabel#CardSub {
-    color: #555e7a;
-    font-size: 11px;
-}
-
-/* USB/folder connection badge — state: "connected" | "disconnected" | "folder" */
-QLabel#CardBadge {
-    border-radius: 9px;
-    padding: 0 7px;
-    font-size: 10px;
-    font-weight: bold;
-}
-
-QLabel#CardBadge[state="connected"] {
-    background: #1a3a1a;
-    color: #99EA85;
-}
-
-QLabel#CardBadge[state="disconnected"] {
-    background: #2a2c3e;
-    color: #555e7a;
-}
-
-QLabel#CardBadge[state="folder"] {
-    background: #1a1b2a;
-    color: #8599ea;
-}
-
-/* SyncView linked-device label — "connected" | "idle" (linked-but-offline / none) */
-QLabel[linkState="connected"] {
-    color: #99EA85;
-    font-weight: bold;
-}
-
-QLabel[linkState="idle"] {
-    color: #555e7a;
-}
-
 /* ── SPECIAL: Album/AlbumChip selection ──────────────────────────────────────── */
 QFrame#albumChip {
     background: rgba(17, 18, 26, 0.6);
@@ -2174,6 +2118,7 @@ QLabel#PublisherLogoLabel {
     padding: 2px;
 }
 
+/* ── SPECIAL: Sync view (src/sync) ───────────────────────────────────────────── */
 #SyncSectionLabel {
     color: #555e7a;
     font-size: 10px;
@@ -2181,31 +2126,354 @@ QLabel#PublisherLogoLabel {
     font-weight: bold;
 }
 
-#SyncPlaceholder {
+QScrollArea#SyncScroll,
+QScrollArea#SyncScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+
+/* Sidebar profile card */
+DeviceCard {
+    background: rgba(17, 18, 26, 0.6);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+DeviceCard:hover {
+    background: rgba(133, 153, 234, 0.07);
+    border-color: rgba(133, 153, 234, 0.3);
+}
+
+DeviceCard[selected="true"] {
+    background: rgba(133, 153, 234, 0.15);
+    border: 1px solid rgba(133, 153, 234, 0.5);
+}
+
+DeviceCard QLabel {
+    background: transparent;
+}
+
+QLabel#DeviceCardIcon {
+    background: #1a1b26;
+    border: 1px solid #2a2c3e;
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+DeviceCard[selected="true"] QLabel#DeviceCardIcon {
+    border-color: rgba(133, 153, 234, 0.5);
+}
+
+QLabel#CardTitle {
+    font-weight: bold;
+}
+
+QLabel#CardSub,
+QLabel#CardSelection {
     color: #555e7a;
-    font-style: italic;
-    padding: 40px;
+    font-size: 11px;
+}
+
+/* Connection badge — state: "connected" | "disconnected" | "folder" */
+QLabel#CardBadge {
+    border-radius: 9px;
+    padding: 0 7px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#CardBadge[state="connected"] {
+    background: #1a3a1a;
+    color: #99EA85;
+}
+
+QLabel#CardBadge[state="disconnected"] {
+    background: #2a2c3e;
+    color: #555e7a;
+}
+
+QLabel#CardBadge[state="folder"] {
+    background: #1a1b2a;
+    color: #8599ea;
+}
+
+/* Empty state (no profiles yet) */
+QFrame#SyncEmptyCard {
+    background: #11121a;
+    border: 1px solid #1e1f2b;
+    border-radius: 12px;
+}
+
+QLabel#SyncEmptyIcon {
+    font-size: 34px;
+}
+
+QLabel#SyncEmptyTitle {
+    font-size: 17px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+/* Profile header */
+QLabel#SyncProfileIcon {
+    background: #1a1b26;
+    border: 1px solid rgba(133, 153, 234, 0.35);
+    border-radius: 12px;
+    font-size: 22px;
+}
+
+QLabel#SyncProfileTitle {
+    font-size: 20px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+/* Status pill — linkState: "connected" | "idle" (linked but offline) | "folder" */
+QLabel#SyncStatusPill {
+    border-radius: 9px;
+    padding: 1px 9px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+QLabel#SyncStatusPill[linkState="connected"] {
+    background: #1a3a1a;
+    color: #99EA85;
+}
+
+QLabel#SyncStatusPill[linkState="idle"] {
+    background: #2a2c3e;
+    color: #7a82a8;
+}
+
+QLabel#SyncStatusPill[linkState="folder"] {
+    background: #1a1b2a;
+    color: #8599ea;
+}
+
+QToolButton#SyncProfileMenuButton {
+    font-size: 18px;
+    padding: 2px 10px;
+    border: 1px solid #2a2c3e;
+    border-radius: 8px;
+}
+
+QToolButton#SyncProfileMenuButton:hover {
+    border-color: #EAD685;
+    color: #EAD685;
+}
+
+QToolButton#SyncProfileMenuButton::menu-indicator {
+    image: none;
+    width: 0;
+}
+
+/* Music page */
+QTreeWidget#SyncSelectionTree::item {
+    padding: 3px 6px;
+}
+
+QLabel#SyncHint {
+    font-size: 11px;
+}
+
+/* Options page */
+QLabel#SyncOptionCaption {
+    color: #555e7a;
+}
+
+QLabel#SyncOptionCaption[tone="warn"] {
+    color: #EA8599;
+}
+
+/* Activity page */
+QLabel#SyncActivityHeadline {
+    font-size: 15px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+QLabel#SyncActivityHeadline[tone="ok"] {
+    color: #99EA85;
+}
+
+QLabel#SyncActivityHeadline[tone="warn"] {
+    color: #EAD685;
+}
+
+QLabel#SyncActivityHeadline[tone="error"] {
+    color: #EA8599;
+}
+
+QFrame#SyncStatTile {
+    background: #11121a;
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QFrame#SyncStatTile QLabel {
+    background: transparent;
+}
+
+QLabel#SyncStatValue {
+    font-size: 20px;
+    font-weight: bold;
+    color: #555e7a;
+}
+
+QFrame#SyncStatTile[tone="ok"] QLabel#SyncStatValue {
+    color: #99EA85;
+}
+
+QFrame#SyncStatTile[tone="warn"] QLabel#SyncStatValue {
+    color: #EAD685;
+}
+
+QFrame#SyncStatTile[tone="error"] {
+    border-color: rgba(234, 133, 153, 0.45);
+}
+
+QFrame#SyncStatTile[tone="error"] QLabel#SyncStatValue {
+    color: #EA8599;
+}
+
+QLabel#SyncStatCaption {
+    color: #555e7a;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    font-weight: bold;
 }
 
 #SyncLogView {
     background: #0b0c10;
     border: 1px solid #1e1f2b;
     border-radius: 6px;
+    font-family: "DejaVu Sans Mono", "Consolas", "Courier New", monospace;
+    font-size: 11px;
 }
 
+/* Bottom bar */
 #SyncBottomBar {
     border-top: 1px solid #1e1f2b;
-    background: rgba(11,12,16,0.95);
+    background: #11121a;
+}
+
+QLabel#SyncSummaryLabel {
+    color: #b8c0f0;
+}
+
+QLabel#SyncCurrentAction {
+    color: #8599ea;
+    font-weight: bold;
+}
+
+QLabel#SyncResultLabel[tone="ok"] {
+    color: #99EA85;
+}
+
+QLabel#SyncResultLabel[tone="warn"] {
+    color: #EAD685;
+}
+
+QLabel#SyncResultLabel[tone="error"] {
+    color: #EA8599;
 }
 
 QProgressBar#SyncProgressBar {
     background: #1e1f2b;
-    border-radius: 3px;
+    border-radius: 4px;
     border: none;
 }
+
 QProgressBar#SyncProgressBar::chunk {
     background: #8599ea;
-    border-radius: 3px;
+    border-radius: 4px;
+}
+
+/* ── GENERIC: segmented control (common/widgets/segmented_control.py) ────────── */
+QWidget#SegmentedControl {
+    background: transparent;
+}
+
+QWidget#SegmentedControl QPushButton {
+    background-color: #11121a;
+    color: #7a82a8;
+    border: 1px solid #2a2c3e;
+    border-radius: 0;
+    padding: 5px 14px;
+    font-weight: 500;
+}
+
+QWidget#SegmentedControl QPushButton[segment="middle"],
+QWidget#SegmentedControl QPushButton[segment="last"] {
+    border-left: none;
+}
+
+QWidget#SegmentedControl QPushButton[segment="first"] {
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+}
+
+QWidget#SegmentedControl QPushButton[segment="last"] {
+    border-top-right-radius: 7px;
+    border-bottom-right-radius: 7px;
+}
+
+QWidget#SegmentedControl QPushButton[segment="only"] {
+    border-radius: 7px;
+}
+
+QWidget#SegmentedControl QPushButton:hover:!checked {
+    background-color: #1a1b26;
+    color: #EAD685;
+}
+
+/* No bold here: a wider checked label would be clipped by the unchecked size hint. */
+QWidget#SegmentedControl QPushButton:checked {
+    background-color: rgba(133, 153, 234, 0.25);
+    color: #b8c0f0;
+    border-color: rgba(133, 153, 234, 0.6);
+}
+
+QWidget#SegmentedControl QPushButton:focus {
+    outline: none;
+}
+
+QWidget#SegmentedControl QPushButton:disabled {
+    background-color: #0d0e13;
+    color: #333a52;
+}
+
+/* A segment with unseen news (e.g. the Sync view's Activity page) */
+QWidget#SegmentedControl QPushButton[attention="true"] {
+    color: #EAD685;
+}
+
+/* ── GENERIC: text-link buttons (secondary inline actions) ───────────────────── */
+QPushButton[linkButton="true"] {
+    background: transparent;
+    border: none;
+    color: #8599ea;
+    padding: 3px 5px;
+}
+
+QPushButton[linkButton="true"]:hover {
+    color: #EAD685;
+    background: transparent;
+}
+
+QPushButton[linkButton="true"]:checked {
+    background: transparent;
+    color: #8599ea;
+}
+
+QPushButton[linkButton="true"]:focus {
+    border: none;
+    text-decoration: underline;
+}
+
+QPushButton[linkButton="true"]:disabled {
+    color: #333a52;
 }
 
 QPushButton#PrimaryButton {

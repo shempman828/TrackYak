@@ -87,6 +87,8 @@ def test_on_music_path_changed_persists_combo_text():
     view.current_profile = prof
     view.profiles = [prof]
     view.profile_store = Mock()
+    view._refresh_current_card = Mock()
+    view._refresh_header = Mock()
 
     view.music_path_edit.setCurrentText("SD card/Music")
     view._on_music_path_changed()
@@ -152,10 +154,10 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
-    view.placeholder = Mock()
-    view.tabs = Mock()
+    view.detail_stack = Mock()
+    view.profile_page = Mock()
     view._apply_profile_selection = Mock()
-    view._refresh_device_label = Mock()
+    view._refresh_header = Mock()
     view.profile_store = Mock()
     prof = SyncProfile(name="P", path="", transcode_to_mp3=True, transcode_bitrate="256k")
     view.current_profile = prof
@@ -246,43 +248,57 @@ def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
 
 
 # ---------------------------------------------------------------------------
-# "Remove files that are no longer in this profile" — the prune toggle
-# round-trips through the profile and is restored on load without firing.
+# "Files on the destination" -- one 3-way switch (Keep / Remove untracked /
+# Wipe, then copy) over the profile's clear_before_sync + prune_untracked
+# pair; round-trips through the profile and is restored on load silently.
 # ---------------------------------------------------------------------------
 
 
-def test_prune_untracked_checkbox_persists_to_profile():  # AC11
+@pytest.mark.parametrize(
+    ("index", "clear", "prune"),
+    [(0, False, False), (1, False, True), (2, True, False)],
+)
+def test_cleanup_mode_persists_to_profile(index, clear, prune):  # AC11
     view = _view_with_settings_tab()
-    prof = SyncProfile(name="P", path="", prune_untracked=False)
+    start = 1 if index != 1 else 0  # make sure the switch actually changes
+    prof = SyncProfile(name="P", path="", clear_before_sync=not clear, prune_untracked=not prune)
+    view.cleanup_mode.blockSignals(True)
+    view.cleanup_mode.setCurrentIndex(start)
+    view.cleanup_mode.blockSignals(False)
     view.current_profile = prof
     view.profiles = [prof]
     view.profile_store = Mock()
 
-    view.prune_untracked_check.setChecked(True)
+    view.cleanup_mode.setCurrentIndex(index)
 
-    assert prof.prune_untracked is True
+    assert (prof.clear_before_sync, prof.prune_untracked) == (clear, prune)
     assert view.profile_store.save.called
 
 
-def test_load_profile_reflects_prune_untracked_without_signals(monkeypatch):  # AC11
+@pytest.mark.parametrize(
+    ("clear", "prune", "expected"),
+    [(False, False, 0), (False, True, 1), (True, False, 2), (True, True, 2)],
+)
+def test_load_profile_reflects_cleanup_mode_without_signals(monkeypatch, clear, prune, expected):  # AC11
     import src.sync.sync_view as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
-    view.placeholder = Mock()
-    view.tabs = Mock()
+    view.detail_stack = Mock()
+    view.profile_page = Mock()
     view._apply_profile_selection = Mock()
-    view._refresh_device_label = Mock()
+    view._refresh_header = Mock()
     view.profile_store = Mock()
-    view.current_profile = SyncProfile(name="P", path="", prune_untracked=False)
+    view.current_profile = SyncProfile(name="P", path="", clear_before_sync=clear, prune_untracked=prune)
 
     fired = []
-    view.prune_untracked_check.toggled.connect(lambda *_: fired.append("check"))
+    view.cleanup_mode.currentIndexChanged.connect(lambda *_: fired.append("mode"))
 
     view._load_profile_into_ui()
 
-    assert view.prune_untracked_check.isChecked() is False
+    assert view.cleanup_mode.currentIndex() == expected
     assert fired == []
+    view.profile_store.save.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +360,38 @@ def test_expand_collapse_no_crash_on_empty_tree():  # AC3
     view.expand_all_btn.click()
 
     assert view.sync_tree.topLevelItemCount() == 0
+
+
+# ---------------------------------------------------------------------------
+# Linking a device enumerates MTP devices on a worker thread, never inline.
+# ---------------------------------------------------------------------------
+
+
+def test_link_device_scans_off_the_gui_thread(monkeypatch):
+    import src.sync.sync_view as sv
+
+    started = []
+
+    class _Worker:
+        def __init__(self, _mtp):
+            self.ready = Mock()
+
+        def isRunning(self):
+            return False
+
+        def start(self):
+            started.append(self)
+
+    monkeypatch.setattr(sv, "mtp_available", lambda: True)
+    monkeypatch.setattr(sv, "MtpListWorker", _Worker)
+    view = _view_with_settings_tab()
+    view.mtp_manager = Mock()
+    view._link_worker = None
+    view.change_destination_btn = Mock()
+
+    view._link_device()
+
+    view.mtp_manager.list_devices.assert_not_called()
+    assert len(started) == 1
+    assert view.link_device_btn.text() == "Scanning…"
+    assert not view.link_device_btn.isEnabled()

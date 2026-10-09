@@ -1,43 +1,49 @@
 # sync_view.py
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
-    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
-    QTabWidget,
-    QTextEdit,
-    QTreeWidget,
+    QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from src.common.widgets.detail_card import DetailCard
+from src.common.widgets.segmented_control import SegmentedControl
 from src.common.widgets.style_utils import set_style_property
 from src.db.db_helpers import Session
 from src.foundation.config_setup import app_config
-from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
-from src.sync.device_card import DeviceCard
+from src.sync.device_card import DEVICE_GLYPH, FOLDER_GLYPH, DeviceCard
 from src.sync.mtp_list_worker import MtpListWorker
 from src.sync.mtp_manager import MtpDevice, MtpManager, mtp_available
+from src.sync.sync_activity_panel import SyncActivityPanel
 from src.sync.sync_execution_mixin import SyncExecutionMixin
 from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile, SyncProfileStore
 from src.sync.sync_selection_mixin import SyncSelectionMixin
+from src.sync.sync_selection_tree import SyncSelectionTree
 from src.sync.sync_worker import SyncWorker
 from src.sync.transcode import TranscodeCache, ffmpeg_available
 
@@ -49,6 +55,39 @@ COMMON_DEVICE_MUSIC_PATHS = [
     "SD card/Music",
 ]
 
+# Pages of the detail area (self.tabs) and segments of self.tab_switch.
+MUSIC_PAGE, OPTIONS_PAGE, ACTIVITY_PAGE = 0, 1, 2
+PAGE_TITLES = ["Music", "Options", "Activity"]
+
+# Segments of self.destination_mode. The mode is not stored: a profile is an
+# Android profile exactly when it has a device linked (SyncProfile.is_mtp).
+ANDROID_MODE, FOLDER_MODE = 0, 1
+
+# Segments of self.cleanup_mode -> (clear_before_sync, prune_untracked).
+KEEP_MODE, PRUNE_MODE, WIPE_MODE = 0, 1, 2
+CLEANUP_MODES = [
+    (
+        "Keep",
+        False,
+        False,
+        "Files that are already on the destination stay there. Only missing tracks are copied.",
+    ),
+    (
+        "Remove untracked",
+        False,
+        True,
+        "After the sync, tracks and playlists that are no longer in this profile are "
+        "deleted from the destination.",
+    ),
+    (
+        "Wipe, then copy",
+        True,
+        False,
+        "The music and playlist folders on the destination are emptied before every sync, "
+        "and then everything is copied again. This is slow.",
+    ),
+]
+
 # ---------------------------------------------------------------------------
 # SyncView — main view
 # ---------------------------------------------------------------------------
@@ -56,15 +95,17 @@ COMMON_DEVICE_MUSIC_PATHS = [
 
 class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     """
-    Two-panel sync view.
+    Device sync view.
 
-    Left panel  — scrollable list of DeviceCards (one per profile) with
-                  Add/Detect buttons at the bottom.
-    Right panel — tabbed detail area for the selected profile:
-                  • Playlists   — checklist of playlists to sync
-                  • Settings    — device path, music path, options
-                  • Log         — live sync progress output
-    Bottom bar  — progress bar + Start Sync / Cancel always visible.
+    Sidebar     — one DeviceCard per profile, with New / Detect below.
+    Detail      — empty state when there are no profiles; otherwise a
+                  profile header (name, destination, connection, ⋯ menu)
+                  above a segmented switch between three pages:
+                  • Music     — filterable playlist/mood checklist
+                  • Options   — destination, extra-files policy, MP3 conversion
+                  • Activity  — result of the last sync run
+    Bottom bar  — selection summary + Sync now; during a sync, the current
+                  step, a progress bar and Cancel; afterwards, the result.
     """
 
     def __init__(self, controller, parent=None):
@@ -89,13 +130,18 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.selected_card: DeviceCard | None = None
         self.sync_worker: SyncWorker | None = None
         self.status_manager = StatusManager
+        self.selected_items: list[dict] = []
+        self._selection_totals = (0, 0, 0, 0.0)
 
-        # MTP device enumeration runs on a throwaway thread (MtpListWorker):
-        # `gio` can block its caller indefinitely against a wedged device, and
-        # this view scans on open and every 5 s. _known_mtp_devices caches the
-        # most recent successful scan for _refresh_device_label to read.
+        # MTP device enumeration runs on throwaway threads (MtpListWorker):
+        # `gio` can block its caller indefinitely against a wedged device.
+        # _known_mtp_devices caches the most recent scan for _refresh_header.
+        # The poll, the Link picker and Detect each get their own worker so
+        # a user action is never dropped because a poll is in flight.
         self._known_mtp_devices: list[MtpDevice] = []
         self._mtp_list_worker: MtpListWorker | None = None
+        self._link_worker: MtpListWorker | None = None
+        self._detect_worker: MtpListWorker | None = None
 
         # Periodic MTP poll (every 5 s) to update connection badges
         self._mtp_poll_timer = QTimer(self)
@@ -111,6 +157,12 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         """Refresh playlists/moods every time this view is shown — catches new ones."""
         super().showEvent(event)
         self._refresh_sync_items()
+
+    def resizeEvent(self, event):
+        """Re-elide the header's destination path to the new width."""
+        super().resizeEvent(event)
+        if self.current_profile:
+            self._refresh_header()
 
     def closeEvent(self, event):
         """Cancel and join the background sync-items load before teardown."""
@@ -129,18 +181,14 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Body: splitter with left sidebar + right detail ──────────────────
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(3)
-
         self.splitter.addWidget(self._build_sidebar())
         self.splitter.addWidget(self._build_detail_panel())
-        self.splitter.setSizes([260, 700])
-
+        self.splitter.setSizes([270, 700])
         root.addWidget(self.splitter, 1)
 
-        # ── Bottom bar ───────────────────────────────────────────────────────
         root.addWidget(self._build_bottom_bar())
 
     # -- Sidebar -------------------------------------------------------------
@@ -148,27 +196,24 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName("SyncSidebar")
-        sidebar.setMinimumWidth(220)
-        sidebar.setMaximumWidth(320)
+        sidebar.setMinimumWidth(230)
+        sidebar.setMaximumWidth(340)
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(12, 12, 8, 12)
+        layout.setContentsMargins(12, 14, 8, 12)
         layout.setSpacing(8)
 
-        # Section label
-        section_lbl = QLabel("DEVICES & PROFILES")
+        section_lbl = QLabel("DEVICES")
         section_lbl.setObjectName("SyncSectionLabel")
         layout.addWidget(section_lbl)
 
-        # Scrollable card list
         scroll = QScrollArea()
+        scroll.setObjectName("SyncScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background:transparent;")
 
         self.card_container = QWidget()
-        self.card_container.setStyleSheet("background:transparent;")
         self.card_layout = QVBoxLayout(self.card_container)
         self.card_layout.setContentsMargins(0, 0, 0, 0)
         self.card_layout.setSpacing(6)
@@ -177,14 +222,13 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         scroll.setWidget(self.card_container)
         layout.addWidget(scroll, 1)
 
-        # Bottom buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
 
         self.add_profile_btn = QPushButton("+ New")
         self.add_profile_btn.setToolTip("Create a new sync profile")
         self.add_profile_btn.clicked.connect(self._new_profile)
-        btn_row.addWidget(self.add_profile_btn)
+        btn_row.addWidget(self.add_profile_btn, 1)
 
         self.detect_btn = QPushButton("⟳ Detect")
         self.detect_btn.setToolTip(
@@ -194,17 +238,9 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         )
         self.detect_btn.setEnabled(mtp_available())
         self.detect_btn.clicked.connect(self._detect_devices)
-        btn_row.addWidget(self.detect_btn)
-
-        self.delete_sidebar_btn = QPushButton("🗑")
-        self.delete_sidebar_btn.setToolTip("Delete selected profile")
-        self.delete_sidebar_btn.setEnabled(False)
-        self.delete_sidebar_btn.setFixedWidth(32)
-        self.delete_sidebar_btn.clicked.connect(self._delete_profile)
-        btn_row.addWidget(self.delete_sidebar_btn)
+        btn_row.addWidget(self.detect_btn, 1)
 
         layout.addLayout(btn_row)
-
         return sidebar
 
     # -- Detail panel --------------------------------------------------------
@@ -212,113 +248,232 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _build_detail_panel(self) -> QWidget:
         self.detail_panel = QWidget()
         self.detail_panel.setObjectName("SyncDetail")
-
         layout = QVBoxLayout(self.detail_panel)
-        layout.setContentsMargins(16, 12, 16, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        # Placeholder shown when no profile is selected
-        self.placeholder = QLabel("← Select a profile or create a new one")
-        self.placeholder.setAlignment(Qt.AlignCenter)
-        self.placeholder.setObjectName("SyncPlaceholder")
-        layout.addWidget(self.placeholder)
+        self.detail_stack = QStackedWidget()
+        self.placeholder = self._build_empty_state()
+        self.detail_stack.addWidget(self.placeholder)
 
-        # Tab widget (hidden until a profile is selected)
-        self.tabs = QTabWidget()
-        self.tabs.setVisible(False)
-        self.tabs.addTab(self._build_selection_tab(), "Playlists && Moods")
-        self.tabs.addTab(self._build_settings_tab(), "Settings")
-        self.tabs.addTab(self._build_log_tab(), "Log")
-        layout.addWidget(self.tabs, 1)
+        self.profile_page = QWidget()
+        page_layout = QVBoxLayout(self.profile_page)
+        page_layout.setContentsMargins(20, 16, 20, 12)
+        page_layout.setSpacing(14)
+        page_layout.addWidget(self._build_header())
 
+        self.tab_switch = SegmentedControl(PAGE_TITLES)
+        self.tab_switch.currentIndexChanged.connect(self._on_page_changed)
+        page_layout.addWidget(self.tab_switch, 0, Qt.AlignLeft)
+
+        self.tabs = QStackedWidget()
+        self.tabs.addWidget(self._build_selection_tab())
+        self.tabs.addWidget(self._build_settings_tab())
+        self.tabs.addWidget(self._build_log_tab())
+        page_layout.addWidget(self.tabs, 1)
+
+        self.detail_stack.addWidget(self.profile_page)
+        layout.addWidget(self.detail_stack)
         return self.detail_panel
+
+    def _build_empty_state(self) -> QWidget:
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.addStretch(1)
+
+        card = QFrame()
+        card.setObjectName("SyncEmptyCard")
+        card.setFixedWidth(460)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(28, 26, 28, 24)
+        layout.setSpacing(10)
+
+        icon = QLabel(DEVICE_GLYPH)
+        icon.setObjectName("SyncEmptyIcon")
+        icon.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon)
+
+        title = QLabel("Sync music to a phone or a folder")
+        title.setObjectName("SyncEmptyTitle")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        body = QLabel(
+            "Make one profile for each device. Pick the playlists and moods to copy, "
+            "and each sync keeps the device up to date."
+        )
+        body.setProperty("textRole", "muted")
+        body.setAlignment(Qt.AlignCenter)
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        layout.addSpacing(8)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        self.empty_detect_btn = QPushButton("Detect Android device")
+        self.empty_detect_btn.setObjectName("PrimaryButton")
+        self.empty_detect_btn.setEnabled(mtp_available())
+        self.empty_detect_btn.setToolTip(
+            "Connect the phone with USB and set it to File Transfer mode."
+            if mtp_available()
+            else "Install gvfs-backends (sudo apt install gvfs-backends) to enable device detection"
+        )
+        self.empty_detect_btn.clicked.connect(self._detect_devices)
+        buttons.addWidget(self.empty_detect_btn, 1)
+
+        folder_btn = QPushButton("Choose folder…")
+        folder_btn.clicked.connect(self._new_folder_profile)
+        buttons.addWidget(folder_btn, 1)
+        layout.addLayout(buttons)
+
+        blank_btn = QPushButton("Create an empty profile")
+        blank_btn.setProperty("linkButton", True)
+        blank_btn.setCursor(Qt.PointingHandCursor)
+        blank_btn.clicked.connect(self._new_profile)
+        layout.addWidget(blank_btn, 0, Qt.AlignCenter)
+
+        outer.addWidget(card, 0, Qt.AlignHCenter)
+        outer.addStretch(2)
+        return page
+
+    def _build_header(self) -> QWidget:
+        header = QFrame()
+        header.setObjectName("SyncProfileHeader")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        self.profile_icon = QLabel()
+        self.profile_icon.setObjectName("SyncProfileIcon")
+        self.profile_icon.setFixedSize(48, 48)
+        self.profile_icon.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.profile_icon, 0, Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(4)
+        self.profile_title = QLabel()
+        self.profile_title.setObjectName("SyncProfileTitle")
+        text_col.addWidget(self.profile_title)
+
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+        self.device_label = QLabel()
+        self.device_label.setObjectName("SyncStatusPill")
+        self.device_label.setProperty("linkState", "idle")
+        status_row.addWidget(self.device_label)
+        self.destination_label = QLabel()
+        self.destination_label.setProperty("textRole", "muted")
+        self.destination_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        status_row.addWidget(self.destination_label, 1)
+        text_col.addLayout(status_row)
+        layout.addLayout(text_col, 1)
+
+        self.change_destination_btn = QPushButton("Change…")
+        self.change_destination_btn.clicked.connect(self._change_destination)
+        layout.addWidget(self.change_destination_btn, 0, Qt.AlignVCenter)
+
+        self.profile_menu_btn = QToolButton()
+        self.profile_menu_btn.setObjectName("SyncProfileMenuButton")
+        self.profile_menu_btn.setText("⋯")
+        self.profile_menu_btn.setToolTip("Profile actions")
+        self.profile_menu_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.profile_menu_btn)
+        rename_action = QAction("Rename…", menu)
+        rename_action.triggered.connect(self._rename_profile)
+        delete_action = QAction("Delete profile…", menu)
+        delete_action.triggered.connect(self._delete_profile)
+        menu.addAction(rename_action)
+        menu.addSeparator()
+        menu.addAction(delete_action)
+        self.profile_menu_btn.setMenu(menu)
+        layout.addWidget(self.profile_menu_btn, 0, Qt.AlignVCenter)
+
+        return header
 
     def _build_selection_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Toolbar: select all / none + track count label
         toolbar = QHBoxLayout()
-        self.select_all_btn = QPushButton("Select All")
-        self.select_all_btn.setFixedWidth(90)
-        self.select_all_btn.clicked.connect(self._select_all_items)
+        toolbar.setSpacing(4)
+        self.sync_filter_edit = QLineEdit()
+        self.sync_filter_edit.setPlaceholderText("Filter playlists and moods…")
+        self.sync_filter_edit.setClearButtonEnabled(True)
+        self.sync_filter_edit.textChanged.connect(self._on_sync_filter_changed)
+        toolbar.addWidget(self.sync_filter_edit, 1)
+        toolbar.addSpacing(8)
 
-        self.select_none_btn = QPushButton("Select None")
-        self.select_none_btn.setFixedWidth(90)
-        self.select_none_btn.clicked.connect(self._select_no_items)
+        def link(text: str, tip: str, slot) -> QPushButton:
+            btn = QPushButton(text)
+            btn.setProperty("linkButton", True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tip)
+            btn.clicked.connect(slot)
+            toolbar.addWidget(btn)
+            return btn
 
-        self.expand_all_btn = QPushButton("Expand All")
-        self.expand_all_btn.setFixedWidth(90)
-        self.expand_all_btn.clicked.connect(self._expand_all_items)
-
-        self.collapse_all_btn = QPushButton("Collapse All")
-        self.collapse_all_btn.setFixedWidth(90)
-        self.collapse_all_btn.clicked.connect(self._collapse_all_items)
-
-        self.track_count_label = QLabel("")
-        apply_scaled_style(self.track_count_label, "color:#555e7a; font-size:11px;")
-
-        toolbar.addWidget(self.select_all_btn)
-        toolbar.addWidget(self.select_none_btn)
-        toolbar.addWidget(self.expand_all_btn)
-        toolbar.addWidget(self.collapse_all_btn)
-        toolbar.addStretch()
-        toolbar.addWidget(self.track_count_label)
+        self.select_all_btn = link(
+            "Select All", "Tick every playlist and mood the filter shows", self._select_all_items
+        )
+        self.select_none_btn = link(
+            "Select None", "Untick every playlist and mood the filter shows", self._select_no_items
+        )
+        separator = QLabel("·")
+        separator.setProperty("textRole", "muted")
+        toolbar.addWidget(separator)
+        self.expand_all_btn = link("Expand All", "Show all sub-playlists", self._expand_all_items)
+        self.collapse_all_btn = link(
+            "Collapse All", "Hide all sub-playlists", self._collapse_all_items
+        )
         layout.addLayout(toolbar)
 
-        # Playlists + Moods checklist tree
-        self.sync_tree = QTreeWidget()
-        self.sync_tree.setHeaderHidden(True)
-        self.sync_tree.setColumnCount(1)
-        self.sync_tree.setAlternatingRowColors(False)
+        self.sync_tree = SyncSelectionTree()
         self.sync_tree.itemChanged.connect(self._on_sync_item_changed)
+        self.sync_tree.bulkCheckChanged.connect(self._on_sync_tree_bulk_changed)
+        self.sync_tree.set_placeholder_text("Loading playlists and moods…")
         layout.addWidget(self.sync_tree, 1)
+
+        hint = QLabel(
+            "Right-click a playlist to select or clear it with all its sub-playlists."
+        )
+        hint.setProperty("textRole", "muted")
+        hint.setObjectName("SyncHint")
+        layout.addWidget(hint)
 
         return w
 
     def _build_settings_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 16, 4, 0)
-        layout.setSpacing(16)
+        layout.setContentsMargins(0, 0, 8, 8)
+        layout.setSpacing(12)
 
-        # ── Profile identity ────────────────────────────────────────────────
-        identity_group = QGroupBox("Profile")
-        identity_layout = QVBoxLayout(identity_group)
+        # ── Destination ─────────────────────────────────────────────────────
+        destination_card = DetailCard("Destination")
 
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Name:"))
-        self.profile_name_edit = QLineEdit()
-        self.profile_name_edit.setPlaceholderText("Profile name…")
-        self.profile_name_edit.editingFinished.connect(self._on_profile_name_changed)
-        name_row.addWidget(self.profile_name_edit, 1)
-        identity_layout.addLayout(name_row)
+        self.destination_mode = SegmentedControl(["Android device", "Folder"])
+        if not mtp_available():
+            self.destination_mode.button(ANDROID_MODE).setEnabled(False)
+            self.destination_mode.setItemToolTip(
+                ANDROID_MODE, "Install gvfs-backends to enable MTP device syncing"
+            )
+        self.destination_mode.currentIndexChanged.connect(self._on_destination_mode_changed)
+        destination_card.body.addWidget(self.destination_mode, 0, Qt.AlignLeft)
 
-        nick_row = QHBoxLayout()
-        nick_row.addWidget(QLabel("Device nickname:"))
-        self.device_nickname_edit = QLineEdit()
-        self.device_nickname_edit.setPlaceholderText(
-            "e.g. My Pixel  (overrides auto-detected name)"
-        )
-        self.device_nickname_edit.editingFinished.connect(self._on_nickname_changed)
-        nick_row.addWidget(self.device_nickname_edit, 1)
-        identity_layout.addLayout(nick_row)
+        # Android section (kept under its old attribute name)
+        self.android_group = QWidget()
+        self.android_group.setProperty("bgTransparent", True)
+        android = QGridLayout(self.android_group)
+        android.setContentsMargins(0, 8, 0, 0)
+        android.setHorizontalSpacing(12)
+        android.setVerticalSpacing(8)
+        android.setColumnStretch(1, 1)
 
-        layout.addWidget(identity_group)
-
-        # ── Android device ──────────────────────────────────────────────────
-        self.android_group = QGroupBox("Android Device  (USB)")
-        android_layout = QVBoxLayout(self.android_group)
-
-        # Connected device indicator
-        device_row = QHBoxLayout()
-        self.device_label = QLabel("No device linked")
-        self.device_label.setProperty("linkState", "idle")
-        device_row.addWidget(self.device_label, 1)
-
-        self.link_device_btn = QPushButton("Link Device…")
+        android.addWidget(self._field_label("Device"), 0, 0)
+        self.linked_device_label = QLabel("No device linked")
+        android.addWidget(self.linked_device_label, 0, 1)
+        self.link_device_btn = QPushButton("Link device…")
         self.link_device_btn.setEnabled(mtp_available())
         self.link_device_btn.setToolTip(
             "Choose from connected Android devices"
@@ -326,18 +481,9 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             else "Install gvfs-backends to enable MTP device syncing"
         )
         self.link_device_btn.clicked.connect(self._link_device)
-        device_row.addWidget(self.link_device_btn)
+        android.addWidget(self.link_device_btn, 0, 2)
 
-        self.unlink_device_btn = QPushButton("Unlink")
-        self.unlink_device_btn.clicked.connect(self._unlink_device)
-        self.unlink_device_btn.setVisible(False)
-        device_row.addWidget(self.unlink_device_btn)
-
-        android_layout.addLayout(device_row)
-
-        # Music path on device
-        path_row = QHBoxLayout()
-        path_row.addWidget(QLabel("Music folder on device:"))
+        android.addWidget(self._field_label("Music folder"), 1, 0)
         self.music_path_edit = QComboBox()
         self.music_path_edit.setEditable(True)
         self.music_path_edit.setInsertPolicy(QComboBox.NoInsert)
@@ -348,44 +494,47 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         )
         self.music_path_edit.textActivated.connect(self._on_music_path_changed)
         self.music_path_edit.lineEdit().editingFinished.connect(self._on_music_path_changed)
-        path_row.addWidget(self.music_path_edit, 1)
-        android_layout.addLayout(path_row)
+        android.addWidget(self.music_path_edit, 1, 1, 1, 2)
 
-        layout.addWidget(self.android_group)
+        android.addWidget(self._field_label("Nickname"), 2, 0)
+        self.device_nickname_edit = QLineEdit()
+        self.device_nickname_edit.setPlaceholderText("e.g. My Pixel  (replaces the detected name)")
+        self.device_nickname_edit.editingFinished.connect(self._on_nickname_changed)
+        android.addWidget(self.device_nickname_edit, 2, 1, 1, 2)
+        destination_card.body.addWidget(self.android_group)
 
-        # ── Folder sync ─────────────────────────────────────────────────────
-        self.folder_group = QGroupBox("Folder Sync  (fallback / non-Android)")
-        folder_layout = QHBoxLayout(self.folder_group)
-
+        # Folder section
+        self.folder_group = QWidget()
+        self.folder_group.setProperty("bgTransparent", True)
+        folder = QHBoxLayout(self.folder_group)
+        folder.setContentsMargins(0, 8, 0, 0)
+        folder.setSpacing(12)
+        folder.addWidget(self._field_label("Folder"))
         self.folder_label = QLabel("No folder set")
         self.folder_label.setProperty("textRole", "muted")
         self.folder_label.setWordWrap(True)
-        folder_layout.addWidget(self.folder_label, 1)
-
+        folder.addWidget(self.folder_label, 1)
         self.browse_btn = QPushButton("Browse…")
         self.browse_btn.clicked.connect(self._browse_folder)
-        folder_layout.addWidget(self.browse_btn)
+        folder.addWidget(self.browse_btn)
+        destination_card.body.addWidget(self.folder_group)
+        self.android_group.setVisible(False)
 
-        layout.addWidget(self.folder_group)
+        layout.addWidget(destination_card)
 
-        # ── Sync options ────────────────────────────────────────────────────
-        options_group = QGroupBox("Options")
-        options_layout = QVBoxLayout(options_group)
-
-        self.clear_before_sync_check = QCheckBox(
-            "Clear destination before syncing  (removes existing music and playlist folders first)"
-        )
-        self.clear_before_sync_check.toggled.connect(self._on_option_changed)
-        options_layout.addWidget(self.clear_before_sync_check)
-
-        self.prune_untracked_check = QCheckBox(
-            "Remove files that are no longer in this profile  "
-            "(delete tracks/playlists on the destination once you untrack them)"
-        )
-        self.prune_untracked_check.toggled.connect(self._on_option_changed)
-        options_layout.addWidget(self.prune_untracked_check)
+        # ── Extra files on the destination ──────────────────────────────────
+        cleanup_card = DetailCard("Files on the destination")
+        self.cleanup_mode = SegmentedControl([label for label, *_ in CLEANUP_MODES])
+        self.cleanup_mode.currentIndexChanged.connect(self._on_cleanup_mode_changed)
+        cleanup_card.body.addWidget(self.cleanup_mode, 0, Qt.AlignLeft)
+        self.cleanup_caption = QLabel(CLEANUP_MODES[KEEP_MODE][3])
+        self.cleanup_caption.setObjectName("SyncOptionCaption")
+        self.cleanup_caption.setWordWrap(True)
+        cleanup_card.body.addWidget(self.cleanup_caption)
+        layout.addWidget(cleanup_card)
 
         # ── Transcode lossless → MP3 ───────────────────────────────────────
+        conversion_card = DetailCard("MP3 conversion")
         ffmpeg_ok = ffmpeg_available()
         self.transcode_mp3_check = QCheckBox("Convert lossless files to MP3")
         self.transcode_mp3_check.setEnabled(ffmpeg_ok)
@@ -395,41 +544,28 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             else "Requires ffmpeg on your PATH  (e.g. sudo apt install ffmpeg)"
         )
         self.transcode_mp3_check.toggled.connect(self._on_option_changed)
-        options_layout.addWidget(self.transcode_mp3_check)
+        conversion_card.body.addWidget(self.transcode_mp3_check)
 
-        bitrate_row = QHBoxLayout()
-        bitrate_row.addSpacing(22)
-        bitrate_row.addWidget(QLabel("Bitrate:"))
-        self.bitrate_combo = QComboBox()
-        self.bitrate_combo.addItems(["320", "256", "192", "128"])
-        self.bitrate_combo.setFixedWidth(70)
+        conversion = QGridLayout()
+        conversion.setContentsMargins(0, 4, 0, 0)
+        conversion.setHorizontalSpacing(12)
+        conversion.setVerticalSpacing(10)
+        conversion.setColumnStretch(2, 1)
+
+        conversion.addWidget(self._field_label("Bitrate"), 0, 0)
+        # Kept as `bitrate_combo`: SegmentedControl speaks the QComboBox API.
+        self.bitrate_combo = SegmentedControl(["320", "256", "192", "128"])
         self.bitrate_combo.setEnabled(False)
         self.bitrate_combo.currentTextChanged.connect(self._on_option_changed)
-        bitrate_row.addWidget(self.bitrate_combo)
-        bitrate_row.addWidget(QLabel("kbps"))
-        bitrate_row.addStretch()
-        options_layout.addLayout(bitrate_row)
-
-        transcode_caption = QLabel(
-            "Lossy files (MP3, AAC, M4A, OGG) copy unchanged. "
-            "Your library's original files are never modified."
-        )
-        transcode_caption.setProperty("textRole", "muted")
-        transcode_caption.setWordWrap(True)
-        options_layout.addWidget(transcode_caption)
-
-        cache_row = QHBoxLayout()
-        self.clear_cache_btn = QPushButton("Clear MP3 cache")
-        self.clear_cache_btn.clicked.connect(self._clear_transcode_cache)
-        cache_row.addWidget(self.clear_cache_btn)
-        cache_row.addStretch()
-        options_layout.addLayout(cache_row)
+        conversion.addWidget(self.bitrate_combo, 0, 1)
+        kbps = QLabel("kbps")
+        kbps.setProperty("textRole", "muted")
+        conversion.addWidget(kbps, 0, 2)
 
         # Cache size cap — global (the cache dir is shared across profiles), so
         # this is seeded from app_config here and never touched by
         # _load_profile_into_ui.
-        cache_max_row = QHBoxLayout()
-        cache_max_row.addWidget(QLabel("Max cache size:"))
+        conversion.addWidget(self._field_label("Cache limit"), 1, 0)
         self.cache_max_spin = QSpinBox()
         self.cache_max_spin.setRange(0, 102400)
         self.cache_max_spin.setSingleStep(256)
@@ -441,45 +577,42 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             "deleted until the cache is back under this size. 0 = no limit."
         )
         self.cache_max_spin.valueChanged.connect(self._on_cache_max_changed)
-        cache_max_row.addWidget(self.cache_max_spin)
-        cache_max_row.addStretch()
-        options_layout.addLayout(cache_max_row)
+        conversion.addWidget(self.cache_max_spin, 1, 1)
+        self.clear_cache_btn = QPushButton("Clear MP3 cache")
+        self.clear_cache_btn.clicked.connect(self._clear_transcode_cache)
+        conversion.addWidget(self.clear_cache_btn, 1, 2, Qt.AlignLeft)
+        conversion_card.body.addLayout(conversion)
 
-        layout.addWidget(options_group)
+        transcode_caption = QLabel(
+            "Lossy files (MP3, AAC, M4A, OGG) copy unchanged. "
+            "Your library's original files are never modified."
+        )
+        transcode_caption.setProperty("textRole", "muted")
+        transcode_caption.setWordWrap(True)
+        conversion_card.body.addWidget(transcode_caption)
+        layout.addWidget(conversion_card)
         layout.addStretch()
 
         # Wrap in a scroll area so a short/narrow detail pane scrolls instead of
-        # crunching the group boxes below their sizeHint.
+        # crunching the cards below their sizeHint.
         scroll = QScrollArea()
+        scroll.setObjectName("SyncScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background:transparent;")
         scroll.setWidget(w)
         return scroll
 
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setProperty("textRole", "fieldLabel")
+        return label
+
     def _build_log_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 12, 0, 0)
-        layout.setSpacing(6)
-
-        self.current_action = QLabel("Ready to sync")
-        self.current_action.setStyleSheet("color:#8599ea; font-weight:bold;")
-        layout.addWidget(self.current_action)
-
-        self.sync_log = QTextEdit()
-        self.sync_log.setReadOnly(True)
-        self.sync_log.setFont(QFont("Courier", 9))
-        self.sync_log.setObjectName("SyncLogView")
-        layout.addWidget(self.sync_log, 1)
-
-        clear_btn = QPushButton("Clear Log")
-        clear_btn.setFixedWidth(90)
-        clear_btn.clicked.connect(self.sync_log.clear)
-        layout.addWidget(clear_btn, 0, Qt.AlignRight)
-
-        return w
+        self.activity = SyncActivityPanel()
+        self.sync_log = self.activity.sync_log
+        return self.activity
 
     # -- Bottom bar ----------------------------------------------------------
 
@@ -488,29 +621,101 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         bar.setObjectName("SyncBottomBar")
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setContentsMargins(20, 10, 16, 10)
         layout.setSpacing(12)
+
+        # Idle, after a run: the result, with a jump to the Activity page.
+        self.result_widget = QWidget()
+        self.result_widget.setProperty("bgTransparent", True)
+        result_layout = QHBoxLayout(self.result_widget)
+        result_layout.setContentsMargins(0, 0, 0, 0)
+        result_layout.setSpacing(8)
+        self.result_label = QLabel()
+        self.result_label.setObjectName("SyncResultLabel")
+        self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        result_layout.addWidget(self.result_label, 1)
+        self.result_details_btn = QPushButton("Details")
+        self.result_details_btn.setProperty("linkButton", True)
+        self.result_details_btn.setCursor(Qt.PointingHandCursor)
+        self.result_details_btn.clicked.connect(lambda: self.tab_switch.setCurrentIndex(ACTIVITY_PAGE))
+        self.result_details_btn.setVisible(False)
+        result_layout.addWidget(self.result_details_btn)
+        layout.addWidget(self.result_widget, 1)
+
+        # Running: the current step and progress.
+        self.current_action = QLabel()
+        self.current_action.setObjectName("SyncCurrentAction")
+        self.current_action.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.current_action.setVisible(False)
+        layout.addWidget(self.current_action, 1)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("SyncProgressBar")
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setFixedSize(220, 8)
         self.progress_bar.setTextVisible(False)
-        layout.addWidget(self.progress_bar, 1)
+        layout.addWidget(self.progress_bar)
+
+        # Idle: what "Sync now" will copy.
+        self.track_count_label = QLabel()
+        self.track_count_label.setObjectName("SyncSummaryLabel")
+        layout.addWidget(self.track_count_label)
 
         self.cancel_sync_btn = QPushButton("Cancel")
         self.cancel_sync_btn.setVisible(False)
         self.cancel_sync_btn.clicked.connect(self._cancel_sync)
         layout.addWidget(self.cancel_sync_btn)
 
-        self.sync_btn = QPushButton("Start Sync  →")
+        self.sync_btn = QPushButton("Sync now  →")
         self.sync_btn.setObjectName("PrimaryButton")
         self.sync_btn.setEnabled(False)
-        self.sync_btn.setMinimumWidth(120)
+        self.sync_btn.setMinimumWidth(130)
         self.sync_btn.clicked.connect(self._start_sync)
         layout.addWidget(self.sync_btn)
 
         return bar
+
+    # -----------------------------------------------------------------------
+    # Pages, run state, result
+    # -----------------------------------------------------------------------
+
+    def _on_page_changed(self, index: int):
+        self.tabs.setCurrentIndex(index)
+        if index == ACTIVITY_PAGE:
+            self._set_activity_attention(False)
+
+    def _set_activity_attention(self, on: bool):
+        """Dot the Activity segment while it has news the user hasn't looked at."""
+        on = on and self.tabs.currentIndex() != ACTIVITY_PAGE
+        self.tab_switch.setItemText(ACTIVITY_PAGE, "Activity  •" if on else "Activity")
+        set_style_property(self.tab_switch.button(ACTIVITY_PAGE), "attention", on)
+
+    def _set_sync_ui_state(self, idle: bool):
+        self.sync_btn.setVisible(idle)
+        self.track_count_label.setVisible(idle)
+        self.result_widget.setVisible(idle)
+        self.cancel_sync_btn.setVisible(not idle)
+        self.current_action.setVisible(not idle)
+        self.progress_bar.setVisible(not idle)
+        self.add_profile_btn.setEnabled(idle)
+        self.detect_btn.setEnabled(idle and mtp_available())
+        # Deleting or renaming the profile mid-run would orphan the worker's view of it.
+        self.profile_menu_btn.setEnabled(idle)
+        if not idle:
+            self._set_activity_attention(True)
+
+    def _show_sync_result(self, text: str, tone: str):
+        """Show a finished run's outcome in the bottom bar (tone: ok | warn | error)."""
+        icon = {"ok": "✓", "warn": "⚠", "error": "✗"}.get(tone, "")
+        self.result_label.setText(f"{icon}  {text}")
+        self.result_label.setToolTip(text)
+        set_style_property(self.result_label, "tone", tone)
+        self.result_details_btn.setVisible(True)
+        self._set_activity_attention(True)
+
+    def _clear_sync_result(self):
+        self.result_label.clear()
+        self.result_details_btn.setVisible(False)
 
     # -----------------------------------------------------------------------
     # Card management
@@ -518,7 +723,6 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
     def _rebuild_cards(self):
         """Clear and repopulate the sidebar card list from self.profiles."""
-        # Remove old cards
         for card in self.cards:
             card.setParent(None)
         self.cards.clear()
@@ -543,14 +747,15 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         if self.current_profile is not None:
             self._save_current_profile_selections()
 
-        # Deselect old card
         if self.selected_card:
             self.selected_card.set_selected(False)
 
         card.set_selected(True)
+        # The bottom bar's last result belongs to the profile it ran for.
+        if card is not self.selected_card and not self._scan_in_progress(self.sync_worker):
+            self._clear_sync_result()
         self.selected_card = card
         self.current_profile = card.profile
-        self.delete_sidebar_btn.setEnabled(True)
 
         self._load_profile_into_ui()
         self._update_sync_button_state()
@@ -561,6 +766,21 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
                 return card
         return None
 
+    def _refresh_current_card(self):
+        card = self._find_card_for_profile(self.current_profile) if self.current_profile else None
+        if card:
+            card.update_profile(self.current_profile)
+
+    def _update_selected_items(self):
+        super()._update_selected_items()
+        card = self._find_card_for_profile(self.current_profile) if self.current_profile else None
+        if card:
+            card.set_track_total(self._selection_totals[0])
+
+    def _save_current_profile_selections(self):
+        super()._save_current_profile_selections()
+        self._refresh_current_card()
+
     # -----------------------------------------------------------------------
     # Profile CRUD
     # -----------------------------------------------------------------------
@@ -569,21 +789,53 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.profiles = self.profile_store.load()
         self._rebuild_cards()
         if self.profiles:
-            # Auto-select first profile
             self._on_card_clicked(self.cards[0])
+        else:
+            self._show_placeholder()
+
+    def _add_and_select_profile(self, profile: SyncProfile):
+        self.profiles.append(profile)
+        self.profile_store.save(self.profiles)
+        self._rebuild_cards()
+        logger.info(f"Created new sync profile: {profile.name}")
+        new_card = self._find_card_for_profile(profile)
+        if new_card:
+            self._on_card_clicked(new_card)
 
     def _new_profile(self):
         name, ok = QInputDialog.getText(self, "New Profile", "Profile name:")
         if not ok or not name.strip():
             return
-        profile = SyncProfile(name=name.strip(), path="", music_path=MtpManager.DEFAULT_MUSIC_PATH)
-        self.profiles.append(profile)
+        self._add_and_select_profile(
+            SyncProfile(name=name.strip(), path="", music_path=MtpManager.DEFAULT_MUSIC_PATH)
+        )
+        self.tab_switch.setCurrentIndex(OPTIONS_PAGE)  # a blank profile needs a destination next
+
+    def _new_folder_profile(self):
+        """Empty-state shortcut: pick a folder and make a profile for it."""
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Sync Destination Folder", "", QFileDialog.ShowDirsOnly
+        )
+        if not folder:
+            return
+        name = Path(folder).name or folder
+        self._add_and_select_profile(
+            SyncProfile(name=name, path=folder, music_path=MtpManager.DEFAULT_MUSIC_PATH)
+        )
+
+    def _rename_profile(self):
+        if not self.current_profile:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename Profile", "Profile name:", text=self.current_profile.name
+        )
+        new_name = name.strip()
+        if not ok or not new_name or new_name == self.current_profile.name:
+            return
+        self.current_profile.name = new_name
         self.profile_store.save(self.profiles)
-        self._rebuild_cards()
-        logger.info(f"Created new sync profile: {profile.name}")
-        # Select the new card
-        new_card = self.cards[-1]
-        self._on_card_clicked(new_card)
+        self._refresh_current_card()
+        self._refresh_header()
 
     def _delete_profile(self):
         if not self.current_profile:
@@ -611,9 +863,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             self._show_placeholder()
 
     def _show_placeholder(self):
-        self.placeholder.setVisible(True)
-        self.tabs.setVisible(False)
-        self.delete_sidebar_btn.setEnabled(False)
+        self.detail_stack.setCurrentWidget(self.placeholder)
         self._update_sync_button_state()
 
     # -----------------------------------------------------------------------
@@ -626,16 +876,10 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             self._show_placeholder()
             return
 
-        self.placeholder.setVisible(False)
-        self.tabs.setVisible(True)
-
+        self.detail_stack.setCurrentWidget(self.profile_page)
         p = self.current_profile
 
-        # Settings tab
-        self.profile_name_edit.blockSignals(True)
-        self.profile_name_edit.setText(p.name)
-        self.profile_name_edit.blockSignals(False)
-
+        # Options page
         self.device_nickname_edit.blockSignals(True)
         self.device_nickname_edit.setText(p.device_name)
         self.device_nickname_edit.blockSignals(False)
@@ -647,13 +891,18 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.folder_label.setText(p.path or "No folder set")
         set_style_property(self.folder_label, "textRole", None if p.path else "muted")
 
-        self.clear_before_sync_check.blockSignals(True)
-        self.clear_before_sync_check.setChecked(p.clear_before_sync)
-        self.clear_before_sync_check.blockSignals(False)
+        self._sync_destination_mode_control()
 
-        self.prune_untracked_check.blockSignals(True)
-        self.prune_untracked_check.setChecked(p.prune_untracked)
-        self.prune_untracked_check.blockSignals(False)
+        if p.clear_before_sync:
+            cleanup = WIPE_MODE
+        elif p.prune_untracked:
+            cleanup = PRUNE_MODE
+        else:
+            cleanup = KEEP_MODE
+        self.cleanup_mode.blockSignals(True)
+        self.cleanup_mode.setCurrentIndex(cleanup)
+        self.cleanup_mode.blockSignals(False)
+        self._update_cleanup_caption(cleanup)
 
         ffmpeg_ok = ffmpeg_available()
         self.transcode_mp3_check.blockSignals(True)
@@ -667,60 +916,99 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.bitrate_combo.blockSignals(False)
 
         self._update_cache_button_label()
-        self._refresh_device_label()
+        self._refresh_header()
 
-        # Playlists & Moods tab
+        # Music page
         self._apply_profile_selection()
 
-    def _refresh_device_label(self):
-        """Update the linked device label in the Settings tab."""
-        if not self.current_profile:
+    def _sync_destination_mode_control(self):
+        """Point the Android/Folder switch (and its sections) at the profile's real mode."""
+        is_mtp = bool(self.current_profile and self.current_profile.is_mtp)
+        self.destination_mode.blockSignals(True)
+        self.destination_mode.setCurrentIndex(ANDROID_MODE if is_mtp else FOLDER_MODE)
+        self.destination_mode.blockSignals(False)
+        self._show_destination_section(is_mtp)
+
+    def _show_destination_section(self, android: bool):
+        self.android_group.setVisible(android)
+        self.folder_group.setVisible(not android)
+
+    def _refresh_header(self):
+        """Update the profile header and the Options page's linked-device row."""
+        p = self.current_profile
+        if not p:
             return
-        if self.current_profile.device_uri:
+        self.profile_title.setText(p.name)
+        self.profile_icon.setText(DEVICE_GLYPH if p.is_mtp else FOLDER_GLYPH)
+
+        if p.device_uri:
             # Friendly name comes from the last background MTP scan
             # (_known_mtp_devices) — never enumerate devices on the GUI thread.
-            match = next(
-                (d for d in self._known_mtp_devices if d.uri == self.current_profile.device_uri),
-                None,
-            )
+            match = next((d for d in self._known_mtp_devices if d.uri == p.device_uri), None)
+            name = p.device_name or (match.display_name if match else p.device_uri)
             if match:
-                self.device_label.setText(match.display_name)
+                self.device_label.setText("● Connected")
                 set_style_property(self.device_label, "linkState", "connected")
             else:
-                name = self.current_profile.device_name or self.current_profile.device_uri
-                self.device_label.setText(f"{name}  (not connected)")
+                self.device_label.setText("○ Not connected")
                 set_style_property(self.device_label, "linkState", "idle")
-            self.unlink_device_btn.setVisible(True)
+            destination = f"{name}  ·  {p.music_path or MtpManager.DEFAULT_MUSIC_PATH}"
+            self.linked_device_label.setText(match.display_name if match else f"{name}  (not connected)")
+            self.change_destination_btn.setText("Change device…")
+            if not self._scan_in_progress(self._link_worker):
+                self.link_device_btn.setText("Change device…")
         else:
-            self.device_label.setText("No device linked — using folder sync")
-            set_style_property(self.device_label, "linkState", "idle")
-            self.unlink_device_btn.setVisible(False)
+            self.device_label.setText("Folder")
+            set_style_property(self.device_label, "linkState", "folder")
+            destination = p.path or "No folder chosen yet"
+            self.linked_device_label.setText("No device linked")
+            self.change_destination_btn.setText("Change folder…" if p.path else "Choose folder…")
+            if not self._scan_in_progress(self._link_worker):
+                self.link_device_btn.setText("Link device…")
+
+        metrics = self.destination_label.fontMetrics()
+        width = max(self.destination_label.width(), 200)
+        self.destination_label.setText(metrics.elidedText(destination, Qt.ElideMiddle, width))
+        self.destination_label.setToolTip(destination)
+
+    @staticmethod
+    def _scan_in_progress(worker) -> bool:
+        """True while `worker` (an MtpListWorker or SyncWorker thread) is running."""
+        return worker is not None and worker.isRunning()
 
     # -----------------------------------------------------------------------
-    # Settings tab handlers
+    # Options page handlers
     # -----------------------------------------------------------------------
 
-    def _on_profile_name_changed(self):
+    def _change_destination(self):
         if not self.current_profile:
             return
-        new_name = self.profile_name_edit.text().strip()
-        if new_name and new_name != self.current_profile.name:
-            self.current_profile.name = new_name
-            card = self._find_card_for_profile(self.current_profile)
-            if card:
-                card.update_profile(self.current_profile)
-            self.profile_store.save(self.profiles)
+        if self.current_profile.is_mtp:
+            self._link_device()
+        else:
+            self._browse_folder()
+
+    def _on_destination_mode_changed(self, index: int):
+        if not self.current_profile:
+            return
+        if index == FOLDER_MODE:
+            self._show_destination_section(False)
+            if self.current_profile.is_mtp:
+                self._unlink_device()
+        elif not self.current_profile.is_mtp:
+            # Android only becomes the real mode once a device is linked;
+            # _on_link_devices_listed reverts the switch if that doesn't happen.
+            self._show_destination_section(True)
+            self._link_device()
 
     def _on_nickname_changed(self):
         if not self.current_profile:
             return
         nickname = self.device_nickname_edit.text().strip()
         self.current_profile.device_name = nickname
-        card = self._find_card_for_profile(self.current_profile)
-        if card:
-            card.update_profile(self.current_profile)
+        self._refresh_current_card()
         self.profile_store.save(self.profiles)
-        self._refresh_device_label()
+        self._refresh_header()
 
     def _on_music_path_changed(self, *_):
         if not self.current_profile:
@@ -730,12 +1018,25 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             return
         self.current_profile.music_path = new_path
         self.profile_store.save(self.profiles)
+        self._refresh_current_card()
+        self._refresh_header()
+
+    def _on_cleanup_mode_changed(self, index: int):
+        self._update_cleanup_caption(index)
+        if not self.current_profile:
+            return
+        _label, clear, prune, _caption = CLEANUP_MODES[index]
+        self.current_profile.clear_before_sync = clear
+        self.current_profile.prune_untracked = prune
+        self.profile_store.save(self.profiles)
+
+    def _update_cleanup_caption(self, index: int):
+        self.cleanup_caption.setText(CLEANUP_MODES[index][3])
+        set_style_property(self.cleanup_caption, "tone", "warn" if index == WIPE_MODE else None)
 
     def _on_option_changed(self):
         if not self.current_profile:
             return
-        self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
-        self.current_profile.prune_untracked = self.prune_untracked_check.isChecked()
         self.current_profile.transcode_to_mp3 = self.transcode_mp3_check.isChecked()
         self.current_profile.transcode_bitrate = f"{self.bitrate_combo.currentText()}k"
         self.bitrate_combo.setEnabled(
@@ -792,16 +1093,30 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             self.current_profile.path = folder
             self.folder_label.setText(folder)
             set_style_property(self.folder_label, "textRole", None)
-            card = self._find_card_for_profile(self.current_profile)
-            if card:
-                card.update_profile(self.current_profile)
+            self._refresh_current_card()
             self.profile_store.save(self.profiles)
+            self._refresh_header()
             self._update_sync_button_state()
 
     def _link_device(self):
-        """Show a picker of currently connected MTP devices."""
-        devices = self.mtp_manager.list_devices()
+        """Scan for MTP devices off the GUI thread, then offer a picker."""
+        if not mtp_available() or self._scan_in_progress(self._link_worker):
+            return
+        self.link_device_btn.setText("Scanning…")
+        self.link_device_btn.setEnabled(False)
+        self.change_destination_btn.setEnabled(False)
+        worker = MtpListWorker(self.mtp_manager)
+        worker.ready.connect(self._on_link_devices_listed)
+        self._link_worker = worker
+        worker.start()
+
+    def _on_link_devices_listed(self, devices: list):
+        self.link_device_btn.setEnabled(True)
+        self.change_destination_btn.setEnabled(True)
         self._known_mtp_devices = devices
+        self._update_connection_badges({d.uri for d in devices})
+        if not self.current_profile:
+            return
         if not devices:
             show_status_message(
                 self,
@@ -809,26 +1124,33 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
                 "phone is connected via USB and set to File Transfer mode (pull down "
                 "the notification shade and tap the USB notification).",
             )
+            self._sync_destination_mode_control()
+            self._refresh_header()
             return
 
-        options = [d.display_name for d in devices]
-        choice, ok = QInputDialog.getItem(self, "Link Device", "Select device:", options, 0, False)
-        if not ok:
-            return
+        if len(devices) == 1:
+            chosen = devices[0]
+        else:
+            options = [d.display_name for d in devices]
+            choice, ok = QInputDialog.getItem(self, "Link Device", "Select device:", options, 0, False)
+            if not ok:
+                self._sync_destination_mode_control()
+                self._refresh_header()
+                return
+            chosen = devices[options.index(choice)]
 
-        chosen = devices[options.index(choice)]
         self.current_profile.device_uri = chosen.uri
         self.current_profile.device_name = chosen.short_name
         self.profile_store.save(self.profiles)
         logger.info(
             f"Linked device '{chosen.display_name}' to profile '{self.current_profile.name}'"
         )
+        show_status_message(self, f"Linked {chosen.display_name}.")
 
-        self._refresh_device_label()
-        card = self._find_card_for_profile(self.current_profile)
-        if card:
-            card.update_profile(self.current_profile)
-            card._refresh_display()
+        self.device_nickname_edit.setText(chosen.short_name)
+        self._sync_destination_mode_control()
+        self._refresh_header()
+        self._refresh_current_card()
         self._update_sync_button_state()
 
     def _unlink_device(self):
@@ -838,10 +1160,10 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.current_profile.device_uri = ""
         self.current_profile.device_name = ""
         self.profile_store.save(self.profiles)
-        self._refresh_device_label()
-        card = self._find_card_for_profile(self.current_profile)
-        if card:
-            card.update_profile(self.current_profile)
+        self.device_nickname_edit.clear()
+        self._sync_destination_mode_control()
+        self._refresh_header()
+        self._refresh_current_card()
         self._update_sync_button_state()
 
     # -----------------------------------------------------------------------
@@ -849,20 +1171,25 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     # -----------------------------------------------------------------------
 
     def _detect_devices(self):
-        """Scan for MTP devices and offer to create profiles for unknown ones."""
-        if not mtp_available():
+        """Scan for MTP devices (off the GUI thread) and offer profiles for unknown ones."""
+        if not mtp_available() or self._scan_in_progress(self._detect_worker):
             return
-
         self.detect_btn.setText("⟳ Scanning…")
         self.detect_btn.setEnabled(False)
-        QTimer.singleShot(100, self._do_detect)
+        self.empty_detect_btn.setText("Scanning…")
+        self.empty_detect_btn.setEnabled(False)
+        worker = MtpListWorker(self.mtp_manager)
+        worker.ready.connect(self._on_detect_devices_listed)
+        self._detect_worker = worker
+        worker.start()
 
-    def _do_detect(self):
-        devices = self.mtp_manager.list_devices()
+    def _on_detect_devices_listed(self, devices: list):
         self._known_mtp_devices = devices
         logger.info(f"MTP device scan found {len(devices)} device(s)")
         self.detect_btn.setText("⟳ Detect")
         self.detect_btn.setEnabled(True)
+        self.empty_detect_btn.setText("Detect Android device")
+        self.empty_detect_btn.setEnabled(True)
 
         if not devices:
             show_status_message(
@@ -879,6 +1206,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
         # Update connection badges regardless
         self._update_connection_badges({d.uri for d in devices})
+        self._refresh_header()
 
         if not new_devices:
             show_status_message(
@@ -895,23 +1223,19 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                profile = SyncProfile(
-                    name=device.short_name,
-                    path="",
-                    device_uri=device.uri,
-                    device_name=device.short_name,
-                    music_path=MtpManager.DEFAULT_MUSIC_PATH,
+                self._add_and_select_profile(
+                    SyncProfile(
+                        name=device.short_name,
+                        path="",
+                        device_uri=device.uri,
+                        device_name=device.short_name,
+                        music_path=MtpManager.DEFAULT_MUSIC_PATH,
+                    )
                 )
-                self.profiles.append(profile)
-                self.profile_store.save(self.profiles)
-                self._rebuild_cards()
-                new_card = self._find_card_for_profile(profile)
-                if new_card:
-                    self._on_card_clicked(new_card)
 
     def _refresh_mtp_devices(self):
         """Enumerate connected MTP devices on a background thread; badges and
-        the device label update when the result arrives.
+        the header update when the result arrives.
 
         Never calls `gio` on the GUI thread — a `gio` enumeration against a
         wedged MTP backend blocks its caller with no bounded recovery, and
@@ -919,7 +1243,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         """
         if not mtp_available():
             return
-        if self._mtp_list_worker is not None and self._mtp_list_worker.isRunning():
+        if self._scan_in_progress(self._mtp_list_worker):
             return  # a scan is already in flight — don't stack gio calls
         worker = MtpListWorker(self.mtp_manager)
         worker.ready.connect(self._on_mtp_devices_listed)
@@ -927,10 +1251,10 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         worker.start()
 
     def _on_mtp_devices_listed(self, devices: list):
-        """Apply a background MTP scan result to the sidebar and Settings tab."""
+        """Apply a background MTP scan result to the sidebar and the header."""
         self._known_mtp_devices = devices
         self._update_connection_badges({d.uri for d in devices})
-        self._refresh_device_label()
+        self._refresh_header()
 
     def _update_connection_badges(self, connected_uris: set):
         """Flip each card's USB badge to match `connected_uris`."""

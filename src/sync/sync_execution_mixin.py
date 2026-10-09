@@ -2,18 +2,21 @@ from PySide6.QtWidgets import QMessageBox
 
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.sync.device_card import plural
+from src.sync.sync_selection_mixin import selection_description
 from src.sync.sync_worker import SyncWorker
 
 
 class SyncExecutionMixin:
     """
     Kicks off SyncWorker, wires its signals, and renders progress/results
-    into the Log tab for SyncView.
+    into the bottom bar and the Activity page for SyncView.
 
     Expects the host class to provide: self.current_profile,
-    self.selected_items, self.tabs, self.sync_manager, self.sync_worker,
-    self.status_manager, self.sync_log, self.progress_bar, self.sync_btn,
-    self.cancel_sync_btn, self.add_profile_btn, self.current_action.
+    self.selected_items, self._selection_totals, self.sync_manager,
+    self.sync_worker, self.status_manager, self.sync_log, self.activity
+    (a SyncActivityPanel), self.progress_bar, self.current_action,
+    self._set_sync_ui_state(idle) and self._show_sync_result(text, tone).
     """
 
     # -----------------------------------------------------------------------
@@ -30,26 +33,23 @@ class SyncExecutionMixin:
                 show_status_message(self, "No device linked.")
                 return
             name = self.current_profile.device_name or self.current_profile.device_uri
+            dest_name = name
             dest_desc = f"Device: {name}\nMusic folder: {self.current_profile.music_path}"
         else:
             if not self.current_profile.path:
                 show_status_message(self, "No destination folder set.")
                 return
+            dest_name = self.current_profile.path
             dest_desc = f"Folder: {self.current_profile.path}"
 
-        total_tracks = sum(p["track_count"] for p in self.selected_items)
+        # The de-duplicated total the bottom bar shows, so both numbers agree.
+        total_tracks = self._selection_totals[0]
         n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
         n_moods = sum(1 for it in self.selected_items if it["kind"] == "mood")
-        selection_parts = []
-        if n_playlists:
-            selection_parts.append(f"{n_playlists} playlist(s)")
-        if n_moods:
-            selection_parts.append(f"{n_moods} mood(s)")
+        selection_text = selection_description(n_playlists, n_moods)
         clear = self.current_profile.clear_before_sync
 
-        confirm_msg = (
-            f"Sync {' + '.join(selection_parts)} ({total_tracks} tracks) to:\n\n{dest_desc}"
-        )
+        confirm_msg = f"Sync {selection_text} ({plural(total_tracks, 'track')}) to:\n\n{dest_desc}"
         if clear:
             confirm_msg += "\n\n⚠️  Destination will be cleared first."
         elif self.current_profile.prune_untracked:
@@ -67,16 +67,15 @@ class SyncExecutionMixin:
         if reply != QMessageBox.Yes:
             return
 
-        # Switch to Log tab so the user can see progress
-        self.tabs.setCurrentIndex(2)
-
         logger.info(
             f"Starting sync for profile '{self.current_profile.name}': "
-            f"{' + '.join(selection_parts)} ({total_tracks} tracks) -> {dest_desc}"
+            f"{selection_text} ({total_tracks} tracks) -> {dest_desc}"
         )
         self.status_manager.start_task(f"Starting sync: {self.current_profile.name}")
         self._set_sync_ui_state(False)
-        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.current_action.setText("Preparing…")
+        self.activity.begin(dest_name)
         self.sync_log.clear()
         self.sync_log.append(f"Starting sync → {dest_desc}")
         if clear:
@@ -99,12 +98,8 @@ class SyncExecutionMixin:
                 self.sync_worker.cancel()
                 logger.info(f"Sync cancelled by user for profile '{self.current_profile.name}'")
                 self.sync_log.append("*** Sync cancelled by user ***")
+                self.current_action.setText("Cancelling…")
                 self.status_manager.end_task("Sync cancelled", 3000)
-
-    def _set_sync_ui_state(self, idle: bool):
-        self.sync_btn.setVisible(idle)
-        self.cancel_sync_btn.setVisible(not idle)
-        self.add_profile_btn.setEnabled(idle)
 
     # -----------------------------------------------------------------------
     # Sync signal handlers
@@ -114,9 +109,12 @@ class SyncExecutionMixin:
         if total > 0:
             self.progress_bar.setMaximum(total)
             self.progress_bar.setValue(current)
-        self.current_action.setText(message)
-        pct = f"  ({current / total * 100:.0f}%)" if total > 0 else ""
-        self.status_manager.show_message(f"Syncing: {message}{pct}", 0)
+            pct = f"{current / total * 100:.0f}%"
+            self.current_action.setText(f"{message}  ·  {pct}")
+            self.status_manager.show_message(f"Syncing: {message}  ({pct})", 0)
+        else:
+            self.current_action.setText(message)
+            self.status_manager.show_message(f"Syncing: {message}", 0)
 
     def _on_playlist_complete(self, result: dict):
         icon = "✅" if result["success"] else "❌"
@@ -137,6 +135,7 @@ class SyncExecutionMixin:
                 f"      ✗ {failure['artist']} — {failure['title']}: {failure['reason']}"
             )
         self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
+        self.activity.add_result(result)
 
     def _on_prune_complete(self, result: dict):
         removed = result.get("removed_tracks", []) + result.get("removed_playlists", [])
@@ -147,10 +146,10 @@ class SyncExecutionMixin:
         for name in removed:
             self.sync_log.append(f"      - {name}")
         self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
+        self.activity.add_removed(removed)
 
     def _on_sync_finished(self, results: list[dict]):
         self._set_sync_ui_state(True)
-        self.progress_bar.setVisible(False)
 
         successful = sum(1 for r in results if r["success"])
         total = len(results)
@@ -163,20 +162,34 @@ class SyncExecutionMixin:
         mp3_note = f", {total_transcoded} to MP3" if total_transcoded else ""
         removed_note = f", {removed} removed" if removed else ""
         extra = f"{mp3_note}{failed_note}{removed_note}"
+        cancelled = self.sync_worker is not None and self.sync_worker.is_cancelled
 
         logger.info(
             f"Sync finished: {successful}/{total} playlists succeeded, "
             f"{total_copied} tracks copied, {total_skipped} skipped{extra}"
         )
-
-        self.current_action.setText(
-            f"Done — {successful}/{total} playlists  ·  "
-            f"{total_copied} copied, {total_skipped} skipped{extra}"
-        )
         self.sync_log.append(
             f"\n=== Sync complete: {successful}/{total} playlists  |  "
             f"{total_copied} copied, {total_skipped} skipped{extra} ==="
         )
+
+        # One short line for the bottom bar and the Activity headline.
+        bits = [f"{total_copied:,} copied"]
+        if total_failed:
+            bits.append(f"{total_failed:,} failed")
+        if removed:
+            bits.append(f"{removed:,} removed")
+        counts = " · ".join(bits)
+        if cancelled:
+            headline, tone = f"Sync cancelled — {counts}", "warn"
+        elif successful == 0:
+            headline, tone = "Nothing was copied — check that the source files exist and the destination is writable", "error"
+        elif total_failed or successful < total:
+            headline, tone = f"Synced with problems — {counts}", "warn"
+        else:
+            headline, tone = f"Sync complete — {counts}", "ok"
+        self.activity.finish(headline, tone)
+        self._show_sync_result(headline, tone)
 
         if successful > 0:
             self.status_manager.end_task(
@@ -184,18 +197,5 @@ class SyncExecutionMixin:
                 f"{total_skipped} skipped{failed_note}{removed_note}",
                 5000,
             )
-            show_status_message(
-                self,
-                f"Sync finished! Playlists: {successful}/{total} successful  ·  "
-                f"Tracks copied: {total_copied}  ·  Duplicates skipped: {total_skipped}"
-                + (f"  ·  Failed: {total_failed}" if total_failed else ""),
-                5000,
-            )
         else:
             self.status_manager.end_task("Sync completed — no tracks copied", 3000)
-            QMessageBox.warning(
-                self,
-                "Sync Complete",
-                "No tracks were copied.\n\n"
-                "Check that source files exist and the destination is writable.",
-            )
