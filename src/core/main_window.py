@@ -549,6 +549,11 @@ class GUI(QMainWindow, MenuBar):
 
         # A running QThread destroyed with the window aborts the process.
         self._stop_explicit_recalc_worker()
+        # Child views never receive closeEvent, so views that own worker threads expose shutdown().
+        for widget in getattr(self, "_view_cache", {}).values():
+            shutdown = getattr(widget, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
         # A parentless mini player would otherwise keep the app alive after the main window closes.
         self._close_miniplayer()
 

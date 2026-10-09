@@ -1,3 +1,5 @@
+"""DeviceCard (one sync profile in the sidebar) plus the size/plural text helpers the Sync view shares."""
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
@@ -7,9 +9,12 @@ from src.sync.sync_profile import SyncProfile
 
 def format_file_size(bytes_size):
     """Convert bytes to a human-readable string."""
-    if not bytes_size:
+    if not bytes_size or bytes_size < 0:
         return "0 B"
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
+    if bytes_size < 1024:
+        return f"{int(bytes_size)} B"  # whole bytes: "512.00 B" reads as a bug
+    bytes_size /= 1024.0
+    for unit in ["KB", "MB", "GB", "TB"]:
         if bytes_size < 1024.0:
             return f"{bytes_size:.2f} {unit}"
         bytes_size /= 1024.0
@@ -27,16 +32,9 @@ FOLDER_GLYPH = "📁"
 
 
 class DeviceCard(QFrame):
-    """
-    A clickable card representing one sync profile in the sidebar.
+    """A clickable, keyboard-focusable sidebar card for one sync profile."""
 
-    Layout: a destination icon (phone / folder) on the left; the profile
-    name with a connection badge, the destination path, and a short
-    selection summary on the right.
-
-    on_click is a callable that receives this card — avoids fragile
-    parent() chains through scroll area viewports.
-    """
+    # on_click receives this card: avoids fragile parent() chains through scroll-area viewports.
 
     def __init__(self, profile: SyncProfile, on_click, parent=None):
         super().__init__(parent)
@@ -45,12 +43,15 @@ class DeviceCard(QFrame):
         self.setObjectName("DeviceCard")
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # Tab reaches the card; Enter/Space selects it (see keyPressEvent).
+        self.setFocusPolicy(Qt.StrongFocus)
         self._selected = False
         self._connected = False
         self._track_total: int | None = None
         self._build()
 
     def _build(self):
+        """Create the icon, name + badge, destination and selection rows."""
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 10, 12, 10)
         layout.setSpacing(10)
@@ -128,6 +129,8 @@ class DeviceCard(QFrame):
         if self._track_total is not None and parts:
             parts.append(plural(self._track_total, "track"))
         self.selection_label.setText("  ·  ".join(parts) if parts else "Nothing selected")
+        self.setAccessibleName(f"Sync profile {self.profile.name}")
+        self.setAccessibleDescription(f"{self.badge.text()}, {destination}, {self.selection_label.text()}")
 
     def _set_elided(self, label: QLabel, text: str):
         """Keep long paths on one line: elide the middle, full text in the tooltip."""
@@ -136,14 +139,17 @@ class DeviceCard(QFrame):
         label.setToolTip(text)
 
     def resizeEvent(self, event):
+        """Re-elide the destination to the new width."""
         super().resizeEvent(event)
         self._refresh_display()
 
     def set_selected(self, selected: bool):
+        """Show or clear the selected style."""
         self._selected = selected
         set_style_property(self, "selected", selected)
 
     def set_connected(self, connected: bool):
+        """Show the device as connected or offline."""
         self._connected = connected
         self._refresh_display()
 
@@ -153,10 +159,20 @@ class DeviceCard(QFrame):
         self._refresh_display()
 
     def update_profile(self, profile: SyncProfile):
+        """Redraw for `profile`."""
         self.profile = profile
         self._refresh_display()
 
     def mousePressEvent(self, event):
+        """Select the card on a left click."""
         if event.button() == Qt.LeftButton:
             self._on_click(self)
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        """Select the card with Enter, Return or Space."""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self._on_click(self)
+            event.accept()
+            return
+        super().keyPressEvent(event)

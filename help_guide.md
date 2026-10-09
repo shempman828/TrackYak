@@ -702,79 +702,94 @@ branch).
 Push curated playlists and moods out to an Android device or a plain folder
 (for a USB drive, an old MP3 player, whatever you point it at).
 
-**Setting up a profile**: click + New, give it a name, then head to the
-Settings tab to point it at a destination — either Link Device for something
-connected over USB (click ⟳ Detect first if it's not showing up), or Browse
-for a folder. For a linked device, "Music folder on device" is a dropdown of
-the usual spots (Music, Internal storage/Music, SD card/Music) — pick one, or
-type your own relative path if your phone puts music somewhere else.
+**Setting up a profile**: each device or folder gets its own profile, shown as
+a card in the **DEVICES** sidebar. With no profiles yet, the Sync screen offers
+**Detect Android device**, **Choose folder…**, or an empty profile. Later, use
+**+ New** (then set a destination on the **Options** page) or **⟳ Detect**,
+which offers a profile for every connected phone that doesn't have one yet.
+Cards can be selected with the mouse or with Tab and Enter/Space. The header
+above the pages shows the profile's name, whether its phone is connected, and
+where it syncs to; **Change…** picks another device or folder, and the **⋯**
+menu renames or deletes the profile (deleting a profile never deletes files).
+Connection badges refresh every few seconds while the Sync screen is open.
 
-Two Options control what happens to files that are already on the destination.
-**Remove files that are no longer in this profile** (on by default for new
-profiles) makes each sync reconcile: after copying, it deletes tracks and
-`.m3u` files that belong to playlists or moods you've since unticked, so the
-destination keeps matching your selection instead of hoarding old tracks
-forever. It only touches files it recognises as its own (the
+**Destination** (Options page): switch between **Android device** and
+**Folder**. For a phone, **Link device…** picks from the connected devices
+(USB set to File Transfer). **Music folder** is a path inside the phone's
+internal storage — `Music` by default. To use another storage, start the path
+with its name as the phone shows it, for example `SD card/Music`. Empty paths
+fall back to `Music`, and `..` parts are ignored. Playlists go in a
+`Playlists` folder next to the music folder. For a folder profile, files go
+into `music/` and the `.m3u` playlists into `playlists/` inside the chosen
+folder.
+
+**Files on the destination** (Options page) is a three-way switch:
+**Keep** only adds missing tracks. **Remove untracked** (the default for new
+profiles) also deletes tracks and `.m3u` files that belong to playlists or
+moods you've since unticked, so the destination keeps matching your
+selection. It only touches files it recognises as its own (the
 `Artist - Title.ext` it writes) and `.m3u` files — anything you dropped into
 the folder by hand is left alone. Profiles created before this option existed
-start with it **off**, so an update never deletes anything off your device
-without you ticking the box first. **Clear destination before syncing** is the
-heavier hammer: it wipes the whole music and playlist folders before every
-sync. Turn that on only if you want a guaranteed-exact mirror and don't mind
-re-copying everything each time.
+start on **Keep**. **Wipe, then copy** empties the music and playlist folders
+before every sync and copies everything again — slow, but an exact mirror.
 
 **How synced files are named**: each copied track lands as `Artist - Title.ext`.
 The "Artist" is the release's **album artist** when it has one (so a track that
 credits a dozen guests still files under the headliner), otherwise the track's
-own primary artists joined with `&`, otherwise `Various Artists`. If that name
-would be too long for the destination filesystem it's trimmed and given a short
-` ~xxxxxxxx` tag so two different long names can't collide — the same trimming is
-applied when the reconcile step decides what to keep, so nothing is needlessly
-re-copied.
+own primary artists joined with `&`, otherwise `Various Artists`. Characters
+that aren't safe in a filename are dropped; a name with nothing left becomes
+`Unknown Artist` / `Untitled`. If a name would be too long for the destination
+filesystem it's trimmed and given a short ` ~xxxxxxxx` tag so two different
+long names can't collide. If two *different* tracks still end up with the same
+name, only the first is copied and the second is listed as a failure — it is
+never silently swapped for the other song.
 
-**Convert lossless files to MP3**: another option in Settings — when it's on,
-lossless sources (FLAC, WAV, AIFF) are re-encoded to a constant-bitrate MP3
-(pick 320 / 256 / 192 / 128 kbps) as they're copied, so a phone or player
-holds a fraction of the size. Already-lossy files (MP3, AAC, M4A, OGG) are
-copied through untouched, and the originals in your library are never
-modified — tags and embedded cover art carry over to the MP3. Several files
-are converted in parallel, so a first-time sync of a large lossless library
-isn't one encode after another. The converted files are kept in a local
-`cache/` folder so a re-sync of the same tracks doesn't re-encode anything;
-"Clear MP3 cache" empties it and shows how much space it's using. **Max cache
-size** caps that folder: after a sync that converts to MP3, the least recently
-used conversions are deleted until the cache is back under the limit, so a
-one-off library re-tag can't quietly pile up stale copies. Set it to `0`
-(shown as "Unlimited") to turn eviction off. This option needs `ffmpeg` on your
-PATH (`sudo apt install ffmpeg` on Debian/Ubuntu) — without it the checkbox is
-disabled, and if `ffmpeg` goes missing at sync time the run falls back to
-copying originals and says so in the log.
+**Convert lossless files to MP3** (Options page): when it's on, lossless
+sources (FLAC, WAV, AIFF) are re-encoded to a constant-bitrate MP3 (pick
+320 / 256 / 192 / 128 kbps) as they're copied. Already-lossy files (MP3, AAC,
+M4A, OGG) are copied through untouched, and the originals in your library are
+never modified — tags and embedded cover art carry over. Several files are
+converted in parallel. The converted files are kept in a local `cache/` folder
+so a re-sync doesn't re-encode anything; **Clear MP3 cache** empties it and
+shows how much space it's using (it's unavailable while a sync is running).
+**Cache limit** caps that folder: after a sync that converts to MP3, the least
+recently used conversions are deleted until the cache is back under the limit.
+Set it to `0` ("Unlimited") to turn this off. This option needs `ffmpeg` on
+your PATH (`sudo apt install ffmpeg` on Debian/Ubuntu) — without it the
+checkbox is disabled, and if `ffmpeg` goes missing at sync time the run falls
+back to copying originals and says so.
 
-**Choosing what goes**: the Playlists & Moods tab is a checklist — tick
-whichever playlists and moods you want on this device. It's grouped into
-collapsible folders under PLAYLISTS and MOODS headers; **Expand All** /
-**Collapse All** in the toolbar open or close every folder at once, alongside
-**Select All** / **Select None**. The estimated track
-count and size update live as you check things off, and a track that sits in
-more than one ticked playlist or mood is counted once — the same way it only
-lands on the device once. With **Convert lossless
-files to MP3** on, that size becomes a post-conversion estimate
-(`~… after conversion`) — lossless tracks sized as they'd land at the chosen
-bitrate, already-lossy tracks counted as-is — and it re-estimates when you
-change the bitrate.
+**Choosing what goes** (Music page): a checklist of playlists and moods under
+PLAYLISTS and MOODS headers, each header showing how many are selected. Type in
+the filter box to narrow the list; **Select All** / **Select None** only affect
+the rows the filter shows, and **Expand All** / **Collapse All** open or close
+every folder. Ticking a parent playlist doesn't tick its sub-playlists — right-
+click it to select or clear it together with everything under it. The bottom
+bar shows the estimated track count and size; a track in more than one ticked
+playlist or mood is counted once, the same way it only lands on the device
+once. With MP3 conversion on, the size becomes a post-conversion estimate
+(`~… after conversion`).
 
-**Syncing**: once a profile has both a selection and a destination, Start
-Sync becomes available. It'll confirm the destination and track count before
-it starts (including a note when the "remove files no longer in this profile"
-option will delete something), then switch you to the Log tab to watch
-progress — worth checking afterward if anything got skipped or retried. Any
-track that couldn't be copied is listed under its playlist in the log with the
-artist, title, and the reason (source file missing, transport error, couldn't
-be converted to MP3, or copied but not verified on the device). Files removed
-by the reconcile step are listed too, under a 🗑 line. Cancel stops the run
-once the file currently copying finishes; anything already on the destination
-stays there, and the reconcile/remove step is skipped entirely on a cancelled
-run.
+**Syncing**: once a profile has both a selection and a destination, **Sync
+now →** in the bottom bar becomes available (its tooltip says what's missing
+if not). It confirms the destination and track count first, including a
+warning when files will be removed or the destination wiped. While it runs,
+the bottom bar shows the current step and one overall progress bar, and the
+**Activity** page gets a dot. Changing a profile's options during a run
+doesn't affect the run in progress. **Cancel** stops once the file currently
+copying finishes; anything already on the destination stays there, and the
+remove step is skipped on a cancelled run. Closing the app during a sync
+cancels it cleanly.
+
+**Results** (Activity page, or **Details** in the bottom bar): a headline,
+totals (copied, skipped, converted, failed, removed), and one row per playlist
+or mood. Any track that couldn't be copied is listed under its playlist with
+the artist, title, and the reason (source file missing, transport error,
+couldn't be converted to MP3, name already used by another track, or copied
+but not verified on the device). Files removed by the remove step get their
+own row. If the playlist file itself couldn't be written, or the destination
+couldn't be wiped, that's noted too. **Show log** reveals the plain-text log
+for copying out.
 
 ## Timeline
 

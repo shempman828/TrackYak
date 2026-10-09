@@ -1,3 +1,5 @@
+"""SyncSelectionMixin: the playlist/mood checklist and the selection summary for SyncView."""
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTreeWidgetItem
 
@@ -8,15 +10,10 @@ from src.sync.sync_selection_tree import SyncSelectionTree
 
 
 class SyncSelectionMixin:
-    """
-    Playlist/mood checklist tree and the derived selection state (selection
-    summary in the bottom bar, sync button enablement) for SyncView.
+    """Build the selection tree, track what is ticked, and keep the summary and Sync button current."""
 
-    Expects the host class to provide: self.sync_tree (a SyncSelectionTree),
-    self.sync_manager, self.current_profile, self.profiles,
-    self.profile_store, self.track_count_label, self.sync_btn,
-    self.transcode_mp3_check, self.bitrate_combo.
-    """
+    # Host provides: sync_tree (SyncSelectionTree), sync_manager, current_profile, profiles,
+    # profile_store, track_count_label, sync_btn, transcode_mp3_check, bitrate_combo.
 
     # -----------------------------------------------------------------------
     # Playlist / mood selection tree
@@ -28,14 +25,28 @@ class SyncSelectionMixin:
         for it in items:
             children_map.setdefault(it.get("parent_id"), []).append(it)
         for siblings in children_map.values():
-            siblings.sort(key=lambda it: it["name"].lower())
+            siblings.sort(key=lambda it: (it.get("name") or "").lower())
+
+        added: set = set()
 
         def add_level(parent_id, node: QTreeWidgetItem):
             for it in children_map.get(parent_id, []):
+                if it[id_key] in added:
+                    continue  # guards against a parent_id cycle
+                added.add(it[id_key])
                 tree_item = SyncSelectionTree.make_item(node, it)
                 add_level(it[id_key], tree_item)
 
         add_level(None, parent_item)
+        # A missing parent or a parent_id cycle would otherwise hide the item for good: attach
+        # orphans (parent not in the list) at the top level first, then whatever a cycle left over.
+        ids = {it[id_key] for it in items}
+        by_name = sorted(items, key=lambda it: (it.get("name") or "").lower())
+        orphans = [it for it in by_name if it.get("parent_id") not in ids]
+        for it in orphans + by_name:
+            if it[id_key] not in added:
+                added.add(it[id_key])
+                add_level(it[id_key], SyncSelectionTree.make_item(parent_item, it))
 
     def _iter_sync_items(self):
         """Yield every checkable (playlist/mood) QTreeWidgetItem in the tree."""
@@ -50,18 +61,8 @@ class SyncSelectionMixin:
         yield from walk(self.sync_tree.invisibleRootItem())
 
     def _refresh_sync_items(self):
-        """
-        Reload playlists and moods into the sync tree, off the GUI thread.
-
-        Called on view construction and on every `showEvent`, so calls that
-        land while a load is already in flight are coalesced into a single
-        trailing reload rather than stacking a worker per call. The existing
-        tree stays on screen until the new data arrives.
-
-        The in-flight guard is our own flag, cleared by the result slots --
-        not `loader.isRunning()`, which can still read True in the slot that
-        the just-finished worker triggered (thread not yet torn down).
-        """
+        """Reload playlists and moods off the GUI thread, coalescing calls made while a load is in flight."""
+        # Our own flag, not loader.isRunning(): that can still read True inside the finished worker's slot.
         if getattr(self, "_sync_items_loading", False):
             self._sync_items_reload_pending = True
             return
@@ -74,15 +75,14 @@ class SyncSelectionMixin:
         loader.start()
 
     def _on_sync_items_loaded(self, playlists: list, moods: list):
+        """Apply a loader result, then run any reload requested meanwhile."""
         self._sync_items_loading = False
         self._populate_sync_tree(playlists, moods)
         if getattr(self, "_sync_items_reload_pending", False):
             self._refresh_sync_items()
 
     def _on_sync_items_failed(self, message: str):
-        # Keep whatever is already in the tree; a transient DB error must not
-        # blank the selection out from under the user. The next showEvent
-        # retries -- we don't loop on a persistent failure here.
+        """Keep the current tree on a load error; the next showEvent retries."""
         self._sync_items_loading = False
         self._sync_items_reload_pending = False
         logger.warning(f"Sync items failed to load, keeping current tree: {message}")
@@ -102,6 +102,8 @@ class SyncSelectionMixin:
         # Re-apply a filter typed while the old tree was on screen.
         self.sync_tree.set_filter_text(self.sync_tree.filter_text())
         self.sync_tree.blockSignals(False)
+        # From now on the tree reflects the DB, so saving it can't wipe a profile's selection.
+        self._sync_items_ready = True
         self._update_tree_placeholder()
 
         if self.current_profile:
@@ -120,6 +122,7 @@ class SyncSelectionMixin:
         self.sync_tree.set_placeholder_text(text)
 
     def _on_sync_filter_changed(self, text: str):
+        """Apply the filter box text to the tree."""
         self.sync_tree.set_filter_text(text)
         self._update_tree_placeholder()
 
@@ -132,17 +135,15 @@ class SyncSelectionMixin:
         self.sync_tree.blockSignals(True)
         for item in self._iter_sync_items():
             data = item.data(0, Qt.UserRole)
-            if data["kind"] == "mood":
-                checked = data["mood_id"] in saved_mood_ids
-            else:
-                checked = data["playlist_id"] in saved_playlist_ids
+            checked = data["mood_id"] in saved_mood_ids if data["kind"] == "mood" else data["playlist_id"] in saved_playlist_ids
             item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
         self.sync_tree.blockSignals(False)
         self._update_selected_items()
 
     def _save_current_profile_selections(self):
         """Write current checkbox state back into the active profile and persist."""
-        if not self.current_profile:
+        # Before the first load (or after a failed one) the tree is empty and would wipe the selection.
+        if not self.current_profile or not getattr(self, "_sync_items_ready", False):
             return
         playlist_ids = []
         mood_ids = []
@@ -178,16 +179,9 @@ class SyncSelectionMixin:
             # two selected playlists (or a playlist and a mood) must count once,
             # the same way it lands on the device only once.
             self._selection_totals = self.sync_manager.selection_totals(playlist_ids, mood_ids)
-            total_tracks, total_size, total_lossless_size, total_lossless_duration = (
-                self._selection_totals
-            )
-            size_text = self._selection_size_text(
-                total_size, total_lossless_size, total_lossless_duration
-            )
-            self.track_count_label.setText(
-                f"{selection_description(len(playlist_ids), len(mood_ids))}  ·  "
-                f"{plural(total_tracks, 'track')}  ·  {size_text}"
-            )
+            total_tracks, total_size, total_lossless_size, total_lossless_duration = self._selection_totals
+            size_text = self._selection_size_text(total_size, total_lossless_size, total_lossless_duration)
+            self.track_count_label.setText(f"{selection_description(len(playlist_ids), len(mood_ids))}  ·  {plural(total_tracks, 'track')}  ·  {size_text}")
         else:
             self._selection_totals = (0, 0, 0, 0.0)
             self.track_count_label.setText("Nothing selected")
@@ -195,13 +189,7 @@ class SyncSelectionMixin:
         self._update_sync_button_state()
 
     def _selection_size_text(self, total_size, lossless_size, lossless_duration):
-        """
-        Human-readable size for the selection summary. When "Convert lossless
-        files to MP3" is on and the selection actually contains lossless audio,
-        show a post-conversion estimate (lossy tracks unchanged, lossless
-        tracks re-sized as CBR MP3 at the chosen bitrate) instead of the raw
-        library footprint.
-        """
+        """Size text for the summary: a post-conversion estimate while MP3 conversion is on, else the raw size."""
         check = getattr(self, "transcode_mp3_check", None)
         if check is not None and check.isEnabled() and check.isChecked() and lossless_duration > 0:
             kbps = int(self.bitrate_combo.currentText())
@@ -210,6 +198,7 @@ class SyncSelectionMixin:
         return format_file_size(total_size)
 
     def _on_sync_item_changed(self, item: QTreeWidgetItem, column: int):
+        """A row was ticked or unticked."""
         if item.data(0, Qt.UserRole) is None:
             return  # category header — not selectable
         self._update_selected_items()
@@ -230,15 +219,19 @@ class SyncSelectionMixin:
         self._save_current_profile_selections()
 
     def _select_all_items(self):
+        """Tick every visible row."""
         self._set_visible_items_checked(Qt.Checked)
 
     def _select_no_items(self):
+        """Untick every visible row."""
         self._set_visible_items_checked(Qt.Unchecked)
 
     def _expand_all_items(self):
+        """Expand every folder."""
         self.sync_tree.expandAll()
 
     def _collapse_all_items(self):
+        """Collapse every folder."""
         self.sync_tree.collapseAll()
 
     # -----------------------------------------------------------------------

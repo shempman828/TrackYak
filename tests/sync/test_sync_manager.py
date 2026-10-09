@@ -32,6 +32,7 @@ from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
 from src.sync.mtp_manager import MtpDevice, MtpManager
 from src.sync.sync_manager import SyncManager
+from src.sync.sync_naming import safe_filename
 
 
 @pytest.fixture
@@ -98,19 +99,17 @@ def test_diff_local_pool_partitions_true_duplicates_and_changed_files(tmp_path, 
     new_track = _make_track_dict(tmp_path, "New")
 
     # Duplicate is already on the device with identical content.
-    dup_filename = sync_manager._safe_filename(duplicate["artist"], duplicate["title"], ".mp3")
+    dup_filename = safe_filename(duplicate["artist"], duplicate["title"], ".mp3")
     _write_file(music_dir / dup_filename, content=b"same-bytes")
 
     # Changed exists on the device but with different (stale) content, same
     # size as "old-version-" would not match here -- use a same-length but
     # different-content stale copy so the size check alone can't tell them
     # apart and the MD5 confirmation step is what must catch it.
-    changed_filename = sync_manager._safe_filename(changed["artist"], changed["title"], ".mp3")
+    changed_filename = safe_filename(changed["artist"], changed["title"], ".mp3")
     _write_file(music_dir / changed_filename, content=b"stale-version")  # same length, diff bytes
 
-    to_copy, to_skip = sync_manager._diff_local_pool(
-        [duplicate, changed, new_track], str(music_dir)
-    )
+    to_copy, to_skip = sync_manager._diff_local_pool([duplicate, changed, new_track], str(music_dir))
 
     assert {t["title"] for t in to_skip} == {"Duplicate"}
     assert {t["title"] for t in to_copy} == {"Changed", "New"}
@@ -132,21 +131,23 @@ def test_diff_mtp_pool_uses_one_subprocess_call_regardless_of_track_count(tmp_pa
     tracks = [_make_track_dict(tmp_path, f"Track {i}") for i in range(15)]
     # Pre-place a few as real duplicates on the "device".
     for t in tracks[:5]:
-        filename = mgr._safe_filename(t["artist"], t["title"], ".mp3")
+        filename = safe_filename(t["artist"], t["title"], ".mp3")
         _write_file(device_dir / filename, content=Path(t["file_path"]).read_bytes())
 
-    real_run = subprocess.run
+    from src.sync import mtp_manager
+
+    real_run = mtp_manager._run_bounded
     calls = {"n": 0}
 
     def counting_run(*a, **kw):
         calls["n"] += 1
         return real_run(*a, **kw)
 
-    subprocess.run = counting_run
+    mtp_manager._run_bounded = counting_run
     try:
         to_copy, to_skip = mgr._diff_mtp_pool(tracks, device, device.uri)
     finally:
-        subprocess.run = real_run
+        mtp_manager._run_bounded = real_run
 
     assert calls["n"] == 1
     assert len(to_skip) == 5
@@ -162,7 +163,7 @@ def test_copy_with_retry_recovers_from_a_transient_failure(tmp_path, sync_manage
     music_dir = tmp_path / "music"
     music_dir.mkdir()
     track = _make_track_dict(tmp_path, "Flaky")
-    track["device_filename"] = sync_manager._safe_filename("Artist", "Flaky", ".mp3")
+    track["device_filename"] = safe_filename("Artist", "Flaky", ".mp3")
 
     attempts = {"n": 0}
 
@@ -174,12 +175,7 @@ def test_copy_with_retry_recovers_from_a_transient_failure(tmp_path, sync_manage
         _write_file(dest, content=Path(t["file_path"]).read_bytes())
         return True
 
-    succeeded, failed = sync_manager._copy_with_retry(
-        [track],
-        flaky_copy_one,
-        lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: Path(t["file_path"]).stat().st_size,
-    )
+    succeeded, failed = sync_manager._copy_with_retry([track], flaky_copy_one, lambda: sync_manager._list_local_pool(str(music_dir)), lambda t: Path(t["file_path"]).stat().st_size)
 
     assert attempts["n"] == 2
     assert failed == []
@@ -191,7 +187,7 @@ def test_copy_with_retry_reports_persistent_failure_after_max_retries(tmp_path, 
     music_dir = tmp_path / "music"
     music_dir.mkdir()
     track = _make_track_dict(tmp_path, "AlwaysFails")
-    track["device_filename"] = sync_manager._safe_filename("Artist", "AlwaysFails", ".mp3")
+    track["device_filename"] = safe_filename("Artist", "AlwaysFails", ".mp3")
 
     attempts = {"n": 0}
 
@@ -199,12 +195,7 @@ def test_copy_with_retry_reports_persistent_failure_after_max_retries(tmp_path, 
         attempts["n"] += 1
         return False  # transport never actually writes the file
 
-    succeeded, failed = sync_manager._copy_with_retry(
-        [track],
-        never_lands,
-        lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: Path(t["file_path"]).stat().st_size,
-    )
+    succeeded, failed = sync_manager._copy_with_retry([track], never_lands, lambda: sync_manager._list_local_pool(str(music_dir)), lambda t: Path(t["file_path"]).stat().st_size)
 
     from src.sync.sync_manager import _MAX_RETRIES
 
@@ -225,7 +216,7 @@ def test_copy_with_retry_stops_at_the_next_track_when_cancelled(tmp_path, sync_m
     tracks = []
     for i in range(5):
         t = _make_track_dict(tmp_path, f"Track {i}")
-        t["device_filename"] = sync_manager._safe_filename("Artist", f"Track {i}", ".mp3")
+        t["device_filename"] = safe_filename("Artist", f"Track {i}", ".mp3")
         tracks.append(t)
 
     attempts = {"n": 0}
@@ -238,11 +229,7 @@ def test_copy_with_retry_stops_at_the_next_track_when_cancelled(tmp_path, sync_m
 
     # User "cancels" once two tracks have been handed to the transport.
     succeeded, failed = sync_manager._copy_with_retry(
-        tracks,
-        copy_one,
-        lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: Path(t["file_path"]).stat().st_size,
-        should_cancel=lambda: attempts["n"] >= 2,
+        tracks, copy_one, lambda: sync_manager._list_local_pool(str(music_dir)), lambda t: Path(t["file_path"]).stat().st_size, should_cancel=lambda: attempts["n"] >= 2
     )
 
     assert attempts["n"] == 2  # stopped before track 3, no retry rounds
@@ -251,9 +238,7 @@ def test_copy_with_retry_stops_at_the_next_track_when_cancelled(tmp_path, sync_m
     assert all(t["copied_successfully"] is False for t in failed)
 
 
-def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(
-    tmp_path, sync_manager, monkeypatch
-):
+def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(tmp_path, sync_manager, monkeypatch):
     """End-to-end regression for the original bug: a track that never makes
     it must show up in tracks_failed (and be retried), not vanish with only
     a log line."""
@@ -264,12 +249,7 @@ def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(
 
     playlist_data = {"kind": "playlist", "name": "Test Playlist", "playlist_id": 1}
     monkeypatch.setattr(
-        sync_manager,
-        "get_item_tracks",
-        lambda pd: [
-            {"file_path": str(good), "artist": "A", "title": "Good", "duration": 1.0},
-            {"file_path": str(bad), "artist": "A", "title": "Bad", "duration": 1.0},
-        ],
+        sync_manager, "get_item_tracks", lambda pd: [{"file_path": str(good), "artist": "A", "title": "Good", "duration": 1.0}, {"file_path": str(bad), "artist": "A", "title": "Bad", "duration": 1.0}]
     )
 
     real_copy_track = sync_manager.copy_track
@@ -303,21 +283,16 @@ def test_copy_with_retry_tags_each_failed_track_with_a_reason(tmp_path, sync_man
     music_dir.mkdir()
 
     never_lands = _make_track_dict(tmp_path, "NeverLands")
-    never_lands["device_filename"] = sync_manager._safe_filename("Artist", "NeverLands", ".mp3")
+    never_lands["device_filename"] = safe_filename("Artist", "NeverLands", ".mp3")
     lies = _make_track_dict(tmp_path, "Lies")
-    lies["device_filename"] = sync_manager._safe_filename("Artist", "Lies", ".mp3")
+    lies["device_filename"] = safe_filename("Artist", "Lies", ".mp3")
 
     def copy_one(t):
         # "Lies" reports success every time but nothing ever lands on disk;
         # "NeverLands" reports failure every time.
         return t["title"] == "Lies"
 
-    succeeded, failed = sync_manager._copy_with_retry(
-        [never_lands, lies],
-        copy_one,
-        lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: Path(t["file_path"]).stat().st_size,
-    )
+    succeeded, failed = sync_manager._copy_with_retry([never_lands, lies], copy_one, lambda: sync_manager._list_local_pool(str(music_dir)), lambda t: Path(t["file_path"]).stat().st_size)
 
     assert succeeded == []
     reasons = {t["title"]: t["failure_reason"] for t in failed}
@@ -325,9 +300,7 @@ def test_copy_with_retry_tags_each_failed_track_with_a_reason(tmp_path, sync_man
     assert "never verified" in reasons["Lies"]
 
 
-def test_sync_playlist_to_device_lists_failed_tracks_with_artist_title_reason(
-    tmp_path, sync_manager, monkeypatch
-):
+def test_sync_playlist_to_device_lists_failed_tracks_with_artist_title_reason(tmp_path, sync_manager, monkeypatch):
     dest = tmp_path / "device"
     good = _write_file(tmp_path / "good.mp3")
     bad = _write_file(tmp_path / "bad.mp3")
@@ -336,15 +309,10 @@ def test_sync_playlist_to_device_lists_failed_tracks_with_artist_title_reason(
     monkeypatch.setattr(
         sync_manager,
         "get_item_tracks",
-        lambda pd: [
-            {"file_path": str(good), "artist": "Good Artist", "title": "Good", "duration": 1.0},
-            {"file_path": str(bad), "artist": "Bad Artist", "title": "Bad", "duration": 1.0},
-        ],
+        lambda pd: [{"file_path": str(good), "artist": "Good Artist", "title": "Good", "duration": 1.0}, {"file_path": str(bad), "artist": "Bad Artist", "title": "Bad", "duration": 1.0}],
     )
     real_copy_track = sync_manager.copy_track
-    monkeypatch.setattr(
-        sync_manager, "copy_track", lambda s, d: False if s == str(bad) else real_copy_track(s, d)
-    )
+    monkeypatch.setattr(sync_manager, "copy_track", lambda s, d: False if s == str(bad) else real_copy_track(s, d))
 
     result = sync_manager.sync_playlist_to_device(playlist_data, str(dest))
 
@@ -356,9 +324,7 @@ def test_sync_playlist_to_device_lists_failed_tracks_with_artist_title_reason(
     assert failure["reason"]  # non-empty explanation
 
 
-def test_sync_playlist_to_device_reports_missing_source_files_instead_of_dropping_them(
-    tmp_path, sync_manager, monkeypatch
-):
+def test_sync_playlist_to_device_reports_missing_source_files_instead_of_dropping_them(tmp_path, sync_manager, monkeypatch):
     """A track whose source file is gone must land in `failures` and count
     toward tracks_failed -- previously it was silently skipped entirely."""
     dest = tmp_path / "device"
@@ -386,18 +352,13 @@ def test_sync_playlist_to_device_reports_missing_source_files_instead_of_droppin
     assert result["success"] is True
 
 
-def test_sync_playlist_to_device_fails_when_every_source_is_missing(
-    tmp_path, sync_manager, monkeypatch
-):
+def test_sync_playlist_to_device_fails_when_every_source_is_missing(tmp_path, sync_manager, monkeypatch):
     dest = tmp_path / "device"
     playlist_data = {"kind": "playlist", "name": "PL", "playlist_id": 1}
     monkeypatch.setattr(
         sync_manager,
         "get_item_tracks",
-        lambda pd: [
-            {"file_path": "/gone/1.mp3", "artist": "A", "title": "One", "duration": 1.0},
-            {"file_path": "/gone/2.mp3", "artist": "A", "title": "Two", "duration": 1.0},
-        ],
+        lambda pd: [{"file_path": "/gone/1.mp3", "artist": "A", "title": "One", "duration": 1.0}, {"file_path": "/gone/2.mp3", "artist": "A", "title": "Two", "duration": 1.0}],
     )
 
     result = sync_manager.sync_playlist_to_device(playlist_data, str(dest))
@@ -423,14 +384,8 @@ def _seed_playlist_with_tracks(session, n, tag=""):
         track = Track(track_name=f"Track {i}", track_file_path=f"/music/{tag}-{i}.mp3")
         session.add_all([artist, track])
         session.flush()
-        session.add(
-            TrackArtistRole(
-                track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id
-            )
-        )
-        session.add(
-            PlaylistTracks(playlist_id=playlist.playlist_id, track_id=track.track_id, position=i)
-        )
+        session.add(TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id))
+        session.add(PlaylistTracks(playlist_id=playlist.playlist_id, track_id=track.track_id, position=i))
     session.commit()
     return playlist
 
@@ -465,9 +420,7 @@ def test_get_playlist_tracks_query_count_does_not_scale_with_track_count(session
     # Eager-loading keeps the query count flat (a small constant, not
     # proportional to track count); allow a little slack for selectin's
     # own batching rather than pinning an exact number.
-    assert counts["large"] <= counts["small"] + 2, (
-        f"query count scaled with track count: small={counts['small']} large={counts['large']}"
-    )
+    assert counts["large"] <= counts["small"] + 2, f"query count scaled with track count: small={counts['small']} large={counts['large']}"
 
 
 # ---------------------------------------------------------------------------
@@ -476,13 +429,7 @@ def test_get_playlist_tracks_query_count_does_not_scale_with_track_count(session
 
 
 def _mk_track(session, name, *, size, ext="mp3", duration=180.0):
-    track = Track(
-        track_name=name,
-        track_file_path=f"/music/{name}.{ext}",
-        file_size=size,
-        file_extension=ext,
-        duration=duration,
-    )
+    track = Track(track_name=name, track_file_path=f"/music/{name}.{ext}", file_size=size, file_extension=ext, duration=duration)
     session.add(track)
     session.flush()
     return track
@@ -507,9 +454,7 @@ def test_selection_totals_counts_a_track_shared_by_two_playlists_once(session, s
     )
     session.commit()
 
-    count, size, lossless_size, lossless_dur = sync_manager.selection_totals(
-        [p1.playlist_id, p2.playlist_id], []
-    )
+    count, size, lossless_size, lossless_dur = sync_manager.selection_totals([p1.playlist_id, p2.playlist_id], [])
     # A per-playlist sum would give 4 tracks / 8_000_000 bytes.
     assert count == 3
     assert size == 7_000_000
@@ -524,17 +469,10 @@ def test_selection_totals_dedupes_a_track_shared_by_a_playlist_and_a_mood(sessio
     session.flush()
 
     shared = _mk_track(session, "shared", size=1_000_000, ext="flac")
-    session.add_all(
-        [
-            PlaylistTracks(playlist_id=pl.playlist_id, track_id=shared.track_id, position=0),
-            MoodTrackAssociation(mood_id=mood.mood_id, track_id=shared.track_id),
-        ]
-    )
+    session.add_all([PlaylistTracks(playlist_id=pl.playlist_id, track_id=shared.track_id, position=0), MoodTrackAssociation(mood_id=mood.mood_id, track_id=shared.track_id)])
     session.commit()
 
-    count, size, lossless_size, lossless_dur = sync_manager.selection_totals(
-        [pl.playlist_id], [mood.mood_id]
-    )
+    count, size, lossless_size, lossless_dur = sync_manager.selection_totals([pl.playlist_id], [mood.mood_id])
     assert count == 1
     assert size == 1_000_000
     assert lossless_size == 1_000_000  # .flac with a known duration
@@ -558,22 +496,7 @@ _transcode = pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not insta
 def _make_audio(path: Path, *, seconds: int = 1, title: str = "T") -> Path:
     """Render a real audio file (format inferred from the extension)."""
     subprocess.run(
-        [
-            "ffmpeg",
-            "-nostdin",
-            "-v",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=440:duration={seconds}",
-            "-metadata",
-            f"title={title}",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-metadata", f"title={title}", str(path)], check=True, capture_output=True
     )
     return path
 
@@ -586,18 +509,9 @@ def _tracks(monkeypatch, sync_manager, *entries):
 def test_sync_folder_transcodes_lossless_source(tmp_path, sync_manager, monkeypatch):  # AC7
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
     src = _make_audio(tmp_path / "song.flac", title="Hello")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(src), "artist": "Band", "title": "Hello", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(src), "artist": "Band", "title": "Hello", "duration": 1.0})
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        transcode_to_mp3=True,
-        transcode_bitrate="320k",
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), transcode_to_mp3=True, transcode_bitrate="320k")
 
     landed = tmp_path / "device" / "music" / "Band - Hello.mp3"
     assert landed.exists()
@@ -609,22 +523,12 @@ def test_sync_folder_transcodes_lossless_source(tmp_path, sync_manager, monkeypa
 
 
 @_transcode
-def test_sync_folder_passes_lossy_source_through_untouched(
-    tmp_path, sync_manager, monkeypatch
-):  # AC8
+def test_sync_folder_passes_lossy_source_through_untouched(tmp_path, sync_manager, monkeypatch):  # AC8
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
     src = _make_audio(tmp_path / "song.mp3", title="AsIs")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(src), "artist": "Band", "title": "AsIs", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(src), "artist": "Band", "title": "AsIs", "duration": 1.0})
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        transcode_to_mp3=True,
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), transcode_to_mp3=True)
 
     landed = tmp_path / "device" / "music" / "Band - AsIs.mp3"
     assert landed.exists()
@@ -633,25 +537,14 @@ def test_sync_folder_passes_lossy_source_through_untouched(
 
 
 @_transcode
-def test_sync_folder_records_transcode_failure_and_keeps_going(
-    tmp_path, sync_manager, monkeypatch
-):  # AC9
+def test_sync_folder_records_transcode_failure_and_keeps_going(tmp_path, sync_manager, monkeypatch):  # AC9
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
     good = _make_audio(tmp_path / "good.flac", title="Good")
     bad = tmp_path / "bad.flac"
     bad.write_bytes(b"not audio at all")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(good), "artist": "A", "title": "Good", "duration": 1.0},
-        {"file_path": str(bad), "artist": "A", "title": "Bad", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(good), "artist": "A", "title": "Good", "duration": 1.0}, {"file_path": str(bad), "artist": "A", "title": "Bad", "duration": 1.0})
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        transcode_to_mp3=True,
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), transcode_to_mp3=True)
 
     music = tmp_path / "device" / "music"
     assert (music / "A - Good.mp3").exists()
@@ -668,15 +561,7 @@ def test_transcode_pass_runs_encodes_concurrently(tmp_path, sync_manager, monkey
     cache's get_or_create is stubbed with a concurrency probe."""
     monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: True)
 
-    entries = [
-        {
-            "file_path": str(tmp_path / f"s{i}.flac"),
-            "artist": "A",
-            "title": f"T{i}",
-            "duration": 1.0,
-        }
-        for i in range(6)
-    ]
+    entries = [{"file_path": str(tmp_path / f"s{i}.flac"), "artist": "A", "title": f"T{i}", "duration": 1.0} for i in range(6)]
     for e in entries:
         Path(e["file_path"]).write_bytes(b"flac-ish")
     _tracks(monkeypatch, sync_manager, *entries)
@@ -700,11 +585,7 @@ def test_transcode_pass_runs_encodes_concurrently(tmp_path, sync_manager, monkey
 
     monkeypatch.setattr(sync_manager.transcode_cache, "get_or_create", fake_get_or_create)
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        transcode_to_mp3=True,
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), transcode_to_mp3=True)
 
     assert peak > 1  # encodes actually overlapped
     assert result["tracks_transcoded"] == 6
@@ -716,11 +597,7 @@ def test_transcode_pass_runs_encodes_concurrently(tmp_path, sync_manager, monkey
 def test_second_sync_is_a_cache_hit_no_reencode(tmp_path, sync_manager, monkeypatch):  # AC10
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
     src = _make_audio(tmp_path / "song.flac", title="Once")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(src), "artist": "B", "title": "Once", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(src), "artist": "B", "title": "Once", "duration": 1.0})
     playlist = {"kind": "playlist", "name": "PL", "playlist_id": 1}
     dest = str(tmp_path / "device")
 
@@ -739,22 +616,12 @@ def test_second_sync_is_a_cache_hit_no_reencode(tmp_path, sync_manager, monkeypa
     assert calls == []  # cache hit, ffmpeg never re-invoked
 
 
-def test_transcode_requested_without_ffmpeg_copies_originals(
-    tmp_path, sync_manager, monkeypatch
-):  # AC11
+def test_transcode_requested_without_ffmpeg_copies_originals(tmp_path, sync_manager, monkeypatch):  # AC11
     monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: False)
     src = _write_file(tmp_path / "song.flac", content=b"pretend-flac-bytes")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(src), "artist": "C", "title": "Song", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(src), "artist": "C", "title": "Song", "duration": 1.0})
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        transcode_to_mp3=True,
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), transcode_to_mp3=True)
 
     landed = tmp_path / "device" / "music" / "C - Song.flac"
     assert landed.exists()
@@ -768,12 +635,7 @@ def test_cancel_during_transcode_stops_the_sync(tmp_path, sync_manager, monkeypa
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
     a = _make_audio(tmp_path / "a.flac", title="A")
     b = _make_audio(tmp_path / "b.flac", seconds=2, title="B")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(a), "artist": "X", "title": "A", "duration": 1.0},
-        {"file_path": str(b), "artist": "X", "title": "B", "duration": 2.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(a), "artist": "X", "title": "A", "duration": 1.0}, {"file_path": str(b), "artist": "X", "title": "B", "duration": 2.0})
 
     # Latch cancelled after the first transcode check (call #1 -> False so one
     # encode is allowed through; every call after -> True, matching
@@ -787,12 +649,7 @@ def test_cancel_during_transcode_stops_the_sync(tmp_path, sync_manager, monkeypa
             calls["n"] += 1
             return calls["n"] > 1
 
-    result = sync_manager.sync_playlist_to_device(
-        {"kind": "playlist", "name": "PL", "playlist_id": 1},
-        str(tmp_path / "device"),
-        should_cancel=should_cancel,
-        transcode_to_mp3=True,
-    )
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "device"), should_cancel=should_cancel, transcode_to_mp3=True)
 
     assert result["tracks_copied"] == 0
     reasons = {f["title"]: f["reason"] for f in result["failures"]}
@@ -816,11 +673,7 @@ def test_mtp_sync_transcodes_then_reruns_as_skip(tmp_path, sync_manager, monkeyp
     monkeypatch.setattr(sync_manager, "_get_mtp_device", lambda uri: device)
 
     src = _make_audio(tmp_path / "song.flac", title="Remote")
-    _tracks(
-        monkeypatch,
-        sync_manager,
-        {"file_path": str(src), "artist": "R", "title": "Remote", "duration": 1.0},
-    )
+    _tracks(monkeypatch, sync_manager, {"file_path": str(src), "artist": "R", "title": "Remote", "duration": 1.0})
     playlist = {"kind": "playlist", "name": "PL", "playlist_id": 1}
 
     first = sync_manager.sync_playlist_to_mtp(playlist, device.uri, "Music", transcode_to_mp3=True)
@@ -871,15 +724,11 @@ def test_track_shared_by_two_playlists_is_copied_once_per_run(tmp_path, sync_man
     src.mkdir()
     shared = _prune_track(src, "Shared")
     by_name = {"P": [shared, _prune_track(src, "OnlyP")], "Q": [shared, _prune_track(src, "OnlyQ")]}
-    monkeypatch.setattr(
-        sync_manager, "get_item_tracks", lambda it: [dict(t) for t in by_name[it["name"]]]
-    )
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [dict(t) for t in by_name[it["name"]]])
 
     copies: list[str] = []
     real_copy = sync_manager.copy_track
-    monkeypatch.setattr(
-        sync_manager, "copy_track", lambda s, d: copies.append(Path(d).name) or real_copy(s, d)
-    )
+    monkeypatch.setattr(sync_manager, "copy_track", lambda s, d: copies.append(Path(d).name) or real_copy(s, d))
 
     dest = tmp_path / "dev"
     P = {"kind": "playlist", "name": "P", "playlist_id": 1}
@@ -923,10 +772,7 @@ def test_prune_removes_files_and_m3u_for_untracked_playlist(  # AC1
 ):
     dest, src = tmp_path / "dev", tmp_path / "src"
     src.mkdir()
-    by_name = {
-        "P": [_prune_track(src, "A"), _prune_track(src, "B"), _prune_track(src, "C")],
-        "Q": [_prune_track(src, "Z")],
-    }
+    by_name = {"P": [_prune_track(src, "A"), _prune_track(src, "B"), _prune_track(src, "C")], "Q": [_prune_track(src, "Z")]}
     monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: by_name[it["name"]])
     P = {"kind": "playlist", "name": "P", "playlist_id": 1}
     Q = {"kind": "playlist", "name": "Q", "playlist_id": 2}
@@ -1029,7 +875,7 @@ def test_prune_predicts_mp3_names_when_transcode_in_effect(  # AC8
     src.mkdir()
     flac = _prune_track(src, "Loss", ext=".flac")
     monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [flac])
-    monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: True)
+    monkeypatch.setattr("src.sync.sync_prune.ffmpeg_available", lambda: True)
     music = dest / "music"
     music.mkdir(parents=True)
     (music / "Artist - Loss.mp3").write_bytes(b"mp3")  # still-tracked transcoded output
@@ -1079,21 +925,9 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
     mgr.mtp = MtpManager()
     device = MtpDevice(uri=f"file://{device_root}/", name="d", backend="gio")
     monkeypatch.setattr(mgr, "_get_mtp_device", lambda uri: device)
-    monkeypatch.setattr(
-        mgr,
-        "get_item_tracks",
-        lambda it: [
-            {"file_path": "/x/Keep.mp3", "artist": "Artist", "title": "Keep", "duration": 1}
-        ],
-    )
+    monkeypatch.setattr(mgr, "get_item_tracks", lambda it: [{"file_path": "/x/Keep.mp3", "artist": "Artist", "title": "Keep", "duration": 1}])
 
-    profile = SyncProfile(
-        name="d",
-        path="",
-        device_uri=f"file://{device_root}/",
-        music_path="Music",
-        prune_untracked=True,
-    )
+    profile = SyncProfile(name="d", path="", device_uri=f"file://{device_root}/", music_path="Music", prune_untracked=True)
     res = mgr.prune_device(profile, [{"kind": "playlist", "name": "Keep", "playlist_id": 1}])
 
     assert (music / "Artist - Keep.mp3").exists()
@@ -1113,13 +947,7 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
 
 
 def _add_track(session, path, *, file_size, duration):
-    track = Track(
-        track_name=Path(path).stem,
-        track_file_path=path,
-        file_extension=Path(path).suffix.lstrip("."),
-        file_size=file_size,
-        duration=duration,
-    )
+    track = Track(track_name=Path(path).stem, track_file_path=path, file_extension=Path(path).suffix.lstrip("."), file_size=file_size, duration=duration)
     session.add(track)
     session.flush()
     return track
@@ -1165,9 +993,7 @@ def test_get_moods_reports_size_and_lossless_aggregates(session, sync_manager): 
     assert data["lossless_duration"] == 210.0
 
 
-def test_lossless_track_without_duration_excluded_from_aggregates(
-    session, sync_manager
-):  # perf-AC6
+def test_lossless_track_without_duration_excluded_from_aggregates(session, sync_manager):  # perf-AC6
     flac = _add_track(session, "/music/nodur.flac", file_size=25_000_000, duration=None)
     _playlist_with(session, "NoDuration", [flac])
 
@@ -1182,12 +1008,7 @@ def test_empty_playlist_reports_zero_aggregates(session, sync_manager):  # perf-
     _playlist_with(session, "Empty", [])
 
     (data,) = sync_manager.get_playlists()
-    assert (
-        data["track_count"],
-        data["size"],
-        data["lossless_size"],
-        data["lossless_duration"],
-    ) == (0, 0, 0, 0.0)
+    assert (data["track_count"], data["size"], data["lossless_size"], data["lossless_duration"]) == (0, 0, 0, 0.0)
 
 
 def test_lossy_only_playlist_has_zero_lossless_aggregates(session, sync_manager):  # perf-AC7
@@ -1204,17 +1025,8 @@ def test_lossy_only_playlist_has_zero_lossless_aggregates(session, sync_manager)
 def test_get_playlists_query_count_is_bounded(session, sync_manager):  # perf-AC3
     # One fat playlist (22 tracks) plus a thin one: a per-entity/per-track
     # walk would scale with either count; the grouped query must not.
-    fat = _playlist_with(
-        session,
-        "Fat",
-        [
-            _add_track(session, f"/music/f{i}.flac", file_size=1_000, duration=1.0)
-            for i in range(22)
-        ],
-    )
-    _playlist_with(
-        session, "Thin", [_add_track(session, "/music/t.flac", file_size=1_000, duration=1.0)]
-    )
+    fat = _playlist_with(session, "Fat", [_add_track(session, f"/music/f{i}.flac", file_size=1_000, duration=1.0) for i in range(22)])
+    _playlist_with(session, "Thin", [_add_track(session, "/music/t.flac", file_size=1_000, duration=1.0)])
     assert fat.playlist_id  # touch so the flush above is real
     session.expire_all()
 
@@ -1244,33 +1056,31 @@ from types import SimpleNamespace  # noqa: E402
 
 from src.db.db_tables.album import Album  # noqa: E402
 from src.db.db_tables.associations import AlbumRoleAssociation  # noqa: E402
-from src.sync.sync_manager import _MAX_FILENAME_BYTES  # noqa: E402
+from src.sync.sync_naming import MAX_FILENAME_BYTES as _MAX_FILENAME_BYTES  # noqa: E402
 
 
 def test_safe_filename_clamps_pathological_artist_list(sync_manager):
     artist = " & ".join(f"Artist Number {i}" for i in range(60))
-    name = sync_manager._safe_filename(artist, "A Perfectly Normal Title", ".mp3")
+    name = safe_filename(artist, "A Perfectly Normal Title", ".mp3")
     assert len(name.encode("utf-8")) <= _MAX_FILENAME_BYTES
     assert name.endswith(".mp3")
 
 
 def test_safe_filename_leaves_short_names_untouched(sync_manager):
-    assert (
-        sync_manager._safe_filename("The Band", "The Song", ".flac") == "The Band - The Song.flac"
-    )
+    assert safe_filename("The Band", "The Song", ".flac") == "The Band - The Song.flac"
 
 
 def test_safe_filename_is_deterministic(sync_manager):
     artist = " & ".join(f"Artist {i}" for i in range(60))
-    a = sync_manager._safe_filename(artist, "Title", ".mp3")
-    b = sync_manager._safe_filename(artist, "Title", ".mp3")
+    a = safe_filename(artist, "Title", ".mp3")
+    b = safe_filename(artist, "Title", ".mp3")
     assert a == b
 
 
 def test_safe_filename_distinct_long_names_do_not_collide(sync_manager):
     base = " & ".join(f"Artist {i}" for i in range(60))
-    a = sync_manager._safe_filename(base + " Foo", "Same Title", ".mp3")
-    b = sync_manager._safe_filename(base + " Bar", "Same Title", ".mp3")
+    a = safe_filename(base + " Foo", "Same Title", ".mp3")
+    b = safe_filename(base + " Bar", "Same Title", ".mp3")
     assert a != b
     assert len(a.encode("utf-8")) <= _MAX_FILENAME_BYTES
     assert len(b.encode("utf-8")) <= _MAX_FILENAME_BYTES
@@ -1280,44 +1090,23 @@ def _fake_track(*, album_artists, primary):
     """album_artists=None => track has no album at all."""
     album = None
     if album_artists is not None:
-        album = SimpleNamespace(
-            album_roles=[
-                SimpleNamespace(credited_name=n, role=SimpleNamespace(role_name="Album Artist"))
-                for n in album_artists
-            ]
-        )
-    return SimpleNamespace(
-        track_id=1,
-        track_file_path="/x.mp3",
-        track_name="T",
-        duration=1.0,
-        album=album,
-        primary_artists=[SimpleNamespace(artist_name=n) for n in primary],
-    )
+        album = SimpleNamespace(album_roles=[SimpleNamespace(credited_name=n, role=SimpleNamespace(role_name="Album Artist")) for n in album_artists])
+    return SimpleNamespace(track_id=1, track_file_path="/x.mp3", track_name="T", duration=1.0, album=album, primary_artists=[SimpleNamespace(artist_name=n) for n in primary])
 
 
 def test_filename_artist_prefers_album_artist(sync_manager):
-    track = _fake_track(
-        album_artists=["Single Album Artist"], primary=[f"Primary {i}" for i in range(12)]
-    )
+    track = _fake_track(album_artists=["Single Album Artist"], primary=[f"Primary {i}" for i in range(12)])
     assert sync_manager._filename_artist(track) == "Single Album Artist"
     assert sync_manager._track_to_dict(track)["artist"] == "Single Album Artist"
 
 
 def test_filename_artist_falls_back_to_primary_without_album_artist(sync_manager):
-    assert (
-        sync_manager._filename_artist(_fake_track(album_artists=[], primary=["A", "B"])) == "A & B"
-    )
-    assert (
-        sync_manager._filename_artist(_fake_track(album_artists=None, primary=["Solo"])) == "Solo"
-    )
+    assert sync_manager._filename_artist(_fake_track(album_artists=[], primary=["A", "B"])) == "A & B"
+    assert sync_manager._filename_artist(_fake_track(album_artists=None, primary=["Solo"])) == "Solo"
 
 
 def test_filename_artist_various_artists_when_nothing_credited(sync_manager):
-    assert (
-        sync_manager._filename_artist(_fake_track(album_artists=[], primary=[]))
-        == "Various Artists"
-    )
+    assert sync_manager._filename_artist(_fake_track(album_artists=[], primary=[])) == "Various Artists"
 
 
 def test_get_playlist_tracks_uses_album_artist_for_the_filename(session, sync_manager):
@@ -1331,22 +1120,14 @@ def test_get_playlist_tracks_uses_album_artist_for_the_filename(session, sync_ma
     aa = Artist(artist_name="The Headliner")
     p1 = Artist(artist_name="Guest One")
     p2 = Artist(artist_name="Guest Two")
-    track = Track(
-        track_name="Big Posse Cut", track_file_path="/music/x.flac", album_id=album.album_id
-    )
+    track = Track(track_name="Big Posse Cut", track_file_path="/music/x.flac", album_id=album.album_id)
     session.add_all([aa, p1, p2, track])
     session.flush()
     session.add_all(
         [
-            AlbumRoleAssociation(
-                album_id=album.album_id, artist_id=aa.artist_id, role_id=album_artist_role.role_id
-            ),
-            TrackArtistRole(
-                track_id=track.track_id, artist_id=p1.artist_id, role_id=primary_role.role_id
-            ),
-            TrackArtistRole(
-                track_id=track.track_id, artist_id=p2.artist_id, role_id=primary_role.role_id
-            ),
+            AlbumRoleAssociation(album_id=album.album_id, artist_id=aa.artist_id, role_id=album_artist_role.role_id),
+            TrackArtistRole(track_id=track.track_id, artist_id=p1.artist_id, role_id=primary_role.role_id),
+            TrackArtistRole(track_id=track.track_id, artist_id=p2.artist_id, role_id=primary_role.role_id),
             PlaylistTracks(playlist_id=playlist.playlist_id, track_id=track.track_id, position=0),
         ]
     )
@@ -1354,3 +1135,137 @@ def test_get_playlist_tracks_uses_album_artist_for_the_filename(session, sync_ma
 
     (row,) = sync_manager.get_playlist_tracks(playlist.playlist_id)
     assert row["artist"] == "The Headliner"
+
+
+# ---------------------------------------------------------------------------
+# M3U paths and order, filename collisions, untrusted-listing backends,
+# fallback names, and clear errors.
+# ---------------------------------------------------------------------------
+
+import shutil as _shutil  # noqa: E402
+
+_gio = pytest.mark.skipif(_shutil.which("gio") is None, reason="gio not installed")
+
+
+def test_get_playlist_tracks_follows_playlist_position(session, sync_manager):
+    playlist = _seed_playlist_with_tracks(session, 3, tag="ord")
+    rows = session.query(PlaylistTracks).filter_by(playlist_id=playlist.playlist_id).all()
+    for row in rows:
+        row.position = 10 - row.position  # reverse the stored order
+    session.commit()
+
+    titles = [t["title"] for t in sync_manager.get_playlist_tracks(playlist.playlist_id)]
+
+    assert titles == ["Track 2", "Track 1", "Track 0"]
+
+
+def test_folder_m3u_points_at_lowercase_music_in_source_order(tmp_path, sync_manager, monkeypatch):
+    dest = tmp_path / "dest"
+    entries = [_make_track_dict(tmp_path, name) for name in ("Zulu", "Alpha", "Mike")]
+    for i, entry in enumerate(entries):
+        entry["track_id"] = i
+    # "Alpha" is already on the destination, so it is skipped rather than copied.
+    (dest / "music").mkdir(parents=True)
+    _write_file(dest / "music" / "Artist - Alpha.mp3", content=b"track-bytes")
+    _tracks(monkeypatch, sync_manager, *entries)
+
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(dest))
+
+    assert result["tracks_skipped"] == 1
+    paths = [line for line in (dest / "playlists" / "PL.m3u").read_text().splitlines() if not line.startswith("#")]
+    assert paths == ["../music/Artist - Zulu.mp3", "../music/Artist - Alpha.mp3", "../music/Artist - Mike.mp3"]
+
+
+def test_two_tracks_with_one_filename_are_not_silently_merged(tmp_path, sync_manager, monkeypatch):
+    first = _make_track_dict(tmp_path, "Song", content=b"studio")
+    second = dict(first, file_path=str(_write_file(tmp_path / "live.mp3", b"live-version")), track_id=2)
+    first["track_id"] = 1
+    _tracks(monkeypatch, sync_manager, first, second)
+
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "d"))
+
+    assert result["tracks_copied"] == 1
+    assert result["tracks_failed"] == 1
+    assert "already uses the file name" in result["failures"][0]["reason"]
+    assert (tmp_path / "d" / "music" / "Artist - Song.mp3").read_bytes() == b"studio"
+
+
+def test_collision_across_playlists_in_one_run_is_reported(tmp_path, sync_manager, monkeypatch):
+    first = dict(_make_track_dict(tmp_path, "Song", content=b"studio"), track_id=1)
+    second = dict(first, file_path=str(_write_file(tmp_path / "live.mp3", b"live-version")), track_id=2)
+    sync_manager.begin_sync_run()
+    _tracks(monkeypatch, sync_manager, first)
+    sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "A", "playlist_id": 1}, str(tmp_path / "d"))
+    _tracks(monkeypatch, sync_manager, second)
+
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "B", "playlist_id": 2}, str(tmp_path / "d"))
+
+    assert result["tracks_failed"] == 1
+    assert "Artist - Song.mp3" not in (tmp_path / "d" / "playlists" / "B.m3u").read_text()
+
+
+def test_copy_is_trusted_when_destination_cannot_be_listed(tmp_path, sync_manager):
+    track = _make_track_dict(tmp_path, "T")
+    track["device_filename"] = "Artist - T.mp3"
+
+    succeeded, failed = sync_manager._copy_with_retry([track], lambda t: True, None, lambda t: 1)
+
+    assert succeeded == [track] and failed == []
+
+
+def test_symbol_only_names_get_fallbacks(tmp_path, sync_manager, monkeypatch):
+    track = dict(_make_track_dict(tmp_path, "x"), title="!!!", artist="★")
+    _tracks(monkeypatch, sync_manager, track)
+
+    sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "★★★", "playlist_id": 7}, str(tmp_path / "d"))
+
+    assert (tmp_path / "d" / "music" / "Unknown Artist - Untitled.mp3").exists()
+    assert (tmp_path / "d" / "playlists" / "playlist-7.m3u").exists()
+
+
+def test_m3u_write_failure_is_reported_in_result(tmp_path, sync_manager, monkeypatch):
+    _tracks(monkeypatch, sync_manager, _make_track_dict(tmp_path, "T"))
+    monkeypatch.setattr(SyncManager, "_write_local_m3u", staticmethod(lambda path, content: False))
+
+    result = sync_manager.sync_playlist_to_device({"kind": "playlist", "name": "PL", "playlist_id": 1}, str(tmp_path / "d"))
+
+    assert result["m3u_written"] is False
+    assert "playlist file not written" in result["message"]
+
+
+def test_clear_device_folder_reports_errors_instead_of_raising(tmp_path, sync_manager, monkeypatch):
+    (tmp_path / "music").mkdir()
+
+    def boom(path):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("src.sync.sync_manager.shutil.rmtree", boom)
+
+    errors = sync_manager.clear_device_folder(str(tmp_path))
+
+    assert len(errors) == 1 and "denied" in errors[0]
+
+
+def test_get_playlist_tracks_skips_dangling_rows(sync_manager, monkeypatch):
+    from types import SimpleNamespace
+
+    rows = [SimpleNamespace(position=0, track=None)]
+    monkeypatch.setattr(sync_manager.get_db, "get_all_entities", lambda *a, **kw: rows)
+
+    assert sync_manager.get_playlist_tracks(1) == []
+
+
+@_gio
+def test_mtp_nested_music_path_m3u_points_at_sibling_folder(tmp_path, sync_manager, monkeypatch):
+    device_root = tmp_path / "device"
+    device_root.mkdir()
+    device = MtpDevice(uri=f"file://{device_root}/", name="stub", backend="gio")
+    monkeypatch.setattr(sync_manager, "_get_mtp_device", lambda uri: device)
+    _tracks(monkeypatch, sync_manager, _make_track_dict(tmp_path, "Nested"))
+
+    result = sync_manager.sync_playlist_to_mtp({"kind": "playlist", "name": "PL", "playlist_id": 1}, device.uri, "Media/Music")
+
+    assert result["tracks_copied"] == 1
+    assert (device_root / "Media" / "Music" / "Artist - Nested.mp3").exists()
+    m3u = (device_root / "Media" / "Playlists" / "PL.m3u").read_text()
+    assert "../Music/Artist - Nested.mp3" in m3u

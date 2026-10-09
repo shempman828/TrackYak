@@ -89,9 +89,7 @@ def test_estimate_when_transcode_on():  # AC5
     host = _Host(checked=True, bitrate="320")
     # lossy remainder + lossless re-sized at 320 kbps
     expected = (47_000_000 - 40_000_000) + 180.0 * 320 * 1000 / 8
-    assert host._selection_size_text(47_000_000, 40_000_000, 180.0) == (
-        f"~{format_file_size(expected)} after conversion"
-    )
+    assert host._selection_size_text(47_000_000, 40_000_000, 180.0) == (f"~{format_file_size(expected)} after conversion")
 
 
 def test_higher_bitrate_gives_larger_estimate():  # AC6
@@ -196,12 +194,8 @@ def test_refresh_does_not_load_inline(stub_loader):  # perf-AC9
     assert len(stub_loader) == 1 and stub_loader[0].start_calls == 1
     assert host.sync_tree.topLevelItemCount() == 0  # tree only fills on `loaded`
 
-    stub_loader[0].finish(
-        [{"kind": "playlist", "playlist_id": 1, "name": "P", "track_count": 0}], []
-    )
-    labels = [
-        host.sync_tree.topLevelItem(i).text(0) for i in range(host.sync_tree.topLevelItemCount())
-    ]
+    stub_loader[0].finish([{"kind": "playlist", "playlist_id": 1, "name": "P", "track_count": 0}], [])
+    labels = [host.sync_tree.topLevelItem(i).text(0) for i in range(host.sync_tree.topLevelItemCount())]
     assert labels == ["PLAYLISTS", "MOODS"]
 
 
@@ -226,18 +220,10 @@ def test_selection_reapplied_after_async_load(stub_loader):  # perf-AC12
     host.current_profile = SimpleNamespace(playlist_ids=[7], mood_ids=[])
     host._refresh_sync_items()
     host._sync_items_loader.finish(
-        [
-            {"kind": "playlist", "playlist_id": 7, "name": "Kept", "track_count": 3, "size": 100},
-            {"kind": "playlist", "playlist_id": 8, "name": "Off", "track_count": 1, "size": 50},
-        ],
-        [],
+        [{"kind": "playlist", "playlist_id": 7, "name": "Kept", "track_count": 3, "size": 100}, {"kind": "playlist", "playlist_id": 8, "name": "Off", "track_count": 1, "size": 50}], []
     )
 
-    checked = [
-        it.data(0, Qt.UserRole)["playlist_id"]
-        for it in host._iter_sync_items()
-        if it.checkState(0) == Qt.Checked
-    ]
+    checked = [it.data(0, Qt.UserRole)["playlist_id"] for it in host._iter_sync_items() if it.checkState(0) == Qt.Checked]
     assert checked == [7]
     assert "1 playlist " in host.track_count_label.text()  # _update_selected_items ran
 
@@ -252,22 +238,7 @@ def test_selection_summary_uses_deduped_manager_totals_not_a_per_item_sum(stub_l
     host.sync_manager.selection_totals.return_value = (3, 7_000_000, 0, 0.0)
     host._refresh_sync_items()
     host._sync_items_loader.finish(
-        [
-            {
-                "kind": "playlist",
-                "playlist_id": 7,
-                "name": "A",
-                "track_count": 2,
-                "size": 5_000_000,
-            },
-            {
-                "kind": "playlist",
-                "playlist_id": 8,
-                "name": "B",
-                "track_count": 2,
-                "size": 5_000_000,
-            },
-        ],
+        [{"kind": "playlist", "playlist_id": 7, "name": "A", "track_count": 2, "size": 5_000_000}, {"kind": "playlist", "playlist_id": 8, "name": "B", "track_count": 2, "size": 5_000_000}],
         [{"kind": "mood", "mood_id": 3, "name": "M", "track_count": 2, "size": 5_000_000}],
     )
     for it in host._iter_sync_items():
@@ -284,9 +255,7 @@ def test_selection_summary_uses_deduped_manager_totals_not_a_per_item_sum(stub_l
 def test_failed_load_keeps_existing_tree(stub_loader):  # perf-AC14
     host = _TreeHost()
     host._refresh_sync_items()
-    host._sync_items_loader.finish(
-        [{"kind": "playlist", "playlist_id": 1, "name": "P", "track_count": 0}], []
-    )
+    host._sync_items_loader.finish([{"kind": "playlist", "playlist_id": 1, "name": "P", "track_count": 0}], [])
     before = host.sync_tree.topLevelItemCount()
 
     host._refresh_sync_items()
@@ -295,3 +264,49 @@ def test_failed_load_keeps_existing_tree(stub_loader):  # perf-AC14
 
     assert host.sync_tree.topLevelItemCount() == before  # tree untouched
     assert host._sync_items_reload_pending is False
+
+
+# --- orphans and the "tree not loaded yet" guard ------------------------------
+
+
+def _names_under(tree_item):
+    return [tree_item.child(i).text(0) for i in range(tree_item.childCount())]
+
+
+def test_orphan_and_cycle_items_are_attached_at_top_level():
+    host = _Host()
+    header = host.sync_tree.add_section("PLAYLISTS")
+    items = [
+        {"kind": "playlist", "playlist_id": 1, "name": "Root", "parent_id": None},
+        {"kind": "playlist", "playlist_id": 2, "name": "Orphan", "parent_id": 99},
+        {"kind": "playlist", "playlist_id": 3, "name": "Orphan child", "parent_id": 2},
+        {"kind": "playlist", "playlist_id": 4, "name": "Cycle A", "parent_id": 5},
+        {"kind": "playlist", "playlist_id": 5, "name": "Cycle B", "parent_id": 4},
+    ]
+
+    host._add_hierarchy(header, items, "playlist_id")
+
+    top = _names_under(header)
+    assert {"Root", "Orphan", "Cycle A"} <= set(top)
+    orphan = next(header.child(i) for i in range(header.childCount()) if header.child(i).text(0) == "Orphan")
+    assert _names_under(orphan) == ["Orphan child"]
+    assert len(list(host._iter_sync_items())) == 5
+
+
+def test_selection_is_not_saved_before_the_tree_has_loaded():
+    from src.sync.sync_profile import SyncProfile
+
+    host = _Host()
+    host.current_profile = SyncProfile(name="P", path="", playlist_ids=[7])
+    host.profiles = [host.current_profile]
+    host.profile_store = Mock()
+
+    host._save_current_profile_selections()
+
+    assert host.current_profile.playlist_ids == [7]
+    host.profile_store.save.assert_not_called()
+
+    host._populate_sync_tree([], [])
+    host._save_current_profile_selections()
+    assert host.current_profile.playlist_ids == []
+    host.profile_store.save.assert_called_once()

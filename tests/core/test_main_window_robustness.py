@@ -55,6 +55,24 @@ def test_close_event_survives_missing_docks_and_stops_recalc_worker(qapp, monkey
     assert "close_session" in host.controller.calls
 
 
+def test_close_event_shuts_down_built_views_that_own_workers(qapp, monkeypatch):
+    monkeypatch.setattr(app_config, "save", lambda: None)
+    host = _CloseHost()
+
+    class _View:
+        stopped = False
+
+        def shutdown(self):
+            self.stopped = True
+
+    view = _View()
+    host._view_cache = {"Sync": view, "Plain": QWidget()}
+
+    GUI.closeEvent(host, None)
+
+    assert view.stopped
+
+
 def test_refresh_all_views_queries_only_entities_of_built_views(qapp):
     from src.album.view.album_view import AlbumView
 

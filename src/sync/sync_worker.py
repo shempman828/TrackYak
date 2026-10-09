@@ -1,9 +1,4 @@
-"""
-SyncWorker — runs the sync operation in a background thread.
-
-Accepts a SyncProfile and automatically picks MTP or folder sync.
-Both paths emit identical signals so the UI is fully agnostic.
-"""
+"""SyncWorker: runs a profile's sync (folder or MTP) on a background thread."""
 
 from PySide6.QtCore import Signal
 
@@ -14,12 +9,20 @@ from src.foundation.status_utility import StatusManager
 from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile
 
+# Each playlist/mood gets this many progress units, so per-track progress maps onto one overall bar.
+PROGRESS_UNITS_PER_ITEM = 1000
+
 
 class SyncWorker(CancellableWorker):
-    progress = Signal(int, int, str)  # current, total, message
+    """Sync each selected playlist/mood, then trim the transcode cache and prune, emitting results as it goes."""
+
+    progress = Signal(int, int, str)  # current, total, message (overall run)
     playlist_complete = Signal(dict)  # one playlist result
     prune_complete = Signal(dict)  # prune result (only if profile.prune_untracked)
-    finished = Signal(list)  # all results
+    notice = Signal(str)  # a non-fatal problem worth showing in the log (e.g. clear failed)
+    failed = Signal(str)  # the run stopped on an unexpected error
+    # Not named `finished`: that would shadow QThread.finished.
+    sync_finished = Signal(list)  # all results
 
     def __init__(self, sync_manager: SyncManager, playlists: list[dict], profile: SyncProfile):
         super().__init__()
@@ -28,88 +31,57 @@ class SyncWorker(CancellableWorker):
         self.profile = profile
         self.results = []
         self.prune_result: dict | None = None
+        self._item_index = 0
 
     def run(self):
+        """Clear (optional), sync every item, trim the cache, prune (optional); always emits sync_finished."""
         try:
-            status_manager = StatusManager
             profile = self.profile
+            total_units = max(1, len(self.playlists)) * PROGRESS_UNITS_PER_ITEM
 
-            # ── Optionally clear destination ────────────────────────────────
             if profile.clear_before_sync and not self.is_cancelled:
-                self.progress.emit(0, 1, "Clearing destination…")
-                if profile.is_mtp:
-                    self.sync_manager.clear_mtp_folders(profile.device_uri, profile.music_path)
-                else:
-                    self.sync_manager.clear_device_folder(profile.path)
+                self.progress.emit(0, total_units, "Clearing destination…")
+                errors = self.sync_manager.clear_mtp_folders(profile.device_uri, profile.music_path) if profile.is_mtp else self.sync_manager.clear_device_folder(profile.path)
+                for error in errors or []:
+                    self.notice.emit(error)
 
-            # ── Sync each playlist ──────────────────────────────────────────
-            # Reset cross-playlist dedup so a track shared by several selected
-            # playlists/moods is transcoded and copied once per run.
+            # A track shared by several selected playlists/moods is transcoded and copied once per run.
             self.sync_manager.begin_sync_run()
-            total = len(self.playlists)
             for i, playlist in enumerate(self.playlists):
                 if self.is_cancelled:
-                    status_manager.show_message("Sync cancelled", 3000)
+                    StatusManager.show_message("Sync cancelled", 3000)
                     break
 
-                self.progress.emit(i, total, f"Starting: {playlist['name']}")
-                status_manager.show_message(f"Syncing: {playlist['name']}", 0)
+                self._item_index = i
+                self.progress.emit(i * PROGRESS_UNITS_PER_ITEM, total_units, f"Starting: {playlist['name']}")
+                StatusManager.show_message(f"Syncing: {playlist['name']}", 0)
 
+                common = {"should_cancel": lambda: self.is_cancelled, "transcode_to_mp3": profile.transcode_to_mp3, "transcode_bitrate": profile.transcode_bitrate}
                 if profile.is_mtp:
-                    result = self.sync_manager.sync_playlist_to_mtp(
-                        playlist,
-                        profile.device_uri,
-                        profile.music_path,
-                        self._progress_callback,
-                        should_cancel=lambda: self.is_cancelled,
-                        transcode_to_mp3=profile.transcode_to_mp3,
-                        transcode_bitrate=profile.transcode_bitrate,
-                    )
+                    result = self.sync_manager.sync_playlist_to_mtp(playlist, profile.device_uri, profile.music_path, self._progress_callback, **common)
                 else:
-                    result = self.sync_manager.sync_playlist_to_device(
-                        playlist,
-                        profile.path,
-                        self._progress_callback,
-                        should_cancel=lambda: self.is_cancelled,
-                        transcode_to_mp3=profile.transcode_to_mp3,
-                        transcode_bitrate=profile.transcode_bitrate,
-                    )
+                    result = self.sync_manager.sync_playlist_to_device(playlist, profile.path, self._progress_callback, **common)
 
                 self.results.append(result)
                 self.playlist_complete.emit(result)
 
-            # ── Trim the transcode cache back under its size cap ────────────
-            # Only after a run that actually encoded (and wasn't cancelled
-            # mid-way) — the fresh entries need their post-hit mtimes settled
-            # before we pick LRU victims.
+            # Only after a run that wasn't cancelled mid-way, so fresh cache hits have settled mtimes.
             if profile.transcode_to_mp3 and not self.is_cancelled:
                 self._enforce_transcode_cache_limit()
 
-            # ── Prune files for playlists/moods no longer tracked ───────────
-            # Skipped on cancel: self.playlists is still the full tracked set,
-            # so the desired set would be sound, but a half-finished run is not
-            # the moment to start deleting.
+            # A half-finished (cancelled) run is not the moment to start deleting.
             if profile.prune_untracked and not self.is_cancelled:
-                self.progress.emit(0, 1, "Removing files no longer in this profile…")
-                self.prune_result = self.sync_manager.prune_device(
-                    profile, self.playlists, should_cancel=lambda: self.is_cancelled
-                )
+                self.progress.emit(total_units, total_units, "Removing files no longer in this profile…")
+                self.prune_result = self.sync_manager.prune_device(profile, self.playlists, should_cancel=lambda: self.is_cancelled)
                 self.prune_complete.emit(self.prune_result)
 
-            self.finished.emit(self.results)
-
         except Exception as e:
-            # Intentional broad boundary catch: this is a QThread run() loop
-            # and must not let an exception kill the thread silently — surface
-            # it to the UI instead.
+            # Broad boundary catch: an exception must not kill this QThread silently.
             logger.exception("SyncWorker error")
-            StatusManager.end_task(f"Sync error: {e!s}", 5000)
-            self.finished.emit([])
+            self.failed.emit(str(e) or type(e).__name__)
         finally:
-            # sync_manager now resolves its own session lazily per calling
-            # thread (see sync_view.py) -- this thread's first DB touch
-            # (get_item_tracks, called from sync_playlist_to_*) registered a
-            # fresh Session here that nothing else releases.
+            self.sync_finished.emit(self.results)
+            # sync_manager resolves a Session per calling thread; release the one this thread opened.
             self._release_db_session()
 
     def _enforce_transcode_cache_limit(self):
@@ -121,15 +93,14 @@ class SyncWorker(CancellableWorker):
             logger.exception("Transcode cache cleanup failed")
             return
         if outcome["evicted"] or outcome["swept_parts"]:
-            logger.info(
-                f"Transcode cache trimmed: {outcome['evicted']} evicted "
-                f"({outcome['freed_bytes'] / (1024 * 1024):.0f} MB), "
-                f"{outcome['swept_parts']} stale temp(s) swept"
-            )
+            logger.info(f"Transcode cache trimmed: {outcome['evicted']} evicted ({outcome['freed_bytes'] / (1024 * 1024):.0f} MB), {outcome['swept_parts']} stale temp(s) swept")
 
     def _progress_callback(self, current: int, total: int, message: str):
-        self.progress.emit(current, total, message)
+        """Map one item's (current, total) onto the whole run's progress scale."""
+        fraction = min(1.0, current / total) if total > 0 else 0.0
+        overall = int((self._item_index + fraction) * PROGRESS_UNITS_PER_ITEM)
+        self.progress.emit(overall, max(1, len(self.playlists)) * PROGRESS_UNITS_PER_ITEM, message)
 
     def cancel(self):
-        """Alias for request_cancel() -- kept for sync_view.py's existing call site."""
+        """Alias for request_cancel()."""
         self.request_cancel()

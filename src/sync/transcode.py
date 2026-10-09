@@ -1,14 +1,6 @@
-"""
-Lossless → MP3 transcoding for device sync.
+"""Lossless → MP3 transcoding for device sync, with an on-disk cache keyed by source identity + bitrate."""
 
-`transcode_to_mp3()` is a thin ffmpeg wrapper (same subprocess discipline as
-src/player/player_reader.py). `TranscodeCache` keeps the encoded MP3s on
-disk keyed by source identity + bitrate, so a re-sync of the same library
-is a stat, not a re-encode.
-
-ffmpeg is an external binary, gated at runtime via `ffmpeg_available()` the
-same way the MTP backends are — it is not a hard dependency.
-"""
+# ffmpeg is an optional external binary, gated at runtime by ffmpeg_available().
 
 import contextlib
 from functools import lru_cache
@@ -29,6 +21,8 @@ from src.foundation.logger_config import logger
 LOSSLESS_EXTENSIONS = {".flac", ".wav", ".aiff", ".aif"}
 
 DEFAULT_BITRATE = "320k"
+# CBR bitrates offered in the UI; anything else in a profile falls back to DEFAULT_BITRATE.
+ALLOWED_BITRATES = ("320k", "256k", "192k", "128k")
 
 # ffmpeg on a long lossless file still finishes in well under a minute
 # (libmp3lame runs many times faster than realtime); 300s is pure headroom.
@@ -55,16 +49,8 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def transcode_to_mp3(
-    src: str, dest: Path, bitrate: str = DEFAULT_BITRATE, timeout: int = _TRANSCODE_TIMEOUT
-) -> None:
-    """
-    Encode `src` to a CBR MP3 at `dest` (`dest` is replaced atomically).
-
-    Tags and one embedded cover-art picture are carried over. Raises
-    `TranscodeError` on any ffmpeg failure, leaving neither `dest` nor the
-    temp file behind.
-    """
+def transcode_to_mp3(src: str, dest: Path, bitrate: str = DEFAULT_BITRATE, timeout: int = _TRANSCODE_TIMEOUT) -> None:
+    """Encode `src` to a CBR MP3 at `dest` (replaced atomically), keeping tags and cover art; raise TranscodeError on failure."""
     dest = Path(dest)
     # Unique temp name: parallel syncs can transcode two tracks that resolve
     # to the same cache dest concurrently — a shared "<name>.part" would have
@@ -103,9 +89,7 @@ def transcode_to_mp3(
         str(tmp),
     ]
     try:
-        subprocess.run(
-            cmd, check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout
-        )
+        subprocess.run(cmd, check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         tmp.unlink(missing_ok=True)
         stderr = getattr(e, "stderr", b"") or b""
@@ -113,7 +97,11 @@ def transcode_to_mp3(
             stderr = stderr.decode("utf-8", "replace")
         detail = stderr.strip().splitlines()[-1] if stderr.strip() else str(e)
         raise TranscodeError(detail[-500:]) from e
-    tmp.replace(dest)
+    try:
+        tmp.replace(dest)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 class TranscodeCache:
@@ -137,10 +125,7 @@ class TranscodeCache:
         return self.cache_dir / f"{digest}.mp3"
 
     def get_or_create(self, src: str, bitrate: str = DEFAULT_BITRATE) -> Path:
-        """
-        Return the cached MP3 for `src`, transcoding it first on a cache
-        miss. Raises `TranscodeError` if the encode fails.
-        """
+        """Return the cached MP3 for `src`, encoding it first on a miss; raise TranscodeError on failure."""
         dest = self.path_for(src, bitrate)
         if dest.exists() and dest.stat().st_size > 0:
             # Bump mtime so `enforce_limit` treats a re-synced entry as recently
@@ -154,13 +139,8 @@ class TranscodeCache:
         return dest
 
     def size_bytes(self) -> int:
-        """
-        Total size of the finished MP3s in the cache dir.
-
-        `.part` temps left by a hard kill mid-encode are ignored — they're
-        transient and shouldn't inflate the figure shown on the Clear button
-        (`enforce_limit` sweeps them).
-        """
+        """Total size of the finished MP3s in the cache dir."""
+        # .part temps from a hard kill are transient; enforce_limit sweeps them.
         if not self.cache_dir.exists():
             return 0
         total = 0
@@ -174,17 +154,8 @@ class TranscodeCache:
         return total
 
     def enforce_limit(self, max_bytes: int) -> dict:
-        """
-        Sweep stale `.part` temps, then evict least-recently-used MP3s until the
-        cache is back under `max_bytes`.
-
-        "Least recently used" is oldest file mtime — `get_or_create` bumps mtime
-        on every cache hit, so an entry that keeps getting re-synced stays warm
-        while a stale post-re-tag entry ages out.
-
-        `max_bytes <= 0` disables eviction (unlimited); the `.part` sweep still
-        runs. Returns `{"evicted", "freed_bytes", "swept_parts"}`.
-        """
+        """Sweep stale .part temps, then evict oldest-mtime MP3s until under `max_bytes` (<= 0 = unlimited)."""
+        # get_or_create bumps mtime on every hit, so oldest mtime == least recently used.
         result = {"evicted": 0, "freed_bytes": 0, "swept_parts": 0}
         if not self.cache_dir.exists():
             return result

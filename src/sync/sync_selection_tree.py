@@ -1,20 +1,7 @@
-"""
-SyncSelectionTree -- the playlist/mood checklist on the Sync view's Music page.
+"""SyncSelectionTree: the filterable playlist/mood checklist on the Sync view's Music page."""
 
-A two-column QTreeWidget: the item name, and a right-aligned muted track
-count. Top-level rows are the PLAYLISTS / MOODS section headers, whose count
-column reads "N of M selected".
-
-Each playlist/mood is selected independently -- a parent playlist can hold
-tracks of its own, so ticking it must not imply its children. A parent that
-is itself unticked but has ticked descendants is shown PartiallyChecked as a
-"something inside is selected" hint; everything that reads the selection
-compares against Qt.Checked, so the hint never counts as a selection.
-
-Also owns the name filter (matches stay visible together with their
-ancestors) and paints a centred placeholder ("Loading…", "No matches") when
-there are no rows to show.
-"""
+# Each item is ticked independently (a parent playlist has tracks of its own). An unticked parent
+# with ticked descendants shows PartiallyChecked only as a hint; readers compare against Qt.Checked.
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QPainter
@@ -32,6 +19,8 @@ COUNT_COLUMN = 1
 
 
 class SyncSelectionTree(QTreeWidget):
+    """Two-column checklist (name, track count) under PLAYLISTS / MOODS section headers."""
+
     # Emitted after a context-menu "with sub-items" bulk change, which runs
     # with signals blocked and so produces no itemChanged.
     bulkCheckChanged = Signal()
@@ -149,6 +138,7 @@ class SyncSelectionTree(QTreeWidget):
         self.viewport().update()
 
     def filter_text(self) -> str:
+        """The active (casefolded) filter text."""
         return self._filter_text
 
     def visible_checkable_items(self):
@@ -159,12 +149,14 @@ class SyncSelectionTree(QTreeWidget):
                     yield item
 
     def has_visible_rows(self) -> bool:
+        """True if the filter leaves at least one playlist/mood row visible."""
         return any(True for _ in self.visible_checkable_items())
 
     # -- internals -------------------------------------------------------------
 
     @staticmethod
     def _descendants(item: QTreeWidgetItem):
+        """Every playlist/mood row below `item`."""
         for i in range(item.childCount()):
             child = item.child(i)
             if child.data(NAME_COLUMN, Qt.UserRole) is not None:
@@ -173,6 +165,7 @@ class SyncSelectionTree(QTreeWidget):
 
     @staticmethod
     def _is_filtered_out(item: QTreeWidgetItem) -> bool:
+        """True if `item` or any ancestor is hidden."""
         while item is not None:
             if item.isHidden():
                 return True
@@ -180,6 +173,7 @@ class SyncSelectionTree(QTreeWidget):
         return False
 
     def _show_context_menu(self, pos) -> None:
+        """Offer select/clear with all sub-items on a row that has children."""
         item = self.itemAt(pos)
         if item is None or item.data(NAME_COLUMN, Qt.UserRole) is None or not item.childCount():
             return
@@ -193,6 +187,7 @@ class SyncSelectionTree(QTreeWidget):
         menu.exec(self.viewport().mapToGlobal(pos))
 
     def _set_branch(self, item: QTreeWidgetItem, state) -> None:
+        """Set `item` and all its descendants to `state`, then emit bulkCheckChanged."""
         blocked = self.blockSignals(True)
         item.setCheckState(NAME_COLUMN, state)
         for child in self._descendants(item):
@@ -201,6 +196,7 @@ class SyncSelectionTree(QTreeWidget):
         self.bulkCheckChanged.emit()
 
     def paintEvent(self, event):
+        """Paint the placeholder text when no row is visible."""
         super().paintEvent(event)
         if not self._placeholder or self.has_visible_rows():
             return

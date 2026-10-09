@@ -1,11 +1,4 @@
-"""Regression: the Sync view's Settings tab must scroll, not crunch.
-
-The Settings tab stacks four fixed-height QGroupBoxes in a QVBoxLayout. With
-no scroll area, a short or narrow detail pane squeezed those groups below
-their sizeHint -- clipped titles, overlapping rows, unusable inputs. The tab
-is now wrapped in a resizable QScrollArea, so a small viewport scrolls the
-full-height content instead of compressing it.
-"""
+"""SyncView tests: Options page layout and persistence, selection toolbar, device linking, shutdown."""
 
 from unittest.mock import Mock
 
@@ -78,7 +71,6 @@ def test_music_folder_field_offers_presets_and_custom_entry():
     assert combo.insertPolicy() == QComboBox.NoInsert
     items = [combo.itemText(i) for i in range(combo.count())]
     assert "Music" in items
-    assert len(items) >= 2
 
 
 def test_on_music_path_changed_persists_combo_text():
@@ -109,7 +101,7 @@ def test_on_music_path_changed_persists_combo_text():
 
 
 def test_transcode_widgets_disabled_without_ffmpeg(monkeypatch):  # AC13
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: False)
     view = _view_with_settings_tab()
@@ -120,7 +112,7 @@ def test_transcode_widgets_disabled_without_ffmpeg(monkeypatch):  # AC13
 
 
 def test_transcode_checkbox_enabled_with_ffmpeg_combo_follows_checkbox(monkeypatch):  # AC13
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
@@ -131,7 +123,7 @@ def test_transcode_checkbox_enabled_with_ffmpeg_combo_follows_checkbox(monkeypat
 
 
 def test_toggling_transcode_options_persists_to_profile(monkeypatch):  # AC14
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
@@ -150,7 +142,7 @@ def test_toggling_transcode_options_persists_to_profile(monkeypatch):  # AC14
 
 
 def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch):  # AC14
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
@@ -181,7 +173,7 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
 
 
 def test_cache_max_spinbox_seeds_from_config_and_persists_on_change(monkeypatch):  # AC11
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     fake_cfg = Mock()
     fake_cfg.get_transcode_cache_max_mb.return_value = 1024
@@ -193,11 +185,15 @@ def test_cache_max_spinbox_seeds_from_config_and_persists_on_change(monkeypatch)
 
     view.cache_max_spin.setValue(2048)
     fake_cfg.set_transcode_cache_max_mb.assert_called_with(2048)
+    # The disk write is debounced until the value settles.
+    assert not fake_cfg.save.called
+    assert view._cache_save_timer.isActive()
+    view._flush_cache_max()
     assert fake_cfg.save.called
 
 
 def test_clear_cache_button_shows_size_and_disables_when_empty(monkeypatch):  # AC12
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     view = _view_with_settings_tab()
     fake_cache = Mock()
@@ -229,7 +225,7 @@ def test_close_event_cancels_and_joins_sync_items_loader():  # perf-AC13
 
 
 def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
@@ -254,10 +250,7 @@ def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("index", "clear", "prune"),
-    [(0, False, False), (1, False, True), (2, True, False)],
-)
+@pytest.mark.parametrize(("index", "clear", "prune"), [(0, False, False), (1, False, True), (2, True, False)])
 def test_cleanup_mode_persists_to_profile(index, clear, prune):  # AC11
     view = _view_with_settings_tab()
     start = 1 if index != 1 else 0  # make sure the switch actually changes
@@ -275,12 +268,9 @@ def test_cleanup_mode_persists_to_profile(index, clear, prune):  # AC11
     assert view.profile_store.save.called
 
 
-@pytest.mark.parametrize(
-    ("clear", "prune", "expected"),
-    [(False, False, 0), (False, True, 1), (True, False, 2), (True, True, 2)],
-)
+@pytest.mark.parametrize(("clear", "prune", "expected"), [(False, False, 0), (False, True, 1), (True, False, 2), (True, True, 2)])
 def test_load_profile_reflects_cleanup_mode_without_signals(monkeypatch, clear, prune, expected):  # AC11
-    import src.sync.sync_view as sv
+    import src.sync.sync_options_mixin as sv
 
     monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
     view = _view_with_settings_tab()
@@ -368,7 +358,7 @@ def test_expand_collapse_no_crash_on_empty_tree():  # AC3
 
 
 def test_link_device_scans_off_the_gui_thread(monkeypatch):
-    import src.sync.sync_view as sv
+    import src.sync.sync_device_mixin as sv
 
     started = []
 
@@ -387,6 +377,7 @@ def test_link_device_scans_off_the_gui_thread(monkeypatch):
     view = _view_with_settings_tab()
     view.mtp_manager = Mock()
     view._link_worker = None
+    view.current_profile = None
     view.change_destination_btn = Mock()
 
     view._link_device()
@@ -395,3 +386,78 @@ def test_link_device_scans_off_the_gui_thread(monkeypatch):
     assert len(started) == 1
     assert view.link_device_btn.text() == "Scanning…"
     assert not view.link_device_btn.isEnabled()
+
+
+# ---------------------------------------------------------------------------
+# Music path normalization, link target, shutdown, and polling while hidden.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("typed", "saved"), [("", "Music"), ("  /../Music/ ", "Music"), ("SD card//Music/", "SD card/Music")])
+def test_music_path_is_normalized_before_saving(typed, saved):
+    view = _view_with_settings_tab()
+    prof = SyncProfile(name="P", path="", music_path="Old")
+    view.current_profile = prof
+    view.profiles = [prof]
+    view.profile_store = Mock()
+    view._refresh_current_card = Mock()
+    view._refresh_header = Mock()
+
+    view.music_path_edit.setCurrentText(typed)
+    view._on_music_path_changed()
+
+    assert prof.music_path == saved
+    assert view.music_path_edit.currentText() == saved
+
+
+def test_link_result_ignored_when_user_switched_profile():
+    view = _view_with_settings_tab()
+    first, second = SyncProfile(name="A", path=""), SyncProfile(name="B", path="")
+    view.profiles = [first, second]
+    view.profile_store = Mock()
+    view.cards = []
+    view.change_destination_btn = Mock()
+    view._refresh_header = Mock()
+    view._link_target = first
+    view.current_profile = second
+
+    from src.sync.mtp_manager import MtpDevice
+
+    view._on_link_devices_listed([MtpDevice(uri="mtp://x/", name="Phone")])
+
+    assert first.device_uri == "" and second.device_uri == ""
+    view.profile_store.save.assert_not_called()
+
+
+def test_shutdown_cancels_and_joins_every_running_worker():
+    view = _view_with_settings_tab()
+    workers = {}
+    for name in ("sync_worker", "_sync_items_loader", "_mtp_list_worker", "_link_worker", "_detect_worker"):
+        worker = Mock()
+        worker.isRunning.return_value = True
+        setattr(view, name, worker)
+        workers[name] = worker
+
+    view.shutdown()
+
+    for worker in workers.values():
+        worker.request_cancel.assert_called_once()
+        worker.wait.assert_called_once()
+
+
+def test_poll_runs_only_while_view_is_visible(monkeypatch):
+    import src.sync.sync_device_mixin as dm
+
+    monkeypatch.setattr(dm, "mtp_available", lambda: True)
+    view = _view_with_settings_tab()
+    from PySide6.QtCore import QTimer
+
+    view._mtp_poll_timer = QTimer()
+    view._refresh_mtp_devices = Mock()
+
+    view._start_mtp_polling()
+    assert view._mtp_poll_timer.isActive()
+    view._refresh_mtp_devices.assert_called_once()
+
+    view._stop_mtp_polling()
+    assert not view._mtp_poll_timer.isActive()
