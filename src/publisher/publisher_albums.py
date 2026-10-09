@@ -26,6 +26,7 @@ class PublisherAlbumsWindow(QDialog):
         self._load_albums()
 
     def _init_ui(self):
+        """Build the status label and the album grid."""
         layout = QVBoxLayout(self)
         self.status_label = QLabel("Loading albums...")
         layout.addWidget(self.status_label)
@@ -36,6 +37,7 @@ class PublisherAlbumsWindow(QDialog):
         layout.addWidget(self.flow)
 
     def _open_album_editor(self, album):
+        """Open the album editor for a double-clicked album, then reload the grid."""
         try:
             fresh = self.controller.get.get_entity_object("Album", album_id=album.album_id)
             if fresh:
@@ -50,6 +52,7 @@ class PublisherAlbumsWindow(QDialog):
         self.albums_changed.emit()
 
     def _load_albums(self):
+        """Load the publisher's albums into the grid and update the status label."""
         try:
             albums = get_publisher_albums(self.controller, self.publisher.publisher_id)
 

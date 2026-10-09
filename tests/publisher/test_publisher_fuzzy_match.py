@@ -124,3 +124,30 @@ def test_resolved_field_lands_on_the_merged_survivor(qapp):
     assert survivor.description == "A record label."
     assert survivor.publisher_name == "Sony"
     assert session.get(Publisher, source.publisher_id) is None
+
+
+# ---- find_publisher_duplicates (scan logic moved out of PublisherView) ------
+
+
+def test_find_duplicates_flags_similar_names_within_a_block():
+    from src.publisher.publisher_fuzzy_match import find_publisher_duplicates
+
+    matches = find_publisher_duplicates([(2, "Sony Music"), (1, "Sony Music!"), (3, "Warner")])
+
+    assert matches == [(1, 2, 100)]
+
+
+def test_find_duplicates_skips_blank_names_and_reports_progress():
+    from src.publisher.publisher_fuzzy_match import find_publisher_duplicates
+
+    progress = []
+    matches = find_publisher_duplicates([(1, None), (2, "  "), (3, "Atlantic"), (4, "Atlantik")], on_progress=lambda done, total: progress.append((done, total)))
+
+    assert matches == [(3, 4, 88)]
+    assert progress == [(1, 1)]
+
+
+def test_find_duplicates_stops_when_cancelled():
+    from src.publisher.publisher_fuzzy_match import find_publisher_duplicates
+
+    assert find_publisher_duplicates([(1, "Sony"), (2, "Sony")], is_cancelled=lambda: True) == []

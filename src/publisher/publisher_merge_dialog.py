@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt
+import html
+
 from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -12,9 +13,6 @@ class PublisherMergeDialog(MergeDBDialog):
     def __init__(self, controller, parent=None, publisher_obj=None):
         # Initialize with "Publisher" as the model name
         super().__init__(controller, "Publisher", parent)
-
-        # Make the dialog float independently of the main app window
-        self.setWindowFlags(self.windowFlags() | Qt.Dialog | Qt.WindowStaysOnTopHint)
 
         # If a publisher was already selected when the dialog was opened,
         # pre-populate the source side and auto-suggest merge targets.
@@ -51,20 +49,18 @@ class PublisherMergeDialog(MergeDBDialog):
     def _get_related_count(self, publisher_id):
         """Get the number of albums for a publisher."""
         try:
-            albums = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=publisher_id
-            )
+            albums = self.controller.get.get_entity_links("AlbumPublisher", publisher_id=publisher_id)
             return len(albums)
         except SQLAlchemyError as e:
             logger.error(f"Error getting album count for publisher {publisher_id}: {e!s}")
             return 0
 
     def _build_entity_info(self, entity, side):
-        """Enhanced info display for publishers."""
+        """Return rich-text info (name, album count, status) for one side of the merge."""
         if not entity:
             return "No publisher selected"
 
-        name = getattr(entity, self.name_attr, "Unknown")
+        name = html.escape(getattr(entity, self.name_attr, None) or "Unknown")
         publisher_id = getattr(entity, self.id_attr)
 
         info = f"<b>{name}</b><br>"
@@ -102,9 +98,7 @@ class PublisherMergeDialog(MergeDBDialog):
             reply = QMessageBox.question(
                 self,
                 "Confirm Publisher Merge",
-                f"Merge '{source_name}' into '{target_name}'?\n\n"
-                f"'{source_name}' has no albums.\n\n"
-                f"This action cannot be undone.",
+                f"Merge '{source_name}' into '{target_name}'?\n\n'{source_name}' has no albums.\n\nThis action cannot be undone.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )

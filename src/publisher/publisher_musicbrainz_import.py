@@ -1,17 +1,4 @@
-"""
-publisher_musicbrainz_import.py
-
-GUI-free find-or-create logic for turning a MusicBrainz label (MBLabelInfo)
-into a local Publisher, plus its headquarters and founder relations. Shared
-by AlbumMusicBrainzReviewDialog (interactive, checkbox-gated) and the
-one-time scripts/backfill_album_publishers.py script (headless, no review
-step) so the matching/creation rules only need to be written once.
-
-Publisher matching mirrors AlbumMusicBrainzReviewDialog._resolve_artist's
-credit-resolution order: MBID match, then alias-aware name match (backfilling
-the MBID once found), then create new -- and the same order is reused for a
-label's founder relations, resolving/creating the counterpart Artist.
-"""
+"""GUI-free find-or-create logic that turns MusicBrainz labels into local Publishers."""
 
 from __future__ import annotations
 
@@ -21,41 +8,27 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_release import MBFounderRelation, MBLabelInfo
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 from src.place.place_chain_resolver import resolve_place_chain
 
 _HEADQUARTERS_TYPE_NAME = "Headquarters"
 
-# Publisher scalar fields that get filled in from MB label data, but only
-# when the local value is still blank -- never overwriting something
-# already on file (same fill-blank convention as every other MB scalar
-# enrichment path in this codebase).
-_FILL_BLANK_FIELDS = (
-    "description",
-    "begin_year",
-    "begin_month",
-    "begin_day",
-    "end_year",
-    "end_month",
-    "end_day",
-)
+# Publisher fields filled from MB label data only while still blank (never overwritten).
+# Each maps to the MBLabelInfo attribute of the same name, except description <- annotation.
+_FILL_BLANK_FIELDS = ("description", "begin_year", "begin_month", "begin_day", "end_year", "end_month", "end_day")
 
 
 def resolve_or_create_publisher(controller, label: MBLabelInfo) -> Any | None:
-    """MBID match, then alias-aware name match (backfilling the MBID),
-    then create new -- same order as _resolve_artist in
-    album_musicbrainz_review_dialog.py, applied to Publisher/PublisherAlias.
-    """
-    publisher = controller.get.get_entity_object("Publisher", MBID=label.mbid)
-    if publisher is not None:
-        _fill_blank_scalars(controller, publisher, label)
-        return publisher
+    """Return the Publisher for a label: MBID match, else alias-aware name match, else a new row."""
+    # An empty MBID must not be used as a lookup key: it would match an unrelated row.
+    if label.mbid:
+        publisher = controller.get.get_entity_object("Publisher", MBID=label.mbid)
+        if publisher is not None:
+            _fill_blank_scalars(controller, publisher, label)
+            return publisher
 
     publisher = controller.get.resolve_entity_or_alias("Publisher", "publisher_name", label.name)
-    if publisher is not None and not publisher.MBID:
+    if publisher is not None and not publisher.MBID and label.mbid:
         controller.update.update_entity("Publisher", publisher.publisher_id, MBID=label.mbid)
         publisher.MBID = label.mbid
         _fill_blank_scalars(controller, publisher, label)
@@ -68,7 +41,7 @@ def resolve_or_create_publisher(controller, label: MBLabelInfo) -> Any | None:
     return controller.add.add_entity(
         "Publisher",
         publisher_name=label.name,
-        MBID=label.mbid,
+        MBID=label.mbid or None,
         description=label.annotation,
         begin_year=label.begin_year,
         begin_month=label.begin_month,
@@ -80,23 +53,9 @@ def resolve_or_create_publisher(controller, label: MBLabelInfo) -> Any | None:
 
 
 def _fill_blank_scalars(controller, publisher, label: MBLabelInfo) -> None:
-    """Update only the fields that are currently None on `publisher`,
-    sourced from the matching MBLabelInfo field of the same name (the
-    label's `annotation` maps onto Publisher's `description`)."""
-    source = {
-        "description": label.annotation,
-        "begin_year": label.begin_year,
-        "begin_month": label.begin_month,
-        "begin_day": label.begin_day,
-        "end_year": label.end_year,
-        "end_month": label.end_month,
-        "end_day": label.end_day,
-    }
-    updates = {
-        field: value
-        for field, value in source.items()
-        if value is not None and getattr(publisher, field, None) is None
-    }
+    """Copy label values into the publisher fields that are still None."""
+    source = {field: getattr(label, "annotation" if field == "description" else field) for field in _FILL_BLANK_FIELDS}
+    updates = {field: value for field, value in source.items() if value is not None and getattr(publisher, field, None) is None}
     if not updates:
         return
     try:
@@ -104,20 +63,18 @@ def _fill_blank_scalars(controller, publisher, label: MBLabelInfo) -> None:
         for field, value in updates.items():
             setattr(publisher, field, value)
     except SQLAlchemyError as e:
-        logger.warning(
-            f"Could not fill in MusicBrainz details for publisher '{publisher.publisher_name}': {e}"
-        )
+        logger.warning(f"Could not fill in MusicBrainz details for publisher '{publisher.publisher_name}': {e}")
 
 
 def resolve_or_create_founder_artist(controller, founder: MBFounderRelation) -> Any | None:
-    """Same MBID -> alias-aware name -> create order as
-    resolve_or_create_publisher, applied to Artist/ArtistAlias."""
-    artist = controller.get.get_entity_object("Artist", MBID=founder.mbid)
-    if artist is not None:
-        return artist
+    """Return the Artist for a founder: MBID match, else alias-aware name match, else a new row."""
+    if founder.mbid:
+        artist = controller.get.get_entity_object("Artist", MBID=founder.mbid)
+        if artist is not None:
+            return artist
 
     artist = controller.get.resolve_entity_or_alias("Artist", "artist_name", founder.name)
-    if artist is not None and not artist.MBID:
+    if artist is not None and not artist.MBID and founder.mbid:
         controller.update.update_entity("Artist", artist.artist_id, MBID=founder.mbid)
         artist.MBID = founder.mbid
         return artist
@@ -125,15 +82,11 @@ def resolve_or_create_founder_artist(controller, founder: MBFounderRelation) -> 
     # MBID is a distinct real-world artist, not this founder -- ignore
     # it and create a new Artist instead of merging two different people.
 
-    return controller.add.add_entity("Artist", artist_name=founder.name, MBID=founder.mbid)
+    return controller.add.add_entity("Artist", artist_name=founder.name, MBID=founder.mbid or None)
 
 
 def resolve_or_create_publishers(controller, label: MBLabelInfo) -> list[Any]:
-    """Every Publisher this label's name resolves to. A name that was
-    previously split into 2+ publishers (see
-    SplitDB._record_split_alias) resolves to that same ordered list
-    instead of resolve_or_create_publisher recreating/reusing one
-    combined Publisher -- see docs/specs/split_and_merge_aliases.md."""
+    """Return every Publisher a label resolves to, honoring split aliases (docs/specs/split_and_merge_aliases.md)."""
     split_targets = controller.get.resolve_split_alias("Publisher", label.name)
     if split_targets:
         for publisher in split_targets:
@@ -144,28 +97,13 @@ def resolve_or_create_publishers(controller, label: MBLabelInfo) -> list[Any]:
     return [publisher] if publisher is not None else []
 
 
-def apply_publisher_headquarters(
-    controller, publisher, area_chain: list[dict[str, Any]], place_cache: dict[str, Any]
-) -> None:
-    """Add a "Headquarters" PlaceAssociation for `publisher` from
-    `area_chain`, unless one already exists -- mirrors
-    PublisherEditDialog._save_headquarters, but only ever fills a blank
-    headquarters rather than replacing an existing one, same as the
-    artist birthplace/deathplace "already exists" skip in
-    ArtistEnrichmentReviewDialog._existing_place_association_types."""
+def apply_publisher_headquarters(controller, publisher, area_chain: list[dict[str, Any]], place_cache: dict[str, Any]) -> None:
+    """Add a "Headquarters" PlaceAssociation from area_chain only if the publisher has none yet."""
     if not area_chain:
         return
     try:
-        existing = (
-            controller.get.get_all_entities(
-                "PlaceAssociation", entity_type="Publisher", entity_id=publisher.publisher_id
-            )
-            or []
-        )
-        if any(
-            a.association_type and a.association_type.type_name == _HEADQUARTERS_TYPE_NAME
-            for a in existing
-        ):
+        existing = controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=publisher.publisher_id) or []
+        if any(a.association_type and a.association_type.type_name == _HEADQUARTERS_TYPE_NAME for a in existing):
             return
 
         place = resolve_place_chain(controller, area_chain, place_cache)
@@ -174,38 +112,20 @@ def apply_publisher_headquarters(
         known_types = fetch_association_types(controller)
         hq_type = find_or_create_association_type(controller, _HEADQUARTERS_TYPE_NAME, known_types)
         controller.add.add_entity(
-            "PlaceAssociation",
-            entity_id=publisher.publisher_id,
-            entity_type="Publisher",
-            place_id=place.place_id,
-            association_type_id=hq_type.association_type_id if hq_type else None,
+            "PlaceAssociation", entity_id=publisher.publisher_id, entity_type="Publisher", place_id=place.place_id, association_type_id=hq_type.association_type_id if hq_type else None
         )
     except SQLAlchemyError as e:
-        logger.warning(
-            f"Could not import headquarters for publisher '{publisher.publisher_name}': {e}"
-        )
+        logger.warning(f"Could not import headquarters for publisher '{publisher.publisher_name}': {e}")
 
 
 def apply_publisher_founders(controller, publisher, founders: list[MBFounderRelation]) -> None:
-    """Resolve/create each founder Artist, then add any PublisherFounder
-    rows not already present -- same diff-against-existing approach as
-    PublisherEditDialog._save_founders."""
+    """Resolve or create each founder Artist and add the missing PublisherFounder rows."""
     if not founders:
         return
     try:
-        existing_ids = {
-            assoc.artist_id
-            for assoc in (
-                controller.get.get_all_entities(
-                    "PublisherFounder", publisher_id=publisher.publisher_id
-                )
-                or []
-            )
-        }
+        existing_ids = {assoc.artist_id for assoc in (controller.get.get_all_entities("PublisherFounder", publisher_id=publisher.publisher_id) or [])}
     except SQLAlchemyError as e:
-        logger.warning(
-            f"Could not load existing founders for publisher '{publisher.publisher_name}': {e}"
-        )
+        logger.warning(f"Could not load existing founders for publisher '{publisher.publisher_name}': {e}")
         return
 
     for founder in founders:
@@ -213,32 +133,24 @@ def apply_publisher_founders(controller, publisher, founders: list[MBFounderRela
             artist = resolve_or_create_founder_artist(controller, founder)
             if artist is None or artist.artist_id in existing_ids:
                 continue
-            controller.add.add_entity(
-                "PublisherFounder", publisher_id=publisher.publisher_id, artist_id=artist.artist_id
-            )
+            controller.add.add_entity("PublisherFounder", publisher_id=publisher.publisher_id, artist_id=artist.artist_id)
             existing_ids.add(artist.artist_id)
         except SQLAlchemyError as e:
-            logger.warning(
-                f"Could not import founder '{founder.name}' for publisher "
-                f"'{publisher.publisher_name}': {e}"
-            )
+            logger.warning(f"Could not import founder '{founder.name}' for publisher '{publisher.publisher_name}': {e}")
 
 
-def import_album_labels(
-    controller, album, labels: list[MBLabelInfo], place_cache: dict[str, Any]
-) -> list[str]:
-    """Resolve/create a Publisher for each label, link it to `album` via
-    AlbumPublisher, and apply its headquarters/founders. Returns
-    human-readable failure descriptions instead of raising or touching Qt,
-    so both the interactive review dialog and the headless backfill script
-    can just log/display whatever comes back."""
+def import_album_labels(controller, album, labels: list[MBLabelInfo], place_cache: dict[str, Any]) -> list[str]:
+    """Import each label onto the album and return human-readable failure descriptions."""
     failures: list[str] = []
     if not labels:
         return failures
 
     existing_publisher_ids = {p.publisher_id for p in (album.publishers or [])}
 
-    for label in labels:
+    # A release can list one label several times (one per catalog number); import it once.
+    unique_labels = list({(label.mbid or label.name): label for label in labels}.values())
+
+    for label in unique_labels:
         try:
             publishers = resolve_or_create_publishers(controller, label)
         except SQLAlchemyError as e:
@@ -251,10 +163,7 @@ def import_album_labels(
 
         for publisher in publishers:
             if publisher.publisher_id not in existing_publisher_ids:
-                _, failed = controller.add.add_entities_with_fallback(
-                    "AlbumPublisher",
-                    [{"album_id": album.album_id, "publisher_id": publisher.publisher_id}],
-                )
+                _, failed = controller.add.add_entities_with_fallback("AlbumPublisher", [{"album_id": album.album_id, "publisher_id": publisher.publisher_id}])
                 if failed:
                     failures.append(f"Album/publisher link for '{label.name}'")
                 else:

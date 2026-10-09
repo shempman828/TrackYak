@@ -1,14 +1,8 @@
 from collections import defaultdict
 
-from PySide6.QtCore import QMimeData, Qt
+from PySide6.QtCore import QMimeData, Qt, QTimer, Signal
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QTreeWidgetItemIterator,
-)
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTreeWidgetItem
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -16,15 +10,49 @@ from src.db.db_tables import AlbumPublisher
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
+
+# Filter keys shared with PublisherView's combo boxes (stored as their item data).
+FILTER_ANY = "any"
+MBID_LINKED = "linked"
+MBID_NOT_LINKED = "not_linked"
+TIER_NOT_STARTED = "not_started"
+TIER_FIRST_PASS = "first_pass"
+TIER_SECOND_PASS = "second_pass"
+
+_MBID_ROLE = Qt.UserRole + 1
+_FIRST_PASS_ROLE = Qt.UserRole + 2
+_SECOND_PASS_ROLE = Qt.UserRole + 3
+_LINK_MARKER = " \U0001f517"
+
+
+class _PublisherItem(QTreeWidgetItem):
+    """Tree item that shows a link marker for MBID-linked publishers but edits the plain name."""
+
+    def data(self, column, role):
+        value = super().data(column, role)
+        # Only DisplayRole carries the marker, so the inline editor (EditRole) and saves see the real name.
+        if column == 0 and role == Qt.DisplayRole and super().data(0, _MBID_ROLE):
+            return f"{value or ''}{_LINK_MARKER}"
+        return value
+
+
+def publisher_name(item):
+    """Return the plain publisher name stored on a tree item."""
+    return item.data(0, Qt.EditRole) or ""
 
 
 class PublisherTreeWidget(QTreeWidget):
-    """Modern tree widget for publishers with drag-and-drop and sorting."""
+    """Publisher hierarchy tree with drag-and-drop reparenting, inline rename, and filtering."""
 
-    # Extra data roles for filter criteria, alongside Qt.UserRole (publisher_id)
-    _MBID_ROLE = Qt.UserRole + 1
-    _FIRST_PASS_ROLE = Qt.UserRole + 2
-    _SECOND_PASS_ROLE = Qt.UserRole + 3
+    # Emitted when the Delete key is pressed on the tree.
+    delete_requested = Signal()
+    # Emitted after the tree itself changed publisher data (rename, reparent).
+    publishers_changed = Signal()
+
+    _MBID_ROLE = _MBID_ROLE
+    _FIRST_PASS_ROLE = _FIRST_PASS_ROLE
+    _SECOND_PASS_ROLE = _SECOND_PASS_ROLE
 
     def __init__(self, controller):
         super().__init__()
@@ -47,12 +75,7 @@ class PublisherTreeWidget(QTreeWidget):
         self.itemChanged.connect(self.on_item_changed)
 
     def load_publishers(self):
-        """Load publishers as a hierarchical tree with track counts.
-
-        Preserves the current sort column, sort order, and scroll position
-        so that edits don't jump the user back to the top.
-        """
-        # --- Save state before clearing ---
+        """Rebuild the tree from the DB, keeping sort order and scroll position."""
         sort_column = self.header().sortIndicatorSection()
         sort_order = self.header().sortIndicatorOrder()
         scrollbar = self.verticalScrollBar()
@@ -62,55 +85,54 @@ class PublisherTreeWidget(QTreeWidget):
             publishers = self.controller.get.get_all_entities("Publisher")
         except SQLAlchemyError as e:
             logger.error(f"Failed loading publishers: {e!s}")
+            show_status_message(self, "Could not load publishers.")
             return
 
-        self.clear()
+        # Building items must not fire itemChanged (that path saves renames).
+        self.blockSignals(True)
+        try:
+            self.clear()
+            recursive_counts = self.calculate_recursive_album_counts(publishers)
 
-        recursive_counts = self.calculate_recursive_album_counts(publishers)
+            if self.flat_view:
+                root_items = [self._make_publisher_item(p, recursive_counts.get(p.publisher_id, 0)) for p in sorted(publishers, key=lambda p: (p.publisher_name or "").lower())]
+            else:
+                root_items = self._build_hierarchy(publishers, recursive_counts)
 
-        if self.flat_view:
-            root_items = [
-                self._make_publisher_item(
-                    publisher, recursive_counts.get(publisher.publisher_id, 0)
-                )
-                for publisher in sorted(publishers, key=lambda p: (p.publisher_name or "").lower())
-            ]
-        else:
-            # Create dictionaries for hierarchy
-            publisher_dict = {}
-            root_items = []
+            self.addTopLevelItems(root_items)
+        finally:
+            self.blockSignals(False)
 
-            # First pass: create all items with recursive track count
-            for publisher in publishers:
-                album_count = recursive_counts.get(publisher.publisher_id, 0)
-                item = self._make_publisher_item(publisher, album_count)
-                publisher_dict[publisher.publisher_id] = {"item": item, "publisher": publisher}
-
-            # Second pass: build hierarchy
-            for publisher_id, data in publisher_dict.items():
-                publisher = data["publisher"]
-                item = data["item"]
-
-                if publisher.parent_id is None:
-                    root_items.append(item)
-                else:
-                    parent_data = publisher_dict.get(publisher.parent_id)
-                    if parent_data:
-                        parent_data["item"].addChild(item)
-                    else:
-                        root_items.append(item)
-
-        # Add root items
-        self.addTopLevelItems(root_items)
-
-        # --- Restore sort order ---
         self.sortByColumn(sort_column, sort_order)
-
         self.expandAll()
 
-        # --- Restore scroll position ---
         if scrollbar:
             scrollbar.setValue(scroll_value)
+
+    def _build_hierarchy(self, publishers, recursive_counts):
+        """Create one item per publisher, nest children under parents, and return the root items."""
+        items = {p.publisher_id: self._make_publisher_item(p, recursive_counts.get(p.publisher_id, 0)) for p in publishers}
+
+        root_items = []
+        for publisher in publishers:
+            item = items[publisher.publisher_id]
+            parent_item = items.get(publisher.parent_id) if publisher.parent_id is not None else None
+            # A dangling parent_id or a parent_id cycle in the data makes the item a root, so it stays visible.
+            if parent_item is None or self._is_ancestor_or_self(item, parent_item):
+                root_items.append(item)
+            else:
+                parent_item.addChild(item)
+        return root_items
+
+    @staticmethod
+    def _is_ancestor_or_self(candidate, item):
+        """Return True if candidate is item or one of item's ancestors."""
+        current = item
+        while current is not None:
+            if current is candidate:
+                return True
+            current = current.parent()
+        return False
 
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
@@ -122,12 +144,11 @@ class PublisherTreeWidget(QTreeWidget):
 
     def _make_publisher_item(self, publisher, album_count):
         """Build a single publisher's tree item, shared by the tree and flat builders."""
-        item = QTreeWidgetItem()
-        name = publisher.publisher_name
+        item = _PublisherItem()
+        item.setData(0, _MBID_ROLE, bool(publisher.MBID))
+        item.setText(0, publisher.publisher_name or "")
         if publisher.MBID:
-            name = f"{name} \U0001f517"
             item.setToolTip(0, "Linked to MusicBrainz")
-        item.setText(0, name)
         if publisher.second_pass:
             item.setIcon(0, icon("checkmark_green.svg"))
         elif publisher.first_pass:
@@ -135,57 +156,45 @@ class PublisherTreeWidget(QTreeWidget):
         item.setFlags(item.flags() | Qt.ItemIsEditable)
         item.setData(1, Qt.DisplayRole, album_count)
         item.setData(0, Qt.UserRole, publisher.publisher_id)
-        item.setData(0, self._MBID_ROLE, bool(publisher.MBID))
-        item.setData(0, self._FIRST_PASS_ROLE, bool(publisher.first_pass))
-        item.setData(0, self._SECOND_PASS_ROLE, bool(publisher.second_pass))
+        item.setData(0, _FIRST_PASS_ROLE, bool(publisher.first_pass))
+        item.setData(0, _SECOND_PASS_ROLE, bool(publisher.second_pass))
         return item
 
     def keyPressEvent(self, event):
-        """Trigger delete when the Delete key is pressed."""
-        if event.key() == Qt.Key_Delete:
-            # Walk up to the parent PublisherView and call its delete method
-            parent_view = self.parent()
-            while parent_view is not None:
-                if hasattr(parent_view, "_delete_selected_publisher"):
-                    parent_view._delete_selected_publisher()
-                    return
-                parent_view = parent_view.parent()
-        # For all other keys, use default behaviour
+        """Emit delete_requested on the Delete key; otherwise use the default handling."""
+        if event.key() == Qt.Key_Delete and self.state() != QAbstractItemView.EditingState:
+            self.delete_requested.emit()
+            return
         super().keyPressEvent(event)
 
     def on_item_changed(self, item, column):
-        """Handle inline rename after the user finishes editing."""
+        """Save an inline rename after the user finishes editing."""
         if column != 0:
             return
 
-        new_name = item.text(0)
         publisher_id = item.data(0, Qt.UserRole)
+        new_name = publisher_name(item).strip()
+        if not new_name:
+            show_status_message(self, "Publisher name cannot be blank.")
+            # Deferred: rebuilding the tree inside the edit commit would delete the item under Qt's feet.
+            QTimer.singleShot(0, self.publishers_changed.emit)
+            return
 
         try:
             self.controller.update.update_entity("Publisher", publisher_id, publisher_name=new_name)
             logger.info(f"Publisher renamed to: {new_name}")
         except SQLAlchemyError as e:
             logger.error(f"Failed to rename publisher: {e!s}")
-            self.load_publishers()
+            show_status_message(self, "Could not rename publisher.")
+        QTimer.singleShot(0, self.publishers_changed.emit)
 
     def calculate_recursive_album_counts(self, publishers):
-        """Calculate total albums per publisher, including all child publishers.
-
-        Uses a single ungrouped query for direct album ids (like
-        genre_view.py does for genres) instead of one AlbumPublisher query
-        per publisher, then unions child album-id sets into parents
-        bottom-up in Python instead of re-querying each descendant subtree
-        once per ancestor. This turned ~12,000 sequential queries (and a
-        2+ minute UI freeze) with ~2,187 publishers into a single query.
-        Sets (not a plain integer sum) are required because an album
-        published under both a publisher and one of its descendants must
-        only count once toward that publisher's recursive total.
-        """
+        """Return {publisher_id: unique album count including all descendant publishers}."""
         try:
+            # One query for all direct links; sets (not sums) so an album tagged at
+            # two levels of one branch counts once toward the ancestor's total.
             direct_album_ids = defaultdict(set)
-            for publisher_id, album_id in self.controller.get.session.execute(
-                select(AlbumPublisher.publisher_id, AlbumPublisher.album_id)
-            ).all():
+            for publisher_id, album_id in self.controller.get.session.execute(select(AlbumPublisher.publisher_id, AlbumPublisher.album_id)).all():
                 direct_album_ids[publisher_id].add(album_id)
 
             children_map = defaultdict(list)
@@ -193,72 +202,51 @@ class PublisherTreeWidget(QTreeWidget):
                 children_map[publisher.parent_id].append(publisher.publisher_id)
 
             recursive_album_ids: dict = {}
+            in_progress = set()  # guards against a parent_id cycle in the data
 
             def album_ids_for(publisher_id):
-                if publisher_id not in recursive_album_ids:
-                    ids = set(direct_album_ids.get(publisher_id, ()))
-                    for child_id in children_map.get(publisher_id, []):
-                        ids |= album_ids_for(child_id)
-                    recursive_album_ids[publisher_id] = ids
-                return recursive_album_ids[publisher_id]
+                if publisher_id in recursive_album_ids:
+                    return recursive_album_ids[publisher_id]
+                if publisher_id in in_progress:
+                    return set()
+                in_progress.add(publisher_id)
+                ids = set(direct_album_ids.get(publisher_id, ()))
+                for child_id in children_map.get(publisher_id, []):
+                    ids |= album_ids_for(child_id)
+                in_progress.discard(publisher_id)
+                recursive_album_ids[publisher_id] = ids
+                return ids
 
             for publisher in publishers:
                 album_ids_for(publisher.publisher_id)
 
-            return {
-                publisher_id: len(album_ids)
-                for publisher_id, album_ids in recursive_album_ids.items()
-            }
+            return {publisher_id: len(album_ids) for publisher_id, album_ids in recursive_album_ids.items()}
 
         except SQLAlchemyError as e:
             logger.error(f"Error calculating album counts: {e!s}")
             return {}
 
-    def count_total(self):
-        """Count all publisher items in the tree, regardless of visibility."""
-        count = 0
-        iterator = QTreeWidgetItemIterator(self)
-        while iterator.value():
-            count += 1
-            iterator += 1
-        return count
-
-    def count_visible(self):
-        """Count publisher items currently visible (not hidden by search filter)."""
-        count = 0
-        iterator = QTreeWidgetItemIterator(self)
-        while iterator.value():
-            if not iterator.value().isHidden():
-                count += 1
-            iterator += 1
-        return count
-
-    def filter_items(self, search_text, mbid_filter="Any", fixed_filter="Any"):
-        """Filter tree items based on search text, MusicBrainz link status, and
-        metadata review tier.
-
-        An item is shown if it matches all active criteria itself, or if any
-        descendant does (so ancestors of a match stay visible for context).
-        """
+    def filter_items(self, search_text, mbid_filter=FILTER_ANY, tier_filter=FILTER_ANY):
+        """Show items matching all criteria (plus their ancestors) and return (visible, total)."""
         text_lower = search_text.lower()
-        has_criteria = bool(search_text) or mbid_filter != "Any" or fixed_filter != "Any"
+        has_criteria = bool(search_text) or mbid_filter != FILTER_ANY or tier_filter != FILTER_ANY
+        counts = [0, 0]  # visible, total
 
         def item_matches(item):
-            if text_lower and text_lower not in item.text(0).lower():
+            if text_lower and text_lower not in publisher_name(item).lower():
                 return False
-            if mbid_filter == "Linked" and not item.data(0, self._MBID_ROLE):
+            linked = item.data(0, _MBID_ROLE)
+            if mbid_filter == MBID_LINKED and not linked:
                 return False
-            if mbid_filter == "Not Linked" and item.data(0, self._MBID_ROLE):
+            if mbid_filter == MBID_NOT_LINKED and linked:
                 return False
-            first_pass = item.data(0, self._FIRST_PASS_ROLE)
-            second_pass = item.data(0, self._SECOND_PASS_ROLE)
-            if fixed_filter == "Not Started" and first_pass:
+            first_pass = item.data(0, _FIRST_PASS_ROLE)
+            second_pass = item.data(0, _SECOND_PASS_ROLE)
+            if tier_filter == TIER_NOT_STARTED and first_pass:
                 return False
-            if fixed_filter == "First Pass" and not (first_pass and not second_pass):
+            if tier_filter == TIER_FIRST_PASS and not (first_pass and not second_pass):
                 return False
-            if fixed_filter == "Second Pass" and not second_pass:
-                return False
-            return True
+            return not (tier_filter == TIER_SECOND_PASS and not second_pass)
 
         def filter_item(item):
             matches = item_matches(item)
@@ -270,18 +258,18 @@ class PublisherTreeWidget(QTreeWidget):
 
             should_show = matches or child_matches
             item.setHidden(not should_show)
-
-            if has_criteria and should_show:
-                item.setExpanded(True)
-                parent = item.parent()
-                while parent:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
+            counts[1] += 1
+            if should_show:
+                counts[0] += 1
+                # Children are visited first, so expanding each shown item reveals the whole path.
+                if has_criteria:
+                    item.setExpanded(True)
 
             return should_show
 
         for i in range(self.topLevelItemCount()):
             filter_item(self.topLevelItem(i))
+        return counts[0], counts[1]
 
     def startDrag(self, supportedActions):
         """Start drag operation for parent-child relationships."""
@@ -297,12 +285,12 @@ class PublisherTreeWidget(QTreeWidget):
         drag.exec_(Qt.MoveAction)
 
     def dropEvent(self, event):
-        """Handle drop to set parent-child relationships."""
+        """Reparent the dragged publisher under the drop target, or make it a root on empty space."""
         source_item = self.currentItem()
         if not source_item:
             return
 
-        target_item = self.itemAt(event.pos())
+        target_item = self.itemAt(event.position().toPoint())
         if not target_item:
             self.remove_parent(source_item)
             return
@@ -313,31 +301,23 @@ class PublisherTreeWidget(QTreeWidget):
         if source_id == target_id:
             return
 
-        if self.is_child_of(target_item, source_item):
-            show_status_message(self, "Cannot create circular parent-child relationship.")
-            return
-
         try:
+            if target_id in get_descendant_publisher_ids(self.controller, source_id):
+                show_status_message(self, "Cannot move a publisher under one of its own descendants.")
+                return
             self.controller.update.update_entity("Publisher", source_id, parent_id=target_id)
-            self.load_publishers()
             logger.info("Parent relationship updated successfully.")
         except SQLAlchemyError as e:
             logger.error(f"Error updating parent: {e!s}")
-
-    def is_child_of(self, parent_item, child_item):
-        """Check if child_item is a descendant of parent_item."""
-        current = child_item.parent()
-        while current:
-            if current == parent_item:
-                return True
-            current = current.parent()
-        return False
+            show_status_message(self, "Could not change the parent publisher.")
+        self.publishers_changed.emit()
 
     def remove_parent(self, item):
-        """Remove parent from item."""
+        """Make the given publisher a top-level publisher."""
         publisher_id = item.data(0, Qt.UserRole)
         try:
             self.controller.update.update_entity("Publisher", publisher_id, parent_id=None)
-            self.load_publishers()
         except SQLAlchemyError as e:
             logger.error(f"Error removing parent: {e!s}")
+            show_status_message(self, "Could not remove the parent publisher.")
+        self.publishers_changed.emit()

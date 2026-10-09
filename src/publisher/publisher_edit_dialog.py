@@ -1,3 +1,5 @@
+import re
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
@@ -30,6 +32,7 @@ from src.place.place_association_types import fetch_association_types, find_or_c
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
 
 _HEADQUARTERS_TYPE_NAME = "Headquarters"
+_MBID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 class OptionalIntEdit(QLineEdit):
@@ -43,15 +46,17 @@ class OptionalIntEdit(QLineEdit):
         self.setValidator(QIntValidator(0, 9999, self))
 
     def get_value_or_none(self):
+        """Return the entered integer, or None when the field is empty."""
         text = self.text().strip()
         return int(text) if text else None
 
     def set_from_db(self, val):
+        """Show a DB integer value, or clear the field for None."""
         self.setText(str(int(val)) if val is not None else "")
 
 
 class PublisherEditDialog(QDialog):
-    """Simple name/description dialog for creating a new publisher."""
+    """Dialog that creates a new publisher or edits all fields of an existing one."""
 
     def __init__(self, controller, publisher=None, parent=None):
         super().__init__(parent)
@@ -63,15 +68,14 @@ class PublisherEditDialog(QDialog):
         self.result_publisher = None
         self.tab_aliases = None
         self._hq_association_id = None
-        # (artist_id, artist_name) pairs -- staged in memory and synced to
-        # PublisherFounder rows on save (see _save_founders), the same
-        # after-save-sync approach _save_headquarters uses so this also
-        # works when creating a brand-new publisher.
+        # (artist_id, artist_name) pairs synced to PublisherFounder rows on save;
+        # artist_id is None for a new artist that is created only on save.
         self._founder_ids = []
         self.setup_ui()
         self.load_data()
 
     def setup_ui(self):
+        """Build the title field, the overview page (and Aliases tab when editing), and the buttons."""
         self.setWindowTitle("Edit Publisher" if self.publisher else "New Publisher")
         if self.publisher:
             self.setMinimumSize(820, 700)
@@ -126,14 +130,7 @@ class PublisherEditDialog(QDialog):
         root.addWidget(buttons)
 
     def _build_overview_page(self):
-        """
-        Two-column "article" layout: prose-like content (description,
-        founders) on the left, a Wikipedia-infobox-style panel of quick
-        facts (parent, headquarters, dates, links, logo) on the right.
-        Wrapped in a scroll area since an existing publisher with many
-        founders can get taller than the dialog -- same pattern used for
-        artist_edit_basic.py.
-        """
+        """Build the scrollable two-column page: description and founders, plus a facts infobox."""
         body = QHBoxLayout()
         body.setSpacing(16)
 
@@ -263,6 +260,7 @@ class PublisherEditDialog(QDialog):
         return content_scroll
 
     def load_data(self):
+        """Fill the fields from the publisher being edited, or set create-mode defaults."""
         if self.publisher:
             self.name_input.setText(self.publisher.publisher_name or "")
             self.desc_input.setPlainText(self.publisher.description or "")
@@ -290,6 +288,7 @@ class PublisherEditDialog(QDialog):
             self.is_active_check.setChecked(True)
 
     def validate(self):
+        """Check the fields, resolve parent and headquarters, then save and accept."""
         name = self.name_input.text().strip()
         description = self.desc_input.toPlainText().strip() or None
 
@@ -338,9 +337,15 @@ class PublisherEditDialog(QDialog):
 
         begin_year = self.begin_year_edit.get_value_or_none()
         end_year = self.end_year_edit.get_value_or_none()
+        if begin_year is not None and end_year is not None and begin_year > end_year:
+            QMessageBox.warning(self, "Validation", "The founded year cannot be after the defunct year.")
+            return
+        mbid = self.mbid_input.text().strip() or None
+        if mbid and not _MBID_RE.match(mbid):
+            QMessageBox.warning(self, "Validation", "The MBID must be a MusicBrainz ID such as 12345678-90ab-cdef-1234-567890abcdef.")
+            return
         is_active = 1 if self.is_active_check.isChecked() else 0
         wikipedia_link = self.wiki_input.text().strip() or None
-        mbid = self.mbid_input.text().strip() or None
         first_pass = 1 if self.first_pass_check.isChecked() else 0
         second_pass = 1 if self.second_pass_check.isChecked() else 0
 
@@ -375,6 +380,8 @@ class PublisherEditDialog(QDialog):
                     first_pass=first_pass,
                     second_pass=second_pass,
                 )
+                # A later headquarters/founder failure keeps the dialog open; a retry must update, not re-create.
+                self.publisher = self.result_publisher
             self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
             self._save_founders(self.result_publisher.publisher_id)
             self.accept()
@@ -409,13 +416,15 @@ class PublisherEditDialog(QDialog):
             self._hq_association_id = assoc.association_id if assoc else None
 
     def _refresh_founders_list(self):
+        """Show the staged founders in the list widget."""
         self.founders_list.clear()
-        for artist_id, artist_name in self._founder_ids:
-            item = QListWidgetItem(artist_name)
-            item.setData(Qt.UserRole, artist_id)
+        for index, (artist_id, artist_name) in enumerate(self._founder_ids):
+            item = QListWidgetItem(artist_name if artist_id is not None else f"{artist_name} (new)")
+            item.setData(Qt.UserRole, index)
             self.founders_list.addItem(item)
 
     def _add_founder(self):
+        """Stage the typed artist name(s) as founders, without creating any rows yet."""
         names = self.founder_edit.split_names()
         if not names:
             return
@@ -426,23 +435,21 @@ class PublisherEditDialog(QDialog):
         single_matched_id = self.founder_edit.matched_id() if len(names) == 1 else None
         already_listed = []
         for name in names:
-            # Same resolution order as the parent publisher/headquarters
-            # fields: prefer the id locked in by picking a completion, else
-            # an exact-name lookup, else create a new Artist on the fly.
+            # Resolution order: the completer's locked-in id, else an exact-name
+            # lookup, else a case-insensitive known-artist match. A miss is staged
+            # with a None id and created in _save_founders, so Cancel creates nothing.
             artist_id = single_matched_id
             artist_name = name
             if artist_id is None:
                 artist_obj = self.controller.get.get_entity_object("Artist", artist_name=name)
                 if artist_obj is None:
-                    artist_obj = find_or_create_by_name(self.controller, "Artist", "artist_name", name, self._known_artists)
+                    lowered = name.lower()
+                    artist_obj = next((a for a in self._known_artists if (a.artist_name or "").strip().lower() == lowered), None)
                 if artist_obj is not None:
                     artist_id = artist_obj.artist_id
                     artist_name = artist_obj.artist_name
 
-            if artist_id is None:
-                continue
-
-            if any(fid == artist_id for fid, _ in self._founder_ids):
+            if any((fid == artist_id) if artist_id is not None else (fid is None and fname.lower() == artist_name.lower()) for fid, fname in self._founder_ids):
                 already_listed.append(artist_name)
             else:
                 self._founder_ids.append((artist_id, artist_name))
@@ -454,15 +461,26 @@ class PublisherEditDialog(QDialog):
         self.founder_edit.reset()
 
     def _remove_selected_founder(self):
+        """Remove the selected founder from the staged list."""
         item = self.founders_list.currentItem()
         if not item:
             return
-        artist_id = item.data(Qt.UserRole)
-        self._founder_ids = [(fid, fname) for fid, fname in self._founder_ids if fid != artist_id]
+        del self._founder_ids[item.data(Qt.UserRole)]
         self._refresh_founders_list()
 
     def _save_founders(self, publisher_id):
-        """Sync this publisher's PublisherFounder rows to self._founder_ids."""
+        """Sync this publisher's PublisherFounder rows to self._founder_ids, creating staged new artists."""
+        resolved = []
+        for artist_id, artist_name in self._founder_ids:
+            if artist_id is None:
+                artist_obj = find_or_create_by_name(self.controller, "Artist", "artist_name", artist_name, self._known_artists)
+                if artist_obj is None:
+                    continue
+                artist_id = artist_obj.artist_id
+                artist_name = artist_obj.artist_name
+            resolved.append((artist_id, artist_name))
+        self._founder_ids = resolved
+
         existing = self.controller.get.get_all_entities("PublisherFounder", publisher_id=publisher_id) or []
         existing_ids = {assoc.artist_id for assoc in existing}
         target_ids = {artist_id for artist_id, _ in self._founder_ids}

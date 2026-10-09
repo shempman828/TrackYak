@@ -499,13 +499,27 @@ The record-label side of your library — who released what, and how labels
 and their imprints relate to each other.
 
 **Browsing**: search and filter by MusicBrainz-link status or metadata
-review tier in the tree on the left; click any publisher to see its info
-and associated places on the right.
+review tier in the tree on the left. Click a publisher, or move to it with
+the arrow keys, to see its info and associated places on the right. A 🔗
+after a name means it is linked to MusicBrainz.
+
+**Organizing the tree**: drag a publisher onto another to make it a child,
+or onto empty space to make it top-level. You cannot drop a publisher onto
+one of its own children. To rename, press F2, double-click the name, or
+right-click → Rename Publisher. A blank name is not saved. Right-click
+empty space → Add New Publisher opens the full publisher form.
+
+**Deleting**: select one or more publishers and press Delete (or
+right-click → Delete). If a deleted publisher has child publishers, they
+move up one level to the deleted publisher's parent, and the confirmation
+tells you how many will move.
 
 **Editing a publisher**: fields cover description, who founded it, its
 parent label, headquarters, and active years. If you're editing an existing
 entry rather than creating one, you also get an Aliases tab for alternate
-names.
+names. A founder name that does not match an existing artist shows as
+"(new)" and is created only when you click OK. The founded year cannot be
+after the defunct year, and the MBID must be a full MusicBrainz ID.
 
 **Viewing a publisher's albums**: click View Albums to open its album list.
 Double-click an album there to open it in the album editor.

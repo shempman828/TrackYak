@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.layout_utils import clear_layout
+from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
@@ -14,8 +15,7 @@ from src.track.view.base_track_view import BaseTrackView
 
 
 class PublisherDetailTab(QWidget):
-    """Article-style detail view: an overview card, plus a places card
-    that only appears when the publisher actually has places to show."""
+    """Detail panel with an overview card and a places card for one publisher."""
 
     # Emitted after an album is edited from the "View Albums" popup, so the
     # owning publisher tree (whose per-node album counts are otherwise left
@@ -26,6 +26,7 @@ class PublisherDetailTab(QWidget):
         super().__init__()
         self.controller = controller
         self.current_publisher = None
+        self._albums_window = None
         self.init_ui()
         self.show_empty_state()
 
@@ -58,13 +59,13 @@ class PublisherDetailTab(QWidget):
         self.scroll_layout.addStretch()
 
     def _build_info_card(self):
-        """Create the publisher overview card: name, years/status, album
-        count, description, and actions."""
+        """Create the overview card: name, years, album count, description, and actions."""
         card = DetailCard("Overview")
 
         self.name_label = QLabel()
         self.name_label.setObjectName("PublisherName")
         self.name_label.setWordWrap(True)
+        self.name_label.setTextFormat(Qt.RichText)
         card.body.addWidget(self.name_label)
 
         # Years and active/inactive status folded into one line rather than
@@ -73,13 +74,14 @@ class PublisherDetailTab(QWidget):
         self.years_label.setObjectName("PublisherYears")
         card.body.addWidget(self.years_label)
 
-        self.tracks_label = QLabel()
-        self.tracks_label.setObjectName("PublisherMeta")
-        card.body.addWidget(self.tracks_label, alignment=Qt.AlignLeft)
+        self.albums_label = QLabel()
+        self.albums_label.setObjectName("PublisherMeta")
+        card.body.addWidget(self.albums_label, alignment=Qt.AlignLeft)
 
         self.description_label = QLabel()
         self.description_label.setObjectName("PublisherDescription")
         self.description_label.setWordWrap(True)
+        self.description_label.setTextFormat(Qt.PlainText)
         card.body.addWidget(self.description_label)
 
         button_layout = QHBoxLayout()
@@ -95,21 +97,20 @@ class PublisherDetailTab(QWidget):
         return card
 
     def _build_places_card(self):
-        """Create the places card. Populated (and shown/hidden) by
-        `_load_publisher_places`."""
+        """Create the places card, which `_load_publisher_places` fills and shows or hides."""
         card = DetailCard("Places")
         self.places_layout = card.body
         return card
 
     def show_empty_state(self):
         """Show empty state when no publisher is selected."""
+        self.current_publisher = None
         self.empty_state.show()
         self.info_card.hide()
         self.places_card.hide()
 
     def show_detail_cards(self):
-        """Show the overview card. The places card's visibility is decided
-        by `_load_publisher_places` based on whether there's data for it."""
+        """Show the overview card (the places card shows only when it has rows)."""
         self.empty_state.hide()
         self.info_card.show()
 
@@ -138,6 +139,11 @@ class PublisherDetailTab(QWidget):
         """Open a separate window showing all albums for this publisher."""
         if not self.current_publisher:
             return
+        window = self._albums_window
+        if window is not None and window.isVisible() and window.publisher.publisher_id == self.current_publisher.publisher_id:
+            window.raise_()
+            window.activateWindow()
+            return
         self._albums_window = PublisherAlbumsWindow(self.controller, self.current_publisher, self)
         self._albums_window.albums_changed.connect(self._on_albums_changed)
         self._albums_window.show()
@@ -150,19 +156,18 @@ class PublisherDetailTab(QWidget):
 
     def _display_publisher_info(self, publisher):
         """Update publisher information display."""
-        name = html.escape(publisher.publisher_name)
-        if publisher.second_pass:
-            self.name_label.setText(f'{name} <span style="color:#43a047;">✓</span>')
-        elif publisher.first_pass:
-            self.name_label.setText(f'{name} <span style="color:#8599ea;">✓</span>')
-        else:
-            self.name_label.setText(publisher.publisher_name)
+        name = html.escape(publisher.publisher_name or "")
+        # Same review-tier checkmark icons as the publisher tree.
+        badge = "checkmark_green.svg" if publisher.second_pass else "checkmark.svg" if publisher.first_pass else None
+        if badge:
+            name += f' <img src="{html.escape(asset(badge))}" width="16" height="16">'
+        self.name_label.setText(name)
 
         self.years_label.setText(self._format_years(publisher))
 
         albums = get_publisher_albums(self.controller, publisher.publisher_id)
         album_count = len(albums)
-        self.tracks_label.setText(f"{album_count} album{'s' if album_count != 1 else ''}")
+        self.albums_label.setText(f"{album_count} album{'s' if album_count != 1 else ''}")
         self.associations_btn.setText(f"View Albums ({album_count})")
 
         # Description
@@ -171,9 +176,7 @@ class PublisherDetailTab(QWidget):
 
     @staticmethod
     def _format_years(publisher):
-        """Fold active/inactive status into the year range instead of
-        giving status its own field: "1996-Current", "1996-2008",
-        "1996-" (inactive, no end year), or plain status if no years."""
+        """Return the year range with status folded in, e.g. "1996–Current" or "1996–2008"."""  # noqa: RUF002 (en-dash)
         if not publisher.begin_year:
             return "Active" if publisher.is_active == 1 else "Inactive"
         if publisher.is_active == 1:
@@ -183,16 +186,14 @@ class PublisherDetailTab(QWidget):
         return f"{publisher.begin_year}–"  # noqa: RUF001 (en-dash range separator)
 
     def _load_publisher_places(self, publisher_id):
-        """Load associated places, each labeled with its association type
-        (e.g. "Headquartered In: Nashville, TN"). Hides the card entirely
-        when there are none."""
+        """Fill the places card with "Type: Place" rows, and hide it when there are none."""
         clear_layout(self.places_layout)
         rows = []
         try:
             publisher_places = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=publisher_id)
 
             for place_assoc in publisher_places or []:
-                place = self.controller.get.get_entity_object("Place", place_id=place_assoc.place_id)
+                place = place_assoc.place
                 if not place:
                     continue
                 type_name = place_assoc.association_type.type_name if place_assoc.association_type else "Associated"
@@ -239,35 +240,12 @@ class PublisherDetailTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to load tracks:\n{e!s}")
 
     def _get_publisher_tracks(self):
-        """Get all tracks associated with the current publisher."""
+        """Return the unique tracks on all albums of the current publisher and its descendants."""
         if not self.current_publisher:
             return []
-
-        tracks = []
-        try:
-            # Get all albums associated with this publisher (including child publishers)
-            albums = get_publisher_albums(self.controller, self.current_publisher.publisher_id)
-
-            for album in albums:
-                # Get all tracks for this album using direct relationship
-                # Tracks have a foreign key to album_id
-                album_tracks = self.controller.get.get_all_entities("Track", album_id=album.album_id)
-
-                for track in album_tracks:
-                    # Get the full track object with relationships
-                    track_full = self.controller.get.get_entity_object("Track", track_id=track.track_id)
-                    if track_full:
-                        tracks.append(track_full)
-
-            # Remove duplicates (in case tracks appear in multiple albums)
-            # Create a dictionary with track_id as key to remove duplicates
-            unique_tracks = {}
-            for track in tracks:
-                if track.track_id not in unique_tracks:
-                    unique_tracks[track.track_id] = track
-
-            return list(unique_tracks.values())
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error fetching publisher tracks: {e!s}")
-            return []
+        # SQLAlchemyError is left to the caller so a DB failure is not shown as "no tracks".
+        tracks = {}
+        for album in get_publisher_albums(self.controller, self.current_publisher.publisher_id):
+            for track in self.controller.get.get_all_entities("Track", album_id=album.album_id) or []:
+                tracks.setdefault(track.track_id, track)
+        return list(tracks.values())

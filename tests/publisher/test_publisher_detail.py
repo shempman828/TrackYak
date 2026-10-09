@@ -57,7 +57,7 @@ def test_editing_album_refreshes_publisher_album_count(monkeypatch, qapp):
     tab = PublisherDetailTab(controller)
     try:
         tab.load_publisher_data(1)
-        assert tab.tracks_label.text() == "1 album"
+        assert tab.albums_label.text() == "1 album"
 
         tab._open_albums_window()
 
@@ -69,7 +69,7 @@ def test_editing_album_refreshes_publisher_album_count(monkeypatch, qapp):
         tab.albums_changed.connect(lambda: received.append(True))
         tab._albums_window.albums_changed.emit()
 
-        assert tab.tracks_label.text() == "2 albums"
+        assert tab.albums_label.text() == "2 albums"
         assert tab.associations_btn.text() == "View Albums (2)"
         assert received == [True]
     finally:
@@ -107,7 +107,7 @@ def test_places_card_shows_association_type_label(monkeypatch, qapp):
     publisher = _make_publisher()
     place = SimpleNamespace(place_id=1, place_name="Nashville, TN")
     assoc_type = SimpleNamespace(type_name="Headquartered In")
-    place_assoc = SimpleNamespace(place_id=1, association_type=assoc_type)
+    place_assoc = SimpleNamespace(place_id=1, place=place, association_type=assoc_type)
 
     class _GetWithPlaces(_StubGet):
         def get_all_entities(self, model_name, **kwargs):
@@ -130,5 +130,48 @@ def test_places_card_shows_association_type_label(monkeypatch, qapp):
         assert not tab.places_card.isHidden()
         labels = [tab.places_layout.itemAt(i).widget().text() for i in range(tab.places_layout.count())]
         assert labels == ["Headquartered In: Nashville, TN"]
+    finally:
+        tab.deleteLater()
+
+
+def test_publisher_name_is_html_escaped_for_every_review_tier(monkeypatch, qapp):
+    monkeypatch.setattr(publisher_detail_module, "get_publisher_albums", lambda *a, **k: [])
+    for first_pass, second_pass in ((False, False), (True, False), (True, True)):
+        publisher = _make_publisher()
+        publisher.publisher_name = "<b>Bold</b> & Co"
+        publisher.first_pass, publisher.second_pass = first_pass, second_pass
+        tab = PublisherDetailTab(_StubController(publisher, []))
+        try:
+            tab.load_publisher_data(1)
+            assert tab.name_label.text().startswith("&lt;b&gt;Bold&lt;/b&gt; &amp; Co")
+        finally:
+            tab.deleteLater()
+
+
+def test_null_publisher_name_does_not_raise(monkeypatch, qapp):
+    monkeypatch.setattr(publisher_detail_module, "get_publisher_albums", lambda *a, **k: [])
+    publisher = _make_publisher()
+    publisher.publisher_name = None
+    tab = PublisherDetailTab(_StubController(publisher, []))
+    try:
+        tab.load_publisher_data(1)
+        assert tab.name_label.text() == ""
+    finally:
+        tab.deleteLater()
+
+
+def test_view_albums_reuses_open_window(monkeypatch, qapp):
+    publisher = _make_publisher()
+    monkeypatch.setattr(publisher_detail_module, "get_publisher_albums", lambda *a, **k: [])
+    monkeypatch.setattr(publisher_detail_module, "PublisherAlbumsWindow", _StubAlbumsWindow)
+    tab = PublisherDetailTab(_StubController(publisher, []))
+    try:
+        tab.load_publisher_data(1)
+        tab._open_albums_window()
+        first = tab._albums_window
+        first.show()
+        tab._open_albums_window()
+        assert tab._albums_window is first
+        first.close()
     finally:
         tab.deleteLater()

@@ -1,5 +1,10 @@
 from collections import defaultdict
 
+from sqlalchemy import select
+
+from src.db.db_tables import AlbumPublisher
+from src.db.db_tables.album import Album
+
 
 def get_descendant_publisher_ids(controller, publisher_id):
     """Return publisher_id plus every descendant publisher_id (children, grandchildren, ...)."""
@@ -9,9 +14,13 @@ def get_descendant_publisher_ids(controller, publisher_id):
         children_map[publisher.parent_id].append(publisher.publisher_id)
 
     ids = []
+    visited = set()  # guards against a parent_id cycle in the data
     stack = [publisher_id]
     while stack:
         current = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
         ids.append(current)
         stack.extend(children_map.get(current, []))
     return ids
@@ -24,19 +33,9 @@ def _album_chronological_key(album):
 
 
 def get_publisher_albums(controller, publisher_id):
-    """Return every Album linked to this publisher or any of its descendant
-    publishers, ordered chronologically by release date (unknown dates last)."""
+    """Return every Album of this publisher and its descendants, oldest first."""
     publisher_ids = get_descendant_publisher_ids(controller, publisher_id)
-
-    albums = []
-    seen_album_ids = set()
-    for pid in publisher_ids:
-        for link in controller.get.get_entity_links("AlbumPublisher", publisher_id=pid):
-            if link.album_id in seen_album_ids:
-                continue
-            album = controller.get.get_entity_object("Album", album_id=link.album_id)
-            if album:
-                seen_album_ids.add(link.album_id)
-                albums.append(album)
+    stmt = select(Album).join(AlbumPublisher, AlbumPublisher.album_id == Album.album_id).where(AlbumPublisher.publisher_id.in_(publisher_ids)).distinct()
+    albums = list(controller.get.session.execute(stmt).scalars().all())
     albums.sort(key=_album_chronological_key)
     return albums
