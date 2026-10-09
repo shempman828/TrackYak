@@ -1,3 +1,5 @@
+"""Type filter dropdown shared by the place map and list: a summary button that opens a checkbox popup."""
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
@@ -43,17 +45,13 @@ class _DropdownPopup(QFrame):
         layout.addWidget(scroll_area)
 
     def hideEvent(self, event):
+        """Report that the popup closed."""
         super().hideEvent(event)
         self.hidden.emit()
 
 
 class MultiSelectWidget(QWidget):
-    """Dropdown widget for multi-selection using checkboxes.
-
-    Presents as a single button summarizing the current selection; clicking
-    it opens a popup panel with the checkboxes so the control no longer
-    permanently occupies space in the layout.
-    """
+    """Button that summarizes the selected types and opens a checkbox popup to change them."""
 
     selection_changed = Signal(list)  # Signal emitted when selection changes
 
@@ -64,6 +62,7 @@ class MultiSelectWidget(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """Build the toggle button and its popup."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -82,28 +81,25 @@ class MultiSelectWidget(QWidget):
         self.popup.hidden.connect(self._on_popup_hidden)
 
     def _toggle_popup(self):
+        """Open or close the popup with the button."""
         if self.toggle_button.isChecked():
             self._show_popup()
         else:
             self.popup.hide()
 
     def _show_popup(self):
+        """Open the popup under the button."""
         pos = self.toggle_button.mapToGlobal(self.toggle_button.rect().bottomLeft())
         self.popup.setFixedWidth(max(self.toggle_button.width(), 220))
         self.popup.move(pos)
         self.popup.show()
 
     def _on_popup_hidden(self):
+        """Release the button when the popup closes."""
         self.toggle_button.setChecked(False)
 
     def set_items(self, items, default_selected=True):
-        """Set the list of items with checkboxes.
-
-        Items are added in the order given, so callers that want a
-        meaningful ordering (e.g. hierarchy-based rather than alphabetical)
-        can control it by passing items pre-sorted.
-        """
-        # Clear existing checkboxes
+        """Replace the checkboxes with `items`, in the order given (callers pre-sort them)."""
         clear_layout(self.popup.content_layout)
 
         self.checkboxes.clear()
@@ -125,10 +121,8 @@ class MultiSelectWidget(QWidget):
         self.selection_changed.emit(sorted(self.selected_items))
 
     def on_checkbox_changed(self, item, state):
-        """Handle checkbox state change correctly for PySide6."""
-        # In PySide6, state 0 is Unchecked, 2 is Checked.
-        # Using 'if state:' captures Checked (2) and avoids enum comparison issues.
-        if state:
+        """Track one checkbox change and report the new selection."""
+        if state:  # stateChanged sends an int: 0 is Unchecked, 2 is Checked
             self.selected_items.add(item)
         else:
             self.selected_items.discard(item)
@@ -136,35 +130,34 @@ class MultiSelectWidget(QWidget):
         self._update_button_text()
         self.selection_changed.emit(sorted(self.selected_items))
 
-    def select_all(self):
-        """Select all checkboxes and update the selection set."""
+    def _set_all_checked(self, checked):
+        """Check or uncheck every box, then report the selection once."""
         for checkbox in self.checkboxes.values():
-            checkbox.setChecked(True)
-
-        # Crucial: Synchronize the set with all available keys
-        self.selected_items = set(self.checkboxes.keys())
+            checkbox.blockSignals(True)  # one selection_changed for the batch, not one per box
+            checkbox.setChecked(checked)
+            checkbox.blockSignals(False)
+        self.selected_items = set(self.checkboxes) if checked else set()
         self._update_button_text()
         self.selection_changed.emit(sorted(self.selected_items))
 
-    def select_none(self):
-        """Deselect all checkboxes efficiently."""
-        self.blockSignals(True)
-        for checkbox in self.checkboxes.values():
-            checkbox.setChecked(False)
-        self.blockSignals(False)
+    def select_all(self):
+        """Select every item."""
+        self._set_all_checked(True)
 
-        self.selected_items.clear()
-        self._update_button_text()
-        self.selection_changed.emit([])  # Emit once at the end
+    def select_none(self):
+        """Deselect every item."""
+        self._set_all_checked(False)
 
     def get_selected_items(self):
         """Get list of selected items."""
         return sorted(self.selected_items)
 
     def set_selected_items(self, items):
-        """Set specific items as selected."""
+        """Select exactly `items`, without emitting selection_changed."""
         for item, checkbox in self.checkboxes.items():
+            checkbox.blockSignals(True)
             checkbox.setChecked(item in items)
+            checkbox.blockSignals(False)
         self.selected_items = set(items)
         self._update_button_text()
 

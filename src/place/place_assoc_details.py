@@ -1,94 +1,75 @@
+"""Connected Music dialog that the map's marker popups open for one place."""
+
+import html
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.segmented_control import SegmentedControl
 from src.foundation.logger_config import logger
+from src.place.place_associations import GROUP_AUTO_EXPAND_THRESHOLD, entity_display_name, entity_tooltip, group_associations
+from src.place.place_types import type_label
 
-# Groups with more associations than this start collapsed, since an
-# expanded group this size is what makes the dialog unwieldy to scan.
-GROUP_AUTO_EXPAND_THRESHOLD = 10
+__all__ = ["GROUP_AUTO_EXPAND_THRESHOLD", "AssociationDetailsDialog"]
 
 
 class AssociationDetailsDialog(QDialog):
+    """Modal list of the music connected to a place, directly or through its child places."""
+
     def __init__(self, controller, place, parent=None, recursive=False):
         super().__init__(parent)
         self.controller = controller
         self.place = place
         self.recursive_mode = recursive
-        self.setWindowTitle(f"Associations for {place.place_name}")
+        self.setWindowTitle(f"Connected Music: {place.place_name}")
         self.setModal(True)
         self.init_ui()
         self.adjust_size()
 
     def init_ui(self):
+        """Build the header, scope control, filter box, and music tree."""
         layout = QVBoxLayout(self)
 
-        # Place info and toggle
         header_layout = QHBoxLayout()
-        place_info = QLabel(f"<h3>{self.place.place_name} ({self.place.place_type})</h3>")
+        place_info = QLabel(f"<h3>{html.escape(self.place.place_name or '')} ({html.escape(type_label(self.place.place_type))})</h3>")
         header_layout.addWidget(place_info)
-
-        self.recursive_toggle = QPushButton(
-            "Show Recursive Associations" if not self.recursive_mode else "Show Direct Associations"
-        )
-        self.recursive_toggle.clicked.connect(self.toggle_recursive_mode)
-        header_layout.addWidget(self.recursive_toggle)
-
+        header_layout.addStretch()
+        self.scope_control = SegmentedControl(["Direct", "With children"])
+        self.scope_control.setItemToolTip(0, "Music connected to this place only")
+        self.scope_control.setItemToolTip(1, "Also include music connected to places inside this one")
+        self.scope_control.setCurrentIndex(1 if self.recursive_mode else 0)
+        self.scope_control.currentIndexChanged.connect(self._on_scope_changed)
+        header_layout.addWidget(self.scope_control)
         layout.addLayout(header_layout)
 
-        # Filter box
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Type to filter by name, type, association, or path...")
+        self.filter_edit.setPlaceholderText("Filter connected music…")
+        self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self.filter_associations)
-        filter_layout.addWidget(self.filter_edit)
-        layout.addLayout(filter_layout)
+        layout.addWidget(self.filter_edit)
 
-        # Associations tree
-        associations_label = QLabel("<b>Associated Entities:</b>")
-        layout.addWidget(associations_label)
-
-        # Create tree widget with columns
         self.associations_tree = QTreeWidget()
-        self.associations_tree.setHeaderLabels(["Entity", "Type", "Association Type", "Path"])
+        self.associations_tree.setHeaderLabels(["Name", "Type", "Connection", "Via"])
         self.associations_tree.setSortingEnabled(True)
         self.associations_tree.setAlternatingRowColors(True)
         self.associations_tree.setSelectionMode(QTreeWidget.SingleSelection)
-
-        # Set column widths
-        self.associations_tree.setColumnWidth(0, 200)  # Entity name
-        self.associations_tree.setColumnWidth(1, 100)  # Entity type
-        self.associations_tree.setColumnWidth(2, 120)  # Association type
-        self.associations_tree.setColumnWidth(3, 150)  # Path (for recursive mode)
-
         layout.addWidget(self.associations_tree)
 
-        # Close button
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
         layout.addWidget(close_button)
 
-        # Load associations
         self.load_associations()
 
     def adjust_size(self):
-        """Auto-adjust the dialog size to fit contents."""
-        # Calculate ideal size
+        """Fit the dialog to its content, within 70% x 80% of the screen, centered on the parent."""
         self.adjustSize()
-
-        # Set reasonable maximum size
         screen_geometry = self.screen().availableGeometry()
-        max_width = screen_geometry.width() * 0.7
-        max_height = screen_geometry.height() * 0.8
-
+        max_width = int(screen_geometry.width() * 0.7)
+        max_height = int(screen_geometry.height() * 0.8)
         current_size = self.size()
-        new_width = min(max(500, current_size.width()), max_width)
-        new_height = min(max(400, current_size.height()), max_height)
-
-        self.resize(new_width, new_height)
-
-        # Ensure the dialog is centered relative to parent
+        self.resize(min(max(500, current_size.width()), max_width), min(max(400, current_size.height()), max_height))
         if self.parent():
             parent_center = self.parent().geometry().center()
             self.move(parent_center - self.rect().center())
@@ -111,9 +92,7 @@ class AssociationDetailsDialog(QDialog):
             any_visible = False
             for c in range(child_count):
                 child_item = type_item.child(c)
-                haystack = " ".join(
-                    child_item.text(col) for col in range(child_item.columnCount())
-                ).lower()
+                haystack = " ".join(child_item.text(col) for col in range(child_item.columnCount())).lower()
                 matches = text in haystack
                 child_item.setHidden(not matches)
                 any_visible = any_visible or matches
@@ -121,174 +100,46 @@ class AssociationDetailsDialog(QDialog):
             type_item.setHidden(not any_visible)
             type_item.setExpanded(any_visible)
 
-    def toggle_recursive_mode(self):
-        """Toggle between direct and recursive association views."""
-        self.recursive_mode = not self.recursive_mode
-        self.recursive_toggle.setText(
-            "Show Recursive Associations" if not self.recursive_mode else "Show Direct Associations"
-        )
+    def _on_scope_changed(self, index):
+        """Reload for the Direct / With children choice."""
+        self.recursive_mode = index == 1
         self.load_associations()
         self.adjust_size()
 
     def load_associations(self):
-        """Load associations grouped by entity type."""
+        """Load the connected music, grouped by entity type."""
         self.associations_tree.clear()
-
+        self.associations_tree.setColumnHidden(3, not self.recursive_mode)
         try:
-            associations = fetch_place_associations(self.controller, self.place.place_id, recursive=self.recursive_mode)
-
-            if not associations:
-                no_assoc_item = QTreeWidgetItem(["No associations found", "", "", ""])
-                self.associations_tree.addTopLevelItem(no_assoc_item)
-                return
-
-            # Group associations by entity_type
-            associations_by_type = {}
-            for assoc in associations:
-                entity_type = assoc.entity_type or "Unknown"
-                if entity_type not in associations_by_type:
-                    associations_by_type[entity_type] = []
-                associations_by_type[entity_type].append(assoc)
-
-            # Create tree structure grouped by entity type
-            for entity_type, type_associations in sorted(associations_by_type.items()):
-                type_item = QTreeWidgetItem([f"{entity_type.title()}s", "", "", ""])
-
-                # Set bold font for group headers
-                font = type_item.font(0)
-                font.setBold(True)
-                type_item.setFont(0, font)
-
-                # Add count to group header
-                type_item.setText(0, f"{entity_type.title()}s ({len(type_associations)})")
-
-                self.associations_tree.addTopLevelItem(type_item)
-                type_item.setExpanded(len(type_associations) <= GROUP_AUTO_EXPAND_THRESHOLD)
-
-                for assoc in type_associations:
-                    entity = fetch_entity(self.controller, assoc.entity_type, assoc.entity_id)
-                    if entity:
-                        display_name = entity_display_name(entity, assoc.entity_type)
-
-                        # Create child item
-                        child_item = QTreeWidgetItem(
-                            [
-                                display_name,
-                                assoc.entity_type.title(),
-                                assoc.association_type.type_name if assoc.association_type else "",
-                                assoc.place_path if hasattr(assoc, "place_path") else "Direct",
-                            ]
-                        )
-
-                        # Store entity data for potential future use
-                        child_item.setData(0, Qt.UserRole, entity)
-                        child_item.setData(0, Qt.UserRole + 1, assoc)
-
-                        # Add tooltip with more details
-                        tooltip = entity_tooltip(entity, assoc.entity_type)
-                        if hasattr(assoc, "place_path"):
-                            tooltip += f"\nPath: {assoc.place_path}"
-                        child_item.setToolTip(0, tooltip)
-
-                        type_item.addChild(child_item)
-                    else:
-                        # Entity not found
-                        child_item = QTreeWidgetItem(
-                            [
-                                f"Unknown {assoc.entity_type} (ID: {assoc.entity_id})",
-                                assoc.entity_type.title(),
-                                assoc.association_type.type_name if assoc.association_type else "",
-                                assoc.place_path if hasattr(assoc, "place_path") else "Direct",
-                            ]
-                        )
-                        type_item.addChild(child_item)
-
-            # Auto-resize columns to content
-            for i in range(self.associations_tree.columnCount()):
-                self.associations_tree.resizeColumnToContents(i)
-
-            if self.filter_edit.text():
-                self.filter_associations(self.filter_edit.text())
-
-        except (SQLAlchemyError, RuntimeError) as e:
+            groups = group_associations(self.controller, self.place.place_id, recursive=self.recursive_mode)
+        except (SQLAlchemyError, RuntimeError):
             logger.exception("Error loading associations")
-            error_item = QTreeWidgetItem([f"Error loading associations: {e!s}", "", "", ""])
-            self.associations_tree.addTopLevelItem(error_item)
+            self.associations_tree.addTopLevelItem(QTreeWidgetItem(["Could not load connected music. See the log for details.", "", "", ""]))
+            return
 
+        if not groups:
+            self.associations_tree.addTopLevelItem(QTreeWidgetItem(["No music is connected to this place.", "", "", ""]))
+            return
 
-def fetch_place_associations(controller, place_id, recursive=False):
-    """Associations of a place; with `recursive`, also those of every
-    descendant place, each tagged with a `place_path` ("A → B → C")."""
-    if not recursive:
-        return controller.get.get_all_entities("PlaceAssociation", place_id=place_id)
-    return _recursive_associations(controller, place_id, [], set())
+        for entity_type, rows in sorted(groups.items()):
+            type_item = QTreeWidgetItem([f"{entity_type.title()}s ({len(rows)})", "", "", ""])
+            font = type_item.font(0)
+            font.setBold(True)
+            type_item.setFont(0, font)
+            self.associations_tree.addTopLevelItem(type_item)
+            type_item.setExpanded(len(rows) <= GROUP_AUTO_EXPAND_THRESHOLD)
 
+            for assoc, entity in rows:
+                name = entity_display_name(entity, assoc.entity_type) if entity else f"Unknown {assoc.entity_type} (ID: {assoc.entity_id})"
+                via = getattr(assoc, "place_path", "")
+                child_item = QTreeWidgetItem([str(name), assoc.entity_type.title(), assoc.association_type.type_name if assoc.association_type else "", via])
+                if entity:
+                    child_item.setData(0, Qt.UserRole, entity)
+                    child_item.setToolTip(0, entity_tooltip(entity, assoc.entity_type) + (f"\nVia: {via}" if via else ""))
+                type_item.addChild(child_item)
 
-def _recursive_associations(controller, place_id, current_path, visited):
-    if place_id in visited:  # guards against a parent_id cycle in the data
-        return []
-    visited.add(place_id)
-    place = controller.get.get_entity_object("Place", place_id=place_id)
-    if not place:
-        return []
+        for i in range(self.associations_tree.columnCount()):
+            self.associations_tree.resizeColumnToContents(i)
 
-    new_path = [*current_path, place.place_name]
-    path_str = " → ".join(new_path)
-    associations = []
-    for assoc in controller.get.get_all_entities("PlaceAssociation", place_id=place_id):
-        assoc.place_path = path_str
-        associations.append(assoc)
-    for child in controller.get.get_all_entities("Place", parent_id=place_id):
-        associations.extend(_recursive_associations(controller, child.place_id, new_path, visited))
-    return associations
-
-
-def fetch_entity(controller, entity_type, entity_id):
-    """Fetch the entity an association points at, e.g. ("track", 5) -> Track 5."""
-    if not entity_type:
-        return None
-    try:
-        return controller.get.get_entity_object(entity_type.title(), **{f"{entity_type.lower()}_id": entity_id})
-    except SQLAlchemyError:
-        logger.exception("Error getting entity details for %s id=%s", entity_type, entity_id)
-        return None
-
-
-def entity_display_name(entity, entity_type):
-    """Display name of an associated entity (its `<type>_name` attribute)."""
-    if not entity or not entity_type:
-        return f"Unknown {entity_type or 'entity'}"
-    return getattr(entity, f"{entity_type.lower()}_name", getattr(entity, "name", f"Unknown {entity_type}"))
-
-
-def entity_tooltip(entity, entity_type):
-    """Multi-line tooltip with the most useful facts about an associated entity."""
-    entity_type = (entity_type or "").lower()
-    if entity_type == "artist" and hasattr(entity, "artist_name"):
-        tooltip = f"Artist: {entity.artist_name}\n"
-        tooltip += f"Type: {'Group' if entity.isgroup else 'Person'}\n"
-        if entity.begin_year:
-            tooltip += f"Born: {entity.begin_year}"
-            if entity.end_year:
-                tooltip += f" - Died: {entity.end_year}"
-        return tooltip
-    if entity_type == "track" and hasattr(entity, "track_name"):
-        tooltip = f"Track: {entity.track_name}\n"
-        if getattr(entity, "album", None):
-            tooltip += f"Album: {entity.album.album_name}\n"
-        if entity.duration:
-            tooltip += f"Duration: {entity.duration_formatted}"
-        return tooltip
-    if entity_type == "album" and hasattr(entity, "album_name"):
-        tooltip = f"Album: {entity.album_name}\n"
-        if entity.release_year:
-            tooltip += f"Released: {entity.release_year}"
-        return tooltip
-    if entity_type == "publisher" and hasattr(entity, "publisher_name"):
-        return f"Publisher: {entity.publisher_name}"
-    if entity_type == "playlist" and hasattr(entity, "playlist_name"):
-        tooltip = f"Playlist: {entity.playlist_name}\n"
-        if entity.playlist_description:
-            tooltip += f"Description: {entity.playlist_description}"
-        return tooltip
-    return f"{entity_type.title()}: {getattr(entity, 'name', 'Unknown')}"
+        if self.filter_edit.text():
+            self.filter_associations(self.filter_edit.text())

@@ -1,11 +1,4 @@
-"""Painted row for the place tree: type-color dot, name, type pill, a
-data-gap warning mark, and a right-aligned association count badge.
-
-The row background (hover/selection) is drawn by the style, so it follows
-the QTreeWidget::item rules in dark_mode.qss; only the content is painted
-here. Row data is precomputed into item roles by the list (see the *_ROLE
-constants) so painting never touches the ORM.
-"""
+"""Painted place-tree row: type dot, name, type pill, data-gap mark, and association count badge."""
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen
@@ -30,15 +23,20 @@ _PAD = 6
 
 
 class PlaceRowDelegate(QStyledItemDelegate):
+    """Paints a place row from the precomputed *_ROLE data, so painting never touches the ORM."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.show_type = True
 
     def sizeHint(self, option, index):
+        """Row height that fits the font and the badges."""
         height = max(_ROW_HEIGHT, QFontMetrics(option.font).height() + 10)
         return QSize(super().sizeHint(option, index).width(), height)
 
     def paint(self, painter, option, index):
+        """Paint the row content over the style-drawn background."""
+        # The style draws hover/selection, so dark_mode.qss QTreeWidget::item rules still apply.
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         opt.text = ""

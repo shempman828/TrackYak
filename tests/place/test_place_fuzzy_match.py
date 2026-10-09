@@ -189,3 +189,39 @@ def test_resolved_field_lands_on_the_merged_survivor(qapp):
     assert survivor.place_description == "A city."
     assert survivor.place_name == "Springfield"
     assert session.get(Place, source.place_id) is None
+
+
+# ---- the worker thread must not touch ORM relationships -------------------
+
+
+class _GuardedPlace:
+    """Place whose `parent` may be read only before the scan starts (on the GUI thread)."""
+
+    scanning = False
+
+    def __init__(self, place_id, name, parent=None):
+        self.place_id = place_id
+        self.place_name = name
+        self.place_type = None
+        self.MBID = None
+        self._parent = parent
+
+    @property
+    def parent(self):
+        assert not _GuardedPlace.scanning, "parent lazy-loaded on the worker thread"
+        return self._parent
+
+
+def test_scan_reads_ancestor_chains_before_it_starts(qapp):
+    country = _GuardedPlace(10, "France")
+    places = [_GuardedPlace(1, "Paris", parent=country), _GuardedPlace(2, "Paris", parent=country)]
+    worker = PlaceFuzzyMatchWorker(places, NAME_THRESHOLD, CHAIN_THRESHOLD)
+
+    _GuardedPlace.scanning = True
+    try:
+        matches = worker._find_matches()
+    finally:
+        _GuardedPlace.scanning = False
+
+    assert len(matches) == 1
+    assert {matches[0][0].place_id, matches[0][1].place_id} == {1, 2}

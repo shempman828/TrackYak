@@ -1,4 +1,6 @@
-from PySide6.QtCore import Qt
+"""List tab of the Places page: filterable place tree, detail panel, and the place actions."""
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -27,148 +29,13 @@ from src.place.dialogs.place_merge_dialog import PlaceMergeDialog
 from src.place.map.place_map_filter import MultiSelectWidget
 from src.place.place_detail_panel import PlaceDetailPanel
 from src.place.place_fuzzy_match import CHAIN_THRESHOLD, NAME_THRESHOLD, FuzzyMatchDialog, PlaceFuzzyMatchWorker
+from src.place.place_hierarchy import PLACE_LOAD_OPTIONS, association_counts
 from src.place.place_row_delegate import COUNTS_ROLE, TYPE_LABEL_ROLE, WARNING_ROLE, PlaceRowDelegate
+from src.place.place_tree import DraggableTreeWidget
 from src.place.place_types import NO_TYPE_LABEL, merge_type_selection, order_types_by_hierarchy, type_label
 
-
-class DraggableTreeWidget(QTreeWidget):
-    """QTreeWidget subclass that correctly handles drag-and-drop to update the database."""
-
-    def __init__(self, list_view):
-        super().__init__()
-        # Keep a reference to the ListView so we can call its controller and refresh
-        self.list_view = list_view
-
-    def dropEvent(self, event):
-        """Called when a drag-and-drop is completed inside the tree."""
-        # IMPORTANT: Read the dragged items and drop target BEFORE calling super().
-        # Multi-selection means several rows can be dragged at once.
-        dragged_items = self.selectedItems()
-        if not dragged_items:
-            event.ignore()
-            return
-
-        # The item the user is hovering over when they release the mouse
-        target_item = self.itemAt(event.pos())
-        # Whether the drop landed squarely on target_item (nest under it) or
-        # above/below it (become a sibling) — Qt's own drop indicator already
-        # shows the user which of these will happen, so honor it instead of
-        # always nesting under whatever item happens to be under the cursor.
-        indicator = self.dropIndicatorPosition()
-
-        try:
-            moved_places = []
-            for dragged_item in dragged_items:
-                moved_place = dragged_item.data(0, Qt.UserRole)
-
-                if target_item is None or target_item in dragged_items:
-                    # Dropped on empty space or on one of the dragged items — becomes top-level
-                    new_parent_id = None
-                elif indicator == QAbstractItemView.OnItem:
-                    # Dropped directly onto an item — nest under it
-                    parent_place = target_item.data(0, Qt.UserRole)
-                    new_parent_id = parent_place.place_id
-                else:
-                    # Dropped above/below an item — become a sibling of that item
-                    sibling_parent_item = target_item.parent()
-                    if sibling_parent_item is None:
-                        new_parent_id = None
-                    else:
-                        parent_place = sibling_parent_item.data(0, Qt.UserRole)
-                        new_parent_id = parent_place.place_id
-
-                moved_places.append((moved_place, new_parent_id))
-
-            # Now let Qt handle the visual repositioning
-            super().dropEvent(event)
-
-            # Save the new parents to the database
-            for moved_place, new_parent_id in moved_places:
-                self.list_view.controller.update.update_entity("Place", moved_place.place_id, parent_id=new_parent_id)
-                logger.info(f"Updated parent for {moved_place.place_name} to {new_parent_id}")
-
-            # Reload both views so tree items always reflect the real database state
-            if self.list_view.parent_view:
-                self.list_view.parent_view.refresh_views()
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Failed to update parent: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to update parent place")
-            # Refresh to revert visual changes if the DB update failed
-            if self.list_view.parent_view:
-                self.list_view.parent_view.refresh_views()
-
-    def count_total(self):
-        """Count all place items in the tree, regardless of visibility."""
-        count = 0
-        iterator = QTreeWidgetItemIterator(self)
-        while iterator.value():
-            count += 1
-            iterator += 1
-        return count
-
-    def count_visible(self):
-        """Count place items currently visible (not hidden by search filter)."""
-        count = 0
-        iterator = QTreeWidgetItemIterator(self)
-        while iterator.value():
-            if not iterator.value().isHidden():
-                count += 1
-            iterator += 1
-        return count
-
-    def filter_items(self, search_text, selected_types=None, mbid_missing_only=False, coords_missing_only=False, no_parent_only=False, expand_matches=False):
-        """Filter tree items based on search text plus optional type/MBID/coordinate/parent criteria.
-
-        An ancestor is kept visible whenever any descendant matches, so the
-        path down to a match is never hidden, even if the ancestor itself
-        doesn't satisfy the criteria.
-        """
-        text_lower = search_text.lower()
-
-        def item_matches(place):
-            if place is None:
-                return False
-
-            name_lower = (place.place_name or "").lower()
-            if text_lower not in name_lower:
-                return False
-
-            if selected_types is not None:
-                if type_label(place.place_type) not in selected_types:
-                    return False
-
-            if mbid_missing_only and place.MBID:
-                return False
-
-            if no_parent_only and place.parent_id is not None:
-                return False
-
-            return not (coords_missing_only and place.place_latitude is not None and place.place_longitude is not None)
-
-        def filter_item(item):
-            place = item.data(0, Qt.UserRole)
-            matches = item_matches(place)
-
-            child_matches = False
-            for i in range(item.childCount()):
-                if filter_item(item.child(i)):
-                    child_matches = True
-
-            should_show = matches or child_matches
-            item.setHidden(not should_show)
-
-            if expand_matches and should_show:
-                item.setExpanded(True)
-                parent = item.parent()
-                while parent:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-
-            return should_show
-
-        for i in range(self.topLevelItemCount()):
-            filter_item(self.topLevelItem(i))
+# Wait this long after the last keystroke before filtering the tree.
+_SEARCH_DEBOUNCE_MS = 150
 
 
 class ListView(QWidget):
@@ -196,15 +63,33 @@ class ListView(QWidget):
         self.coords_missing_only = False
         self.no_parent_only = False
         self._places_by_id = {}
+        self._counts = {}
         self._loading = False
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(_SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(lambda: self.filter_places(self.search_bar.text()))
         self.init_ui()
 
+    @property
+    def places_by_id(self):
+        """The places of the last load, by place_id."""
+        return self._places_by_id
+
     def set_parent_view(self, parent_view):
-        """Set reference to parent PlaceView for cross-view updates"""
+        """Set the owning PlaceView, which refreshes the list and the map together."""
         self.parent_view = parent_view
         self.detail_panel.map_button.setVisible(parent_view is not None)
 
+    def refresh_all(self):
+        """Reload from the database: both tabs when a PlaceView owns this list, else the list only."""
+        if self.parent_view:
+            self.parent_view.refresh_views()
+        else:
+            self.load_places()
+
     def init_ui(self):
+        """Build the search row, the filter chips, and the tree | detail panel splitter."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(8)
@@ -215,7 +100,7 @@ class ListView(QWidget):
         self.search_bar.setObjectName("PlaceSearch")
         self.search_bar.setPlaceholderText("Search places…")
         self.search_bar.setClearButtonEnabled(True)
-        self.search_bar.textChanged.connect(self.filter_places)
+        self.search_bar.textChanged.connect(self._search_timer.start)
         top_row.addWidget(self.search_bar, 1)
 
         self.view_mode_control = SegmentedControl(["Tree", "Flat"])
@@ -320,6 +205,7 @@ class ListView(QWidget):
 
     @staticmethod
     def _make_chip(text, tooltip):
+        """Checkable filter-chip button."""
         chip = QPushButton(text)
         chip.setCheckable(True)
         chip.setProperty("class", "filterChip")
@@ -355,14 +241,7 @@ class ListView(QWidget):
     # ── loading ───────────────────────────────────────────────────────────
 
     def load_places(self, places=None):
-        """Load places into the tree.
-
-        Rebuilds the tree from scratch, so the expanded branches, the
-        current selection, and the scroll position are saved beforehand
-        and restored afterward — otherwise every edit, sort, or filter
-        change would jump the user back to a fully collapsed top of list.
-        `places` lets a caller that already fetched them skip a query.
-        """
+        """Rebuild the tree from `places` (or a fresh query), keeping expansion, selection, and scroll."""
         expanded_ids = collect_expanded_ids(self.tree_widget, id_role=self._ID_ROLE)
         current_item = self.tree_widget.currentItem()
         current_place_id = current_item.data(0, self._ID_ROLE) if current_item else None
@@ -373,8 +252,9 @@ class ListView(QWidget):
         try:
             self.tree_widget.clear()
             if places is None:
-                places = self.controller.get.get_all_entities("Place")
+                places = self.controller.get.get_all_entities("Place", load_options=PLACE_LOAD_OPTIONS)
             self._places_by_id = {p.place_id: p for p in places}
+            self._counts = association_counts(places)
             self._refresh_type_filter_options(places)
             self._refresh_chip_counts(places)
 
@@ -382,7 +262,17 @@ class ListView(QWidget):
                 self._add_places_flat(places)
             else:
                 hierarchy = self._build_hierarchy(places)
-                self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
+                root = self.tree_widget.invisibleRootItem()
+                seen = set()
+                self._add_places_to_tree(hierarchy, None, root, seen)
+                # A parent_id cycle in the data (e.g. a place that is its own
+                # parent) is unreachable from the top level; show it there.
+                for place in sorted((p for p in places if p.place_id not in seen), key=self._sort_key()):
+                    if place.place_id not in seen:
+                        seen.add(place.place_id)
+                        item = self._make_item(place)
+                        root.addChild(item)
+                        self._add_places_to_tree(hierarchy, place.place_id, item, seen)
 
             restore_expanded_ids(self.tree_widget, expanded_ids, id_role=self._ID_ROLE)
             self._restore_current_place(current_place_id)
@@ -404,6 +294,7 @@ class ListView(QWidget):
             self.tree_widget.setCurrentItem(item)
 
     def _find_item(self, place_id):
+        """Tree item for `place_id`, or None."""
         if place_id is None:
             return None
         iterator = QTreeWidgetItemIterator(self.tree_widget)
@@ -415,8 +306,7 @@ class ListView(QWidget):
         return None
 
     def _refresh_type_filter_options(self, places):
-        """Sync the type filter's options with the types present in the data,
-        keeping the user's selection and pre-selecting types that are new."""
+        """Sync the type filter's options with the data, keeping the selection; new types start selected."""
         unique_types = {type_label(p.place_type) for p in places}
         if unique_types == self.all_place_types:
             return
@@ -441,7 +331,8 @@ class ListView(QWidget):
     # ── filtering ─────────────────────────────────────────────────────────
 
     def filter_places(self, text):
-        """Filter places based on search text."""
+        """Filter places by search text now (typing in the search bar calls this after a short delay)."""
+        self._search_timer.stop()
         self.filter_text = text
         self._apply_filters()
 
@@ -468,12 +359,15 @@ class ListView(QWidget):
     def _clear_filters(self):
         """Reset the search text, type filter, and all chips to their defaults."""
         self.search_bar.clear()
+        self.filter_text = ""
         self.type_filter_widget.select_all()
         self.mbid_missing_checkbox.setChecked(False)
         self.coords_missing_checkbox.setChecked(False)
         self.no_parent_checkbox.setChecked(False)
+        self.filter_places("")  # apply now; do not wait for the search debounce
 
     def _filters_active(self):
+        """True when any filter hides rows."""
         return bool(self.filter_text or self.mbid_missing_only or self.coords_missing_only or self.no_parent_only or (self.all_place_types and self.selected_types != self.all_place_types))
 
     def _apply_filters(self):
@@ -485,8 +379,7 @@ class ListView(QWidget):
 
     def _update_count_label(self):
         """Refresh the "N places" / "X of Y places" count label."""
-        total = self.tree_widget.count_total()
-        visible = self.tree_widget.count_visible()
+        total, visible = self.tree_widget.count_items()
         if visible == total:
             self.count_label.setText(f"{total} place{'s' if total != 1 else ''}")
         else:
@@ -499,8 +392,7 @@ class ListView(QWidget):
     # ── selection / detail panel ──────────────────────────────────────────
 
     def select_place(self, place_id):
-        """Select, reveal, and scroll to the given place. Clears the filters
-        first if they currently hide it."""
+        """Select, reveal, and scroll to the given place, clearing filters that hide it."""
         item = self._find_item(place_id)
         if item is None:
             return
@@ -515,6 +407,7 @@ class ListView(QWidget):
         self.tree_widget.setFocus()
 
     def _ancestors_of(self, place):
+        """Parent chain of `place`, root first."""
         chain = []
         seen = {place.place_id}
         parent = self._places_by_id.get(place.parent_id)
@@ -525,6 +418,7 @@ class ListView(QWidget):
         return list(reversed(chain))
 
     def _on_selection_changed(self):
+        """Show the selected place, a multi-selection summary, or the empty state."""
         if self._loading:
             return
         selected = self.tree_widget.selectedItems()
@@ -539,10 +433,12 @@ class ListView(QWidget):
         self.detail_panel.set_place(place, self._ancestors_of(place), item.data(0, COUNTS_ROLE) or (0, 0))
 
     def _selected_place(self):
+        """The single selected place, or None."""
         selected = self.tree_widget.selectedItems()
         return selected[0].data(0, Qt.UserRole) if len(selected) == 1 else None
 
     def _show_current_on_map(self):
+        """Open the selected place on the Map tab."""
         place = self._selected_place()
         if place is not None and self.parent_view is not None:
             self.parent_view.show_place_on_map(place.place_id)
@@ -586,6 +482,7 @@ class ListView(QWidget):
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
     def _show_more_menu(self):
+        """Show the place actions under the detail panel's ⋯ button."""
         button = self.detail_panel.more_button
         menu = self._build_place_menu(self.tree_widget.selectedItems())
         menu.addAction("🔎 Find Duplicate Places…", self.find_fuzzy_matches)
@@ -594,8 +491,9 @@ class ListView(QWidget):
     # ── tree building ─────────────────────────────────────────────────────
 
     def _sort_key(self):
+        """Sort key for the current sort mode."""
         if self.sort_mode == "associations":
-            return lambda p: (-p.recursive_association_count, (p.place_name or "").lower())
+            return lambda p: (-self._counts.get(p.place_id, (0, 0))[1], (p.place_name or "").lower())
         return lambda p: (p.place_name or "").lower()
 
     def _build_hierarchy(self, places):
@@ -630,8 +528,7 @@ class ListView(QWidget):
 
     def _make_item(self, place):
         """Build a tree item with everything the row delegate paints precomputed into roles."""
-        direct = place.association_count
-        recursive = place.recursive_association_count
+        direct, recursive = self._counts.get(place.place_id, (0, 0))
         gaps = []
         if place.place_latitude is None or place.place_longitude is None:
             gaps.append("no coordinates")
@@ -648,7 +545,7 @@ class ListView(QWidget):
         return item
 
     def create_tooltip(self, place, direct, recursive, gaps):
-        """Create detailed tooltip for place."""
+        """Row tooltip: name, type, connected-item counts, and data gaps."""
         lines = [f"{place.place_name} ({type_label(place.place_type)})"]
         if direct == recursive:
             lines.append(f"{direct} connected item{'s' if direct != 1 else ''}")
@@ -661,32 +558,26 @@ class ListView(QWidget):
     # ── actions ───────────────────────────────────────────────────────────
 
     def add_place(self):
-        """Add place and refresh both views"""
+        """Add a place from the edit dialog."""
         dialog = PlaceEditDialog(self.controller, self)
-        if dialog.exec_() == QDialog.Accepted:
-            new_place = dialog.get_place_data()
-            try:
-                self.controller.add.add_entity("Place", **new_place)
-                if self.parent_view:
-                    self.parent_view.refresh_views()
-                logger.info("Place created successfully")
-            except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Failed to create place: {e!s}")
-                QMessageBox.critical(self, "Error", "Failed to create place")
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        if self.controller.add.add_entity("Place", **dialog.get_place_data()) is None:
+            QMessageBox.critical(self, "Error", "Could not create the place.")
+            return
+        logger.info("Place created successfully")
+        self.refresh_all()
 
     def edit_place_for(self, old_place):
-        """Edit the given place and refresh both views."""
+        """Edit the given place."""
         dialog = PlaceEditDialog(self.controller, self, old_place)
-        if dialog.exec_() == QDialog.Accepted:
-            updated_data = dialog.get_place_data()
-            try:
-                self.controller.update.update_entity("Place", old_place.place_id, **updated_data)
-                if self.parent_view:
-                    self.parent_view.refresh_views()
-                logger.info("Place updated successfully")
-            except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Failed to update place: {e!s}")
-                QMessageBox.critical(self, "Error", "Failed to update place")
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        if not self.controller.update.update_entity("Place", old_place.place_id, **dialog.get_place_data()):
+            QMessageBox.critical(self, "Error", "Could not update the place. See the log for details.")
+            return
+        logger.info("Place updated successfully")
+        self.refresh_all()
 
     def edit_place(self):
         """Edit the currently selected place."""
@@ -696,11 +587,7 @@ class ListView(QWidget):
         self.edit_place_for(selected.data(0, Qt.UserRole))
 
     def edit_selected_places(self):
-        """Bulk-edit every currently selected place in one dialog.
-
-        Only fields the user actually touches are written, to every
-        selected place, in a single batch update.
-        """
+        """Bulk-edit the selected places; only the fields the user touched are written."""
         selected_items = self.tree_widget.selectedItems()
         if not selected_items:
             return
@@ -717,88 +604,76 @@ class ListView(QWidget):
         place_ids = [place.place_id for place in places]
         success = self.controller.update.update_entities("Place", place_ids, **changes)
         if success:
-            if self.parent_view:
-                self.parent_view.refresh_views()
+            self.refresh_all()
             logger.info(f"Batch-updated {len(places)} place(s), fields: {list(changes.keys())}")
         else:
             logger.error(f"Failed to batch-update {len(places)} place(s)")
             QMessageBox.critical(self, "Error", "Failed to update the selected places")
 
     def create_new_parent_place(self, place):
-        """Create a new place and insert it as the parent of the given place.
-
-        The new place takes over the place's old parent slot (preserving
-        the grandparent chain), and the place becomes a child of the new
-        place.
-        """
-        dialog = PlaceEditDialog(self.controller, self)
+        """Create a place and put it between the given place and its old parent."""
+        dialog = PlaceEditDialog(self.controller, self, new_parent_of=place)
         if dialog.exec_() != QDialog.Accepted:
             return
-
         new_place_data = dialog.get_place_data()
         if new_place_data is None:
             return
 
-        try:
-            new_place = self.controller.add.add_entity("Place", **new_place_data)
-            if not new_place:
-                raise ValueError("Failed to create new place")
-
-            if new_place_data["parent_id"] is None:
-                # User didn't pick a parent for the new place in the
-                # dialog, so default to preserving the grandparent chain.
-                self.controller.update.update_entity("Place", new_place.place_id, parent_id=place.parent_id)
-            self.controller.update.update_entity("Place", place.place_id, parent_id=new_place.place_id)
-            if self.parent_view:
-                self.parent_view.refresh_views()
-            logger.info("New parent place created and linked successfully.")
-        except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            logger.error(f"Failed to create new parent place: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new parent place")
+        new_place = self.controller.add.add_entity("Place", **new_place_data)
+        if new_place is None:
+            QMessageBox.critical(self, "Error", "Could not create the new parent place.")
+            return
+        if not self.controller.update.update_entity("Place", place.place_id, parent_id=new_place.place_id):
+            # Undo the add, so a failed link does not leave an extra place behind.
+            self.controller.delete.delete_entity("Place", new_place.place_id)
+            QMessageBox.critical(self, "Error", f"Could not move {place.place_name} under the new place. Nothing was changed.")
+            return
+        logger.info("New parent place created and linked successfully.")
+        self.refresh_all()
 
     def create_new_child_place(self, place):
-        """Create a new place and set it as a child of the given place."""
-        dialog = PlaceEditDialog(self.controller, self)
+        """Create a place with the given place as its parent."""
+        dialog = PlaceEditDialog(self.controller, self, preset_parent=place)
         if dialog.exec_() != QDialog.Accepted:
             return
-
         new_place_data = dialog.get_place_data()
         if new_place_data is None:
             return
+        if self.controller.add.add_entity("Place", **new_place_data) is None:
+            QMessageBox.critical(self, "Error", "Could not create the new child place.")
+            return
+        logger.info("New child place created and linked successfully.")
+        self.refresh_all()
 
-        try:
-            new_place = self.controller.add.add_entity("Place", **new_place_data)
-            if not new_place:
-                raise ValueError("Failed to create new place")
-
-            self.controller.update.update_entity("Place", new_place.place_id, parent_id=place.place_id)
-            if self.parent_view:
-                self.parent_view.refresh_views()
-            logger.info("New child place created and linked successfully.")
-        except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            logger.error(f"Failed to create new child place: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new child place")
+    def _surviving_parent_id(self, place, deleted_ids):
+        """Nearest ancestor of `place` that is not in `deleted_ids` (None = top level)."""
+        seen = set()
+        parent_id = place.parent_id
+        while parent_id in deleted_ids and parent_id not in seen:
+            seen.add(parent_id)
+            parent = self._places_by_id.get(parent_id)
+            parent_id = parent.parent_id if parent else None
+        return None if parent_id in deleted_ids else parent_id
 
     def delete_selected_places(self):
-        """Delete all currently selected places after a single confirmation.
-
-        Supports single and multi-selection, listing the places to be
-        deleted in the confirmation dialog before anything is removed.
-        """
+        """Delete the selected places after one confirmation; their child places move up a level."""
         selected_items = self.tree_widget.selectedItems()
         if not selected_items:
             show_status_message(self, "Please select a place to delete.")
             return
 
         places = [item.data(0, Qt.UserRole) for item in selected_items]
+        deleted_ids = {p.place_id for p in places}
         count = len(places)
         if count == 1:
-            message = f"Delete {places[0].place_name} permanently?"
+            parent = self._places_by_id.get(places[0].parent_id)
+            target = parent.place_name if parent else "the top level"
+            message = f"Delete {places[0].place_name} permanently?\n\nIts child places move up to {target}."
         else:
             names_preview = ", ".join(p.place_name for p in places[:5])
             if count > 5:
                 names_preview += f", … (+{count - 5} more)"
-            message = f"Delete {count} places permanently?\n\n{names_preview}"
+            message = f"Delete {count} places permanently?\n\n{names_preview}\n\nTheir child places move up a level."
 
         confirm = QMessageBox.question(self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
@@ -806,42 +681,35 @@ class ListView(QWidget):
 
         errors = []
         for place in places:
-            try:
-                self.controller.delete.delete_entity("Place", place.place_id)
-            except SQLAlchemyError as e:
+            # Move the children up first; the ORM would otherwise set their parent to NULL.
+            child_ids = [p.place_id for p in self._places_by_id.values() if p.parent_id == place.place_id and p.place_id not in deleted_ids]
+            new_parent_id = self._surviving_parent_id(place, deleted_ids)
+            if child_ids and not self.controller.update.update_entities("Place", child_ids, parent_id=new_parent_id):
                 errors.append(place.place_name)
-                logger.error(f"Failed to delete place '{place.place_name}': {e!s}")
+                continue
+            if not self.controller.delete.delete_entity("Place", place.place_id):
+                errors.append(place.place_name)
 
-        if self.parent_view:
-            self.parent_view.refresh_views()
-
+        self.refresh_all()
         if errors:
             QMessageBox.critical(self, "Error", "Could not delete the following places:\n" + "\n".join(errors))
         else:
             logger.info(f"Deleted {count} place(s) successfully")
 
     def merge_place(self, place):
-        """Open the merge dialog, pre-populated with the given place as source."""
+        """Open the merge dialog with the given place as the source."""
         merge_dialog = PlaceMergeDialog(self.controller, self, place_obj=place)
         if merge_dialog.exec_() == QDialog.Accepted:
-            self.load_places()
-            if self.parent_view:
-                self.parent_view.refresh_views()
+            self.refresh_all()
             logger.info("Places merged successfully.")
 
     def find_fuzzy_matches(self):
-        """Scan every place for likely duplicates and open the review dialog.
-
-        Blocks places by normalised-name prefix/last-token to avoid an
-        all-pairs comparison, and requires both a name-similarity match and
-        an ancestor-chain-similarity match (see place_fuzzy_match.py) so
-        same-named places in different countries/regions aren't flagged.
-        The scan runs in a background thread so the UI stays responsive.
-        """
+        """Scan all places for likely duplicates on a worker thread, then open the review dialog."""
         try:
             places = self.controller.get.get_all_entities("Place")
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Failed to load places: {e}")
+        except SQLAlchemyError:
+            logger.exception("Failed to load places for the duplicate scan")
+            QMessageBox.critical(self, "Error", "Could not load the places. See the log for details.")
             return
 
         if not places:
@@ -869,21 +737,16 @@ class ListView(QWidget):
                 return
             dialog = FuzzyMatchDialog(matches, self.controller, self)
             if dialog.exec_() == QDialog.Accepted:
-                self.load_places()
-                if self.parent_view:
-                    self.parent_view.refresh_views()
+                self.refresh_all()
 
-        def _on_error(msg):
+        def _on_error(_msg):
             progress.close()
-            QMessageBox.critical(self, "Scan Error", f"Duplicate scan failed:\n{msg}")
-
-        def _on_cancelled():
-            worker.request_cancel()
+            QMessageBox.critical(self, "Scan Error", "The duplicate scan failed. See the log for details.")
 
         worker.progress.connect(_on_progress)
         worker.finished.connect(_on_finished)
         worker.error.connect(_on_error)
-        progress.canceled.connect(_on_cancelled)
+        progress.canceled.connect(worker.request_cancel)
 
         # Keep a reference so the worker isn't garbage collected
         self._fuzzy_worker = worker

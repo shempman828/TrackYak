@@ -1,10 +1,13 @@
-"""View to see places linked to music library"""
+"""Places page: Map and List tabs under one header."""
 
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.segmented_control import SegmentedControl
+from src.foundation.logger_config import logger
 from src.place.map.place_map import MapView
+from src.place.place_hierarchy import PLACE_LOAD_OPTIONS
 from src.place.place_list import ListView
 
 # QSettings key for the tab (Map/List) the view last showed
@@ -65,6 +68,7 @@ class PlaceView(QWidget):
         self.tab_control.currentIndexChanged.connect(self._on_tab_changed)
 
     def _on_tab_changed(self, index):
+        """Remember the tab and show it."""
         self._settings.setValue(_SETTINGS_LAST_TAB, index)
         if index == _TAB_MAP:
             self.show_map_view()
@@ -72,6 +76,7 @@ class PlaceView(QWidget):
             self.show_list_view()
 
     def show_map_view(self):
+        """Show the Map tab, redrawing it when list edits made it out of date."""
         if self.tab_control.currentIndex() != _TAB_MAP:
             self.tab_control.setCurrentIndex(_TAB_MAP)  # re-enters via _on_tab_changed
             return
@@ -81,6 +86,7 @@ class PlaceView(QWidget):
             self._map_dirty = False
 
     def show_list_view(self):
+        """Show the List tab."""
         if self.tab_control.currentIndex() != _TAB_LIST:
             self.tab_control.setCurrentIndex(_TAB_LIST)
             return
@@ -97,14 +103,17 @@ class PlaceView(QWidget):
         self.list_view.select_place(place_id)
 
     def _show_unmapped_in_list(self):
+        """Show the List tab filtered to places without coordinates."""
         self.show_list_view()
         self.list_view.show_missing_coordinates()
 
     def load_places(self):
-        """Refresh data. The list is always redrawn; the map is only
-        redrawn immediately if it's the visible view, otherwise it's
-        marked dirty and rebuilt the next time it's opened."""
-        self.current_places = self.controller.get.get_all_entities("Place")
+        """Reload places: redraw the list now, and the map now only when it is visible."""
+        try:
+            self.current_places = self.controller.get.get_all_entities("Place", load_options=PLACE_LOAD_OPTIONS)
+        except SQLAlchemyError:
+            logger.exception("Could not load places")
+            self.current_places = []
         self.list_view.load_places(self.current_places)
         if self.stacked_widget.currentIndex() == _TAB_MAP:
             self.map_view.refresh_place_types(self.current_places)
@@ -113,5 +122,5 @@ class PlaceView(QWidget):
             self._map_dirty = True
 
     def refresh_views(self):
-        """Alias for load_places — refreshes list data; map lazily on next open."""
+        """Same as load_places."""
         self.load_places()

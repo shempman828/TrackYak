@@ -1,4 +1,7 @@
-from PySide6.QtCore import Qt
+"""Merge dialog for places: shows association and child-place counts and confirms the merge."""
+
+import html
+
 from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -13,11 +16,7 @@ class PlaceMergeDialog(MergeDBDialog):
         # Initialize with "Place" as the model name
         super().__init__(controller, "Place", parent)
 
-        # Make the dialog float independently of the main app window
-        self.setWindowFlags(self.windowFlags() | Qt.Dialog | Qt.WindowStaysOnTopHint)
-
-        # If a place was already selected when the dialog was opened,
-        # pre-populate the source side and auto-suggest merge targets.
+        # A place selected when the dialog opened becomes the source, with target suggestions.
         if place_obj is not None:
             self._prepopulate_source(place_obj)
 
@@ -60,25 +59,24 @@ class PlaceMergeDialog(MergeDBDialog):
             return 0
 
     def _get_child_count(self, place):
-        """Get the number of direct child places, without assuming the
-        relationship collection is loaded/fresh on a detached instance."""
+        """Number of direct child places; 0 when the relationship cannot load."""
         try:
             return len(place.children)
         except (AttributeError, SQLAlchemyError):
             return 0
 
     def _build_entity_info(self, entity, side):
-        """Enhanced info display for places."""
+        """Rich-text summary of a place: name, type, association and child counts."""
         if not entity:
             return "No place selected"
 
-        name = getattr(entity, self.name_attr, "Unknown")
+        name = getattr(entity, self.name_attr, None) or "Unknown"
         place_id = getattr(entity, self.id_attr)
 
-        info = f"<b>{name}</b><br>"
+        info = f"<b>{html.escape(name)}</b><br>"
 
         if getattr(entity, "place_type", None):
-            info += f"Type: {entity.place_type}<br>"
+            info += f"Type: {html.escape(entity.place_type)}<br>"
 
         # Include descendants, since merging affects the whole subtree
         info += f"Associations (incl. children): {self._get_related_count(place_id)}<br>"
@@ -90,7 +88,7 @@ class PlaceMergeDialog(MergeDBDialog):
         return info
 
     def _on_merge(self):
-        """Override merge to add place-specific confirmation."""
+        """Confirm with place-specific counts, then merge."""
         source_name = getattr(self.source_entity, self.name_attr)
         target_name = getattr(self.target_entity, self.name_attr)
         source_id = getattr(self.source_entity, self.id_attr)

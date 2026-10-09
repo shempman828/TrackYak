@@ -1,12 +1,4 @@
-"""Inline detail panel for the place list: parent-chain breadcrumb, name,
-metadata badges, actions, description, and the music connected to the
-place. Replaces the modal details and associations dialogs in the List tab.
-
-The panel only shows data; the owning ListView wires its buttons to the
-list's actions. Associations are queried lazily -- after a short debounce,
-and only while the panel is visible -- so arrow-keying through the tree
-does not run a query per row passed.
-"""
+"""Detail panel of the List tab: breadcrumb, badges, actions, description, and connected music."""
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QTextDocument
@@ -20,9 +12,10 @@ from src.common.widgets.qt_text import esc_amp
 from src.common.widgets.segmented_control import SegmentedControl
 from src.common.widgets.style_utils import refresh_style
 from src.foundation.logger_config import logger
-from src.place.place_assoc_details import GROUP_AUTO_EXPAND_THRESHOLD, entity_display_name, entity_tooltip, fetch_entity, fetch_place_associations
+from src.place.place_associations import GROUP_AUTO_EXPAND_THRESHOLD, entity_display_name, entity_tooltip, group_associations
 from src.place.place_types import NO_TYPE_LABEL, type_label
 
+# Associations load after this pause, and only while visible, so arrow-keying through the tree does not query each row.
 _LOAD_DEBOUNCE_MS = 120
 # Show the music filter box only when there is enough to filter.
 _FILTER_MIN_ROWS = 10
@@ -33,7 +26,7 @@ _PAGE_EMPTY, _PAGE_PLACE, _PAGE_MULTI = range(3)
 
 
 class PlaceDetailPanel(QWidget):
-    """Detail pane for the place selected in the list (or a multi-selection summary)."""
+    """Detail pane for the place selected in the list (or a multi-selection summary); the ListView wires its buttons."""
 
     ancestor_clicked = Signal(int)  # place_id of a breadcrumb entry
 
@@ -65,6 +58,7 @@ class PlaceDetailPanel(QWidget):
     # ── construction ──────────────────────────────────────────────────────
 
     def _build_empty_page(self):
+        """Page shown when nothing is selected."""
         page = QWidget()
         page_layout = QVBoxLayout(page)
         label = QLabel("Select a place to see its details and connected music.")
@@ -75,6 +69,7 @@ class PlaceDetailPanel(QWidget):
         return page
 
     def _build_place_page(self):
+        """Page for one place: header, actions, description, and connected music."""
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(16, 12, 16, 12)
@@ -169,6 +164,7 @@ class PlaceDetailPanel(QWidget):
         return page
 
     def _build_multi_page(self):
+        """Page for a multi-selection: count and bulk actions."""
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(16, 12, 16, 12)
@@ -214,8 +210,7 @@ class PlaceDetailPanel(QWidget):
         self.pages.setCurrentIndex(_PAGE_MULTI)
 
     def set_place(self, place, ancestors, counts):
-        """Show `place`. `ancestors` is its parent chain, root first;
-        `counts` is its (direct, recursive) association counts."""
+        """Show `place` with its root-first `ancestors` and (direct, recursive) `counts`."""
         same_place = self.place is not None and self.place.place_id == place.place_id
         self.place = place
         self._counts = counts
@@ -274,29 +269,35 @@ class PlaceDetailPanel(QWidget):
     # ── associations ──────────────────────────────────────────────────────
 
     def _recursive(self):
+        """True when "With children" is selected."""
         return self.scope_control.currentIndex() == 1
 
     def _update_music_count(self):
+        """Show the item count for the current scope on the card header."""
         direct, recursive = self._counts
         self.music_card.set_count(recursive if self._recursive() else direct, "item")
 
     def _on_scope_changed(self, _index):
+        """Reload for the Direct / With children choice."""
         self._update_music_count()
         self._schedule_load()
 
     def _schedule_load(self):
+        """Load associations after the debounce, or on the next show when hidden."""
         if self.isVisible():
             self._load_timer.start()
         else:
             self._load_pending = True
 
     def showEvent(self, event):
+        """Run a load that was deferred while hidden."""
         super().showEvent(event)
         if self._load_pending and self.place is not None:
             self._load_pending = False
             self._load_timer.start()
 
     def _load_associations(self):
+        """Fill the music tree for the current place and scope."""
         place = self.place
         if place is None:
             return
@@ -304,15 +305,10 @@ class PlaceDetailPanel(QWidget):
         self.music_tree.clear()
         self.music_tree.setColumnHidden(2, not recursive)
         try:
-            associations = fetch_place_associations(self.controller, place.place_id, recursive=recursive)
-            groups = {}
-            for assoc in associations:
-                entity_type = assoc.entity_type or "Unknown"
-                entity = fetch_entity(self.controller, assoc.entity_type, assoc.entity_id)
-                groups.setdefault(entity_type, []).append((assoc, entity))
-        except (SQLAlchemyError, RuntimeError) as e:
+            groups = group_associations(self.controller, place.place_id, recursive=recursive)
+        except (SQLAlchemyError, RuntimeError):
             logger.exception("Error loading place associations")
-            self._show_music_message(f"Could not load connected music: {e}")
+            self._show_music_message("Could not load connected music. See the log for details.")
             return
 
         if not groups:
@@ -327,7 +323,7 @@ class PlaceDetailPanel(QWidget):
             group.setFont(0, font)
             group.setFirstColumnSpanned(False)
             self.music_tree.addTopLevelItem(group)
-            for assoc, entity in sorted(rows, key=lambda r: str(entity_display_name(r[1], r[0].entity_type) if r[1] else "").lower()):
+            for assoc, entity in rows:
                 name = entity_display_name(entity, assoc.entity_type) if entity else f"Unknown {assoc.entity_type} (ID: {assoc.entity_id})"
                 connection = assoc.association_type.type_name if assoc.association_type else ""
                 via = getattr(assoc, "place_path", "")
@@ -347,12 +343,14 @@ class PlaceDetailPanel(QWidget):
             self._filter_music(self.music_filter.text())
 
     def _show_music_message(self, text):
+        """Replace the music tree with a message."""
         self.music_tree.hide()
         self.music_filter.hide()
         self.music_message.setText(text)
         self.music_message.show()
 
     def _filter_music(self, text):
+        """Show only music rows that contain `text`."""
         needle = text.strip().lower()
         for i in range(self.music_tree.topLevelItemCount()):
             group = self.music_tree.topLevelItem(i)
@@ -371,6 +369,7 @@ class PlaceDetailPanel(QWidget):
     # ── helpers ───────────────────────────────────────────────────────────
 
     def _fill_breadcrumb(self, ancestors):
+        """Show the parent chain as clickable links."""
         clear_layout(self.breadcrumb_layout)
         self.breadcrumb.setVisible(bool(ancestors))
         for i, ancestor in enumerate(ancestors):
@@ -387,6 +386,7 @@ class PlaceDetailPanel(QWidget):
         self.breadcrumb.refresh_height()
 
     def _add_crumb(self, widget):
+        """Add a breadcrumb widget."""
         # FlowLayout skips widgets that are not visible yet, and a new child
         # only becomes visible on a later event-loop pass -- show it now so
         # the layout places it.
@@ -395,10 +395,12 @@ class PlaceDetailPanel(QWidget):
             widget.show()
 
     def _toggle_description(self):
+        """Switch between the description preview and the full text."""
         self._description_expanded = not self._description_expanded
         self._apply_description_height()
 
     def _apply_description_height(self):
+        """Size the description area for preview or full mode."""
         self.description_label.ensurePolished()  # the theme sets this label's font size
         # Measure a line the way the word-wrapped label lays it out (a text
         # document), which is taller than fontMetrics().lineSpacing().
@@ -421,6 +423,7 @@ class PlaceDetailPanel(QWidget):
             self.description_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
     def resizeEvent(self, event):
+        """Resize the description area to the new width."""
         super().resizeEvent(event)
         if self.place is not None and self.description_card.isVisible():
             self._apply_description_height()

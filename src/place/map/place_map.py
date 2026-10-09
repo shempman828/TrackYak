@@ -1,5 +1,8 @@
+"""Map tab: Leaflet map in a web view with type-colored markers, legend, and type filter."""
+
 import html as html_escape
 import json
+import math
 from pathlib import Path
 from typing import ClassVar
 
@@ -25,6 +28,9 @@ _SETTINGS_CLUSTER_LEVEL = "place_map/cluster_level"
 
 # The legend lists the most common types on the map; the rest fold into "+N more".
 _LEGEND_MAX_TYPES = 10
+
+# fitBounds stops at this zoom, so one marker does not zoom in past the tiles with detail.
+_FIT_MAX_ZOOM = 12
 
 # Injected once per page load: a legend control in the bottom-left corner and
 # the function that refreshes it, plus the marker registry used by focus.
@@ -83,6 +89,8 @@ class MapView(QWidget):
         self._page_ready = False
         self._pending_js = []
         self._mapped_place_ids = set()
+        # Place dicts from the last refresh, reused by filter and stacking changes.
+        self._place_data = None
         self.cluster_level = self._load_saved_cluster_level()
         self.init_ui()
         self.setup_js_communication()
@@ -90,6 +98,7 @@ class MapView(QWidget):
             self.refresh_place_types()
 
     def init_ui(self):
+        """Build the filter bar and the web view."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -129,6 +138,12 @@ class MapView(QWidget):
         layout.addWidget(self.map_widget, 1)
 
     def _on_page_loaded(self, ok):
+        """Run the JS queued during the page load, or show the fallback page when the load failed."""
+        if not ok and self._map_initialized:
+            logger.error("The map page did not load")
+            self._pending_js = []
+            self.show_fallback_map()  # resets _map_initialized, so the next refresh tries again
+            return
         self._page_ready = ok
         pending = self._pending_js
         self._pending_js = []
@@ -136,14 +151,14 @@ class MapView(QWidget):
             self.map_widget.page().runJavaScript(code)
 
     def _run_js(self, code):
+        """Run JS now, or queue it until the page is ready."""
         if self._page_ready:
             self.map_widget.page().runJavaScript(code)
         else:
             self._pending_js.append(code)
 
     def refresh_place_types(self, places=None):
-        """Reload the type filter options from the data, then redraw the map.
-        `places` lets a caller that already fetched them skip a query."""
+        """Reload the type filter from `places` (or a fresh query), then redraw the map."""
         try:
             if places is None:
                 places = self.controller.get.get_all_entities("Place")
@@ -160,24 +175,30 @@ class MapView(QWidget):
             self.selected_types = set(self.multi_select_widget.get_selected_items())
 
             logger.info(f"Refreshed place types: {len(unique_types)} unique types found, {len(self.selected_types)} selected")
-            self.load_places([self._create_place_data(p) for p in places])
+            self._place_data = [self._create_place_data(p) for p in places]
+            self.load_places(self._place_data)
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error refreshing place types: {e!s}")
             QMessageBox.warning(self, "Error", "Failed to refresh place types")
 
     def setup_js_communication(self):
-        """Set up JavaScript to Python communication."""
+        """Register the bridge that receives marker-popup button clicks from JS."""
 
         class Bridge(QObject):
+            """QWebChannel object that JS calls with JSON messages."""
+
             def __init__(self, map_view):
                 super().__init__()
                 self.map_view = map_view
 
             @Slot(str)
             def handle_js_message(self, message):
+                """Route a popup button click to the MapView."""
                 try:
                     data = json.loads(message)
+                    if not isinstance(data, dict):
+                        raise TypeError(f"expected a JSON object, got {type(data).__name__}")
                     if data.get("type") == "viewAssociations":
                         self.map_view.show_associations_for_place(data.get("placeId"))
                     elif data.get("type") == "showInList":
@@ -205,10 +226,8 @@ class MapView(QWidget):
         self._apply_cluster_options_to_map()
 
     def _apply_cluster_options_to_map(self):
-        """Recreate the marker cluster group in-page with the current level's
-        options, then repopulate it. Leaflet.markercluster options like
-        maxClusterRadius can't be changed on an existing group, so the group
-        itself has to be swapped out rather than reconfigured in place."""
+        """Replace the in-page marker cluster group with one for the current level, then repopulate it."""
+        # markercluster cannot change maxClusterRadius on an existing group.
         if not self._map_initialized:
             return
         opts = self.CLUSTER_LEVELS[self.cluster_level]
@@ -249,10 +268,12 @@ class MapView(QWidget):
         self._settings.setValue(_SETTINGS_SELECTED_TYPES, json.dumps(sorted(selected_types)))
 
     def load_places(self, places: list[dict] | None = None):
+        """Draw the places that pass the type filter; without `places`, use the last refresh's data."""
         try:
             if places is None:
-                raw_places = self.controller.get.get_all_entities("Place")
-                places = [self._create_place_data(p) for p in raw_places]
+                if self._place_data is None:
+                    self._place_data = [self._create_place_data(p) for p in self.controller.get.get_all_entities("Place")]
+                places = self._place_data
 
             filtered_places = [p for p in places if p["type_label"] in self.selected_types]
             unmapped = sum(1 for p in filtered_places if p["lat"] is None or p["lon"] is None)
@@ -278,12 +299,8 @@ class MapView(QWidget):
                 avg_lat, avg_lon, zoom_level = 30, 0, 2
 
             if not self._map_initialized:
-                # Only the very first render needs a full document load
-                # (Leaflet/map/tile-layer init). Later refreshes (filter
-                # changes, place add/edit/delete, tab revisits) push an
-                # incremental marker update instead -- a full setHtml()
-                # reload tears down and rebuilds the whole Chromium page,
-                # which is what caused the visible whole-screen flash.
+                # Only the first render loads the full page; later refreshes push
+                # an incremental marker update, since setHtml() flashes the screen.
                 html_content = self._create_map_html(valid_places, avg_lat, avg_lon, zoom_level)
                 self._page_ready = False
                 self.map_widget.setHtml(html_content)
@@ -308,16 +325,14 @@ class MapView(QWidget):
             counts[place["type_label"]] = counts.get(place["type_label"], 0) + 1
         ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
         rows = [
-            f"<div><span class='dot' style='background:{type_color(label)}'></span>{html_escape.escape(label)}<span class='count'>{count}</span></div>"
-            for label, count in ordered[:_LEGEND_MAX_TYPES]
+            f"<div><span class='dot' style='background:{type_color(label)}'></span>{html_escape.escape(label)}<span class='count'>{count}</span></div>" for label, count in ordered[:_LEGEND_MAX_TYPES]
         ]
         if len(ordered) > _LEGEND_MAX_TYPES:
             rows.append(f"<div class='more'>+{len(ordered) - _LEGEND_MAX_TYPES} more types</div>")
         return "".join(rows)
 
     def focus_place(self, place_id) -> bool:
-        """Zoom to a place's marker and open its popup. Returns False (and
-        tells the user why) when the place has no marker on the map."""
+        """Zoom to a place's marker and open its popup; False (with a status message) when it has no marker."""
         if place_id not in self._mapped_place_ids:
             show_status_message(self, "This place is not on the map. Its type is hidden by the map's type filter, or it has no coordinates.")
             return False
@@ -330,9 +345,7 @@ class MapView(QWidget):
         """)
         return True
 
-    def _create_map_html(
-        self, places: list[dict], center_lat: float, center_lon: float, zoom: int
-    ) -> str:
+    def _create_map_html(self, places: list[dict], center_lat: float, center_lon: float, zoom: int) -> str:
         """Create complete HTML content for the map with WebChannel support."""
 
         # Load HTML template from file
@@ -374,8 +387,7 @@ class MapView(QWidget):
             popup_content = json.dumps(self._create_popup_content(place))
             tooltip_name = json.dumps(place["name"] or "")
             marker_html = json.dumps(
-                f'<div style="background-color: {marker_color}; width: 18px; height: 18px; border-radius: 50%; '
-                'border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>'
+                f'<div style="background-color: {marker_color}; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>'
             )
             marker_chunks.append(f"""
                 (function () {{
@@ -396,7 +408,7 @@ class MapView(QWidget):
         bounds_chunks = ["var bounds = L.latLngBounds([\n"]
         for place in places:
             bounds_chunks.append(f"    [{place['lat']}, {place['lon']}],\n")
-        bounds_chunks.append("]);\nmap.fitBounds(bounds, { padding: [20, 20] });")
+        bounds_chunks.append(f"]);\nmap.fitBounds(bounds, {{ padding: [20, 20], maxZoom: {_FIT_MAX_ZOOM} }});")
         return "".join(bounds_chunks)
 
     def _get_fallback_template(self) -> str:
@@ -496,14 +508,14 @@ class MapView(QWidget):
         button_style = "border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin: 0 3px;"
         content.append(
             f"<div style='margin-top: 12px; text-align: center;'>"
-            f"<button onclick='viewAssociations({place_id})' style='background-color: #8599ea; color: #0b0c10; {button_style}'>View Associations</button>"
+            f"<button onclick='viewAssociations({place_id})' style='background-color: #8599ea; color: #0b0c10; {button_style}'>Connected Music</button>"
             f"<button onclick='showInList({place_id})' style='background-color: #1a1b26; color: #b8c0f0; border: 1px solid #8599ea; {button_style}'>Show in List</button>"
             "</div>"
         )
         return "".join(content)
 
     def show_associations_for_place(self, place_id):
-        """Show associations for a place from map pin click."""
+        """Open the Connected Music dialog for a marker's place."""
         try:
             place = self.controller.get.get_entity_object("Place", place_id=int(place_id))
             if place:
@@ -512,25 +524,16 @@ class MapView(QWidget):
             else:
                 logger.error(f"Place with ID {place_id} not found")
                 show_status_message(self, f"Place with ID {place_id} not found")
-        except (SQLAlchemyError, ValueError, TypeError, RuntimeError) as e:
-            logger.error(f"Error showing associations: {e!s}")
-            QMessageBox.critical(self, "Error", f"Failed to show associations: {e!s}")
+        except (SQLAlchemyError, ValueError, TypeError, RuntimeError):
+            logger.exception("Error showing associations")
+            QMessageBox.critical(self, "Error", "Could not show the connected music. See the log for details.")
 
     def _create_place_data(self, raw_place) -> dict:
-        """Convert raw place data to UI format."""
-        lat = raw_place.place_latitude
-        lon = raw_place.place_longitude
-
-        # Convert to float if they're strings, or set to None if invalid
-        try:
-            lat = float(lat) if lat is not None and str(lat).strip() else None
-        except (ValueError, TypeError):
-            lat = None
-
-        try:
-            lon = float(lon) if lon is not None and str(lon).strip() else None
-        except (ValueError, TypeError):
-            lon = None
+        """Plain dict of the fields the map needs; bad coordinates become None (not on the map)."""
+        lat = self._valid_coordinate(raw_place.place_latitude, 90)
+        lon = self._valid_coordinate(raw_place.place_longitude, 180)
+        if lat is None or lon is None:
+            lat = lon = None
 
         return {
             "id": raw_place.place_id,
@@ -542,8 +545,19 @@ class MapView(QWidget):
             "description": raw_place.place_description,
         }
 
+    @staticmethod
+    def _valid_coordinate(value, limit):
+        """`value` as a float in [-limit, limit], or None when missing, not a number, or out of range."""
+        try:
+            number = float(value) if value is not None and str(value).strip() else None
+        except (ValueError, TypeError):
+            return None
+        if number is None or not math.isfinite(number) or abs(number) > limit:
+            return None
+        return number
+
     def show_fallback_map(self):
-        """Display a simple fallback message."""
+        """Show a message page when the map cannot load."""
         fallback_html = """
         <!DOCTYPE html>
         <html>
@@ -567,9 +581,9 @@ class MapView(QWidget):
         </head>
         <body>
             <div class="fallback-content">
-                <h2>Map Preview</h2>
-                <p>Map data is loading...</p>
-                <p>If this persists, check your internet connection.</p>
+                <h2>The map is not available</h2>
+                <p>The map could not load. Check your internet connection.</p>
+                <p>The map tries again when you change a filter or a place.</p>
             </div>
         </body>
         </html>

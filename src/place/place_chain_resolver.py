@@ -1,44 +1,14 @@
-"""
-place_chain_resolver.py
-
-Shared find-or-create helper for a MusicBrainz place/area chain (innermost
-place or area first, containing areas after -- e.g. city, county, state,
-country). Used by both the album and artist MusicBrainz review flows so
-the "walk up the chain and find-or-create each level" dedup logic only
-needs to be written once.
-"""
+"""Find-or-create helper for a MusicBrainz place/area chain, shared by the album, artist, and publisher imports."""
 
 from __future__ import annotations
 
 from typing import Any
 
 
-def resolve_place_chain(
-    controller, chain: list[dict[str, Any]], cache: dict[str, Any]
-) -> Any | None:
-    """Find-or-create every level of a place chain (innermost place/area
-    first, containing areas after).
-
-    Phase 1 walks from the innermost node outward (e.g. studio -> city ->
-    state -> country) looking for an already-existing MBID match. Only a
-    genuine MBID match is trusted enough to stop the walk -- it means this
-    exact place was resolved before, so its own ancestry is assumed already
-    correct. A *name*-only match (no MBID on file -- e.g. a manually-entered
-    stub) does NOT stop the walk: its MBID (and any missing coordinates) get
-    backfilled, but climbing
-    continues, since a name-only row isn't trusted to already have its own
-    parent wired up correctly. The walk ends when it hits a real MBID match,
-    or runs off the top of the chain (no more parent areas in MusicBrainz).
-
-    Phase 2 then walks back outermost-to-innermost, from just below wherever
-    phase 1 stopped down to the innermost node: any level phase 1 already
-    found by name gets its parent_id wired/repaired, and any level phase 1
-    found nothing for gets created fresh with the correct parent_id already
-    known.
-
-    Returns the innermost (most specific) resolved place -- chain[0]'s
-    row -- or None if any level failed to resolve.
-    """
+def resolve_place_chain(controller, chain: list[dict[str, Any]], cache: dict[str, Any]) -> Any | None:
+    """Find-or-create every level of an innermost-first chain; return chain[0]'s place, or None on failure."""
+    # Phase 1 climbs outward until an MBID match (its ancestry is trusted). A name-only
+    # match gets its MBID/coordinates backfilled but does not stop the climb.
     anchor = None
     anchor_index = len(chain)
     name_matches: dict[int, Any] = {}
@@ -78,6 +48,7 @@ def resolve_place_chain(
                 name_matches[i] = match
         # No MBID match and no name match: this level gets created in phase 2.
 
+    # Phase 2 walks back inward: wire the parent of each name match, create each missing level.
     parent = anchor
     for i in range(anchor_index - 1, -1, -1):
         node = chain[i]
@@ -91,13 +62,7 @@ def resolve_place_chain(
             place = existing
         else:
             place = controller.add.add_entity(
-                "Place",
-                place_name=node.get("name") or "",
-                place_type=node.get("type"),
-                MBID=mbid,
-                parent_id=parent_id,
-                place_latitude=node.get("latitude"),
-                place_longitude=node.get("longitude"),
+                "Place", place_name=node.get("name") or "", place_type=node.get("type"), MBID=mbid, parent_id=parent_id, place_latitude=node.get("latitude"), place_longitude=node.get("longitude")
             )
             if place is None:
                 return None

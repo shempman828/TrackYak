@@ -15,6 +15,7 @@ class _FakePlace:
         self.parent_id = parent_id
         self.association_count = 0
         self.recursive_association_count = 0
+        self.associations = []
         self.place_latitude = None
         self.place_longitude = None
         self.place_description = ""
@@ -35,11 +36,7 @@ class _StubController:
 
 
 def _make_list_view(qapp):
-    places = [
-        _FakePlace(1, "USA"),
-        _FakePlace(2, "California", parent_id=1),
-        _FakePlace(3, "Los Angeles", parent_id=2),
-    ]
+    places = [_FakePlace(1, "USA"), _FakePlace(2, "California", parent_id=1), _FakePlace(3, "Los Angeles", parent_id=2)]
     controller = _StubController(places)
     list_view = ListView(controller)
     list_view.load_places()

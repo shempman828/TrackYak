@@ -6,10 +6,7 @@ down. It now collapses large groups by default and offers a filter box.
 
 from types import SimpleNamespace
 
-from src.place.place_assoc_details import (
-    GROUP_AUTO_EXPAND_THRESHOLD,
-    AssociationDetailsDialog,
-)
+from src.place.place_assoc_details import GROUP_AUTO_EXPAND_THRESHOLD, AssociationDetailsDialog
 
 
 class _StubPlace:
@@ -30,18 +27,15 @@ class _StubGet:
     def __init__(self, associations):
         self._associations = associations
 
-    def get_all_entities(self, model_name, **filters):
+    def get_all_entities(self, model_name, load_options=None, **filters):
         if model_name == "PlaceAssociation":
             return self._associations
-        return []
-
-    def get_entity_object(self, entity_name, **filters):
-        entity_id = next(iter(filters.values()))
-        name_attr = f"{entity_name.lower()}_name"
-        # Entity type is deliberately generic (not "artist"/"track"/etc.)
-        # so create_entity_tooltip takes its fallback branch, which is all
-        # this test's stub entities need to satisfy.
-        return SimpleNamespace(**{name_attr: f"{entity_name} {entity_id}"})
+        # Batched entity fetch: "<type>_id__in". The entity type is deliberately
+        # generic (not "artist"/"track"/etc.) so entity_tooltip takes its
+        # fallback branch, which is all these stub entities need.
+        prefix = model_name.lower()
+        ids = filters.get(f"{prefix}_id__in", [])
+        return [SimpleNamespace(**{f"{prefix}_id": i, f"{prefix}_name": f"{model_name} {i}"}) for i in ids]
 
 
 class _StubController:
@@ -53,9 +47,7 @@ def _build_dialog():
     # "gizmo"/"widget" are stand-ins for a real entity type (track, artist,
     # ...) that don't hit any of create_entity_tooltip's special-cased
     # branches, so the stub entity only needs a "<type>_name" attribute.
-    many = [
-        _StubAssociation("gizmo", i) for i in range(GROUP_AUTO_EXPAND_THRESHOLD + 5)
-    ]
+    many = [_StubAssociation("gizmo", i) for i in range(GROUP_AUTO_EXPAND_THRESHOLD + 5)]
     few = [_StubAssociation("widget", i) for i in range(3)]
     controller = _StubController(many + few)
     place = _StubPlace(1, "Chicago")
@@ -64,10 +56,7 @@ def _build_dialog():
 
 def _group_items(dialog):
     tree = dialog.associations_tree
-    return {
-        tree.topLevelItem(i).text(0).split(" (")[0]: tree.topLevelItem(i)
-        for i in range(tree.topLevelItemCount())
-    }
+    return {tree.topLevelItem(i).text(0).split(" (")[0]: tree.topLevelItem(i) for i in range(tree.topLevelItemCount())}
 
 
 def test_large_group_starts_collapsed_small_group_starts_expanded(qapp):

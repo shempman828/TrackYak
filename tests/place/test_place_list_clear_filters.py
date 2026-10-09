@@ -12,6 +12,7 @@ class _FakePlace:
         self.parent_id = parent_id
         self.association_count = 0
         self.recursive_association_count = 0
+        self.associations = []
         self.place_latitude = None
         self.place_longitude = None
         self.place_description = ""
@@ -32,11 +33,7 @@ class _StubController:
 
 
 def _make_list_view(qapp):
-    places = [
-        _FakePlace(1, "USA", place_type="Country"),
-        _FakePlace(2, "California", place_type="State", parent_id=1),
-        _FakePlace(3, "Los Angeles", place_type="City", parent_id=2),
-    ]
+    places = [_FakePlace(1, "USA", place_type="Country"), _FakePlace(2, "California", place_type="State", parent_id=1), _FakePlace(3, "Los Angeles", place_type="City", parent_id=2)]
     controller = _StubController(places)
     list_view = ListView(controller)
     list_view.load_places()
@@ -56,6 +53,7 @@ def test_clear_filters_resets_search_text(qapp):
     list_view = _make_list_view(qapp)
     try:
         list_view.search_bar.setText("Los Angeles")
+        list_view.filter_places("Los Angeles")
         assert list_view.filter_text == "Los Angeles"
 
         list_view.clear_filters_button.click()
@@ -101,10 +99,11 @@ def test_clear_filters_shows_all_places_again(qapp):
     list_view = _make_list_view(qapp)
     try:
         list_view.search_bar.setText("USA")
-        assert list_view.tree_widget.count_visible() < list_view.tree_widget.count_total()
+        list_view.filter_places("USA")
+        assert list_view.tree_widget.count_items()[1] < list_view.tree_widget.count_items()[0]
 
         list_view.clear_filters_button.click()
 
-        assert list_view.tree_widget.count_visible() == list_view.tree_widget.count_total()
+        assert list_view.tree_widget.count_items()[1] == list_view.tree_widget.count_items()[0]
     finally:
         list_view.close()

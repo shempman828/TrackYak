@@ -1,6 +1,4 @@
-"""Place-type labels, colors, and type-filter helpers shared by the place
-list (tree dots, type pills), the map (markers, legend), and the shared
-type filter, so every surface names and colors a type the same way."""
+"""Place-type labels, colors, and type-filter helpers, so the list and the map name and color a type the same way."""
 
 import hashlib
 
@@ -49,17 +47,13 @@ def type_color(label: str) -> str:
 
 
 def order_types_by_hierarchy(places, labels) -> list[str]:
-    """Order type labels broad-to-narrow (Country, State, ... Building).
-
-    Ranks each type by the average depth at which its places sit in the
-    real parent_id tree -- e.g. if City places tend to sit two levels below
-    Country places, City comes after Country. Types with no depth signal
-    fall back to TYPE_COLORS order, then alphabetical; "No Type" is last.
-    """
+    """Order type labels broad-to-narrow (Country, State, ... Building) by average tree depth."""
+    # No depth signal: TYPE_COLORS order, then alphabetical; "No Type" is always last.
     places_by_id = {p.place_id: p for p in places}
     depth_cache = {}
 
     def depth_of(place, seen):
+        """Levels above `place` in the parent_id tree."""
         if place.place_id in depth_cache:
             return depth_cache[place.place_id]
         parent = places_by_id.get(place.parent_id) if place.parent_id is not None else None
@@ -79,20 +73,16 @@ def order_types_by_hierarchy(places, labels) -> list[str]:
     static_rank = {t.title(): i for i, t in enumerate(TYPE_COLORS)}
 
     def sort_key(label):
+        """Rank: "No Type" last, then average depth, static order, name."""
         return (label == NO_TYPE_LABEL, avg_depth.get(label, float("inf")), static_rank.get(label, len(static_rank)), label)
 
     return sorted(labels, key=sort_key)
 
 
 def merge_type_selection(previous_all: set, previous_selected: set, current_all: set, initial: set | None = None) -> set:
-    """Carry a type-filter selection across a reload.
-
-    On the first load (no previous_all) the selection is `initial` (e.g. a
-    saved filter) or every type. Afterwards the old selection is kept for
-    types that still exist, and types that are new since the last load
-    start selected -- so a place saved with a brand-new type never
-    disappears behind the filter.
-    """
+    """Carry a type-filter selection across a reload; types new since the last load start selected."""
+    # First load: `initial` (a saved filter) or every type. New types start selected so a
+    # place saved with a new type never disappears behind the filter.
     if not previous_all:
         return (set(initial) & current_all) if initial is not None else set(current_all)
     return (previous_selected & current_all) | (current_all - previous_all)

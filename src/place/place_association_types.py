@@ -17,16 +17,8 @@ def fetch_association_types(controller):
 
 
 def find_or_create_association_type(controller, name, known_types):
-    """
-    Look up an association type by name (case-insensitive) among known
-    types; create one only if none is found. Matching against the
-    already-loaded list guarantees an existing type always wins over
-    creating a same-named duplicate, regardless of case. Returns None for
-    a blank/whitespace-only name.
-    """
+    """Return the known type with this name (any case), creating it only when missing; None for a blank name."""
     name = (name or "").strip()
     if not name:
         return None
-    return find_or_create_by_name(
-        controller, "PlaceAssociationType", "type_name", name, known_types
-    )
+    return find_or_create_by_name(controller, "PlaceAssociationType", "type_name", name, known_types)

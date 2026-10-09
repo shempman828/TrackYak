@@ -456,8 +456,12 @@ Each tab has its own type filter.
 clustered markers (green for countries, blue for cities, and so on down to
 custom types, which get their own stable color). The legend in the bottom
 left corner shows which color is which type. Click a marker for its details,
-a "View Associations" button to see everything linked to it, and a "Show in
-List" button that opens the place in the List tab. Use the **Type** button to
+a "Connected Music" button to see everything linked to it, and a "Show in
+List" button that opens the place in the List tab. When the map fits to the
+markers, it does not zoom in closer than city level, so a single marker still
+shows its surroundings. Places with coordinates that are not valid (for
+example, a latitude above 90) are not put on the map; the "N places not on
+map" link includes them. Use the **Type** button to
 show only certain place types, and **Stacking** if clusters are too
 aggressive or not aggressive enough for your zoom level. The "N places not
 on map" link opens the List tab filtered to the places that still need
@@ -472,7 +476,9 @@ type. The filter chips under the search box are always visible: **No
 coordinates** and **No MBID** show how many places need that repair, and
 **No parent** shows only top-level places. Clear Filters resets the search
 box, type filter, and all chips in one click. Drag a place onto another to
-reparent it. Use Expand all / Collapse all to open or close every branch at
+reparent it. You cannot drop a place onto itself or onto one of its own child
+places. A place whose parent data loops back to itself shows at the top level
+so that you can find it and set a correct parent. Use Expand all / Collapse all to open or close every branch at
 once (disabled in the Flat list, where there's nothing to expand).
 
 **The detail panel**: select a place and the panel on the right shows its
@@ -484,14 +490,22 @@ MusicBrainz link, its description, and the music connected to it. Switch
 **Adding or fixing a place**: the form has three sections. Under Location,
 type an optional region and click **Find Coordinates** to geocode the name;
 when the name matches more than one place, click the correct result in the
-list. The Type field shows matching types from your library as you type, but
-you can still type a new type that is not in the list. Mistakes, such as a
-latitude that is not a number or a parent that does not exist, show in red
-under the field.
+list. The search runs in the background, so the form stays usable while it
+runs. The Type field shows matching types from your library as you type, but
+you can still type a new type that is not in the list. Latitude must be from
+-90 to 90 and longitude from -180 to 180, and you must enter both or
+neither. Mistakes, such as a coordinate that is out of range, a parent that
+does not exist, or a parent that is the place itself or one of its child
+places, show in red under the field. If you do not change the Parent field,
+the place keeps its parent, even when another place has the same name.
 
 **Other actions**: right-click a place (or use the ⋯ button in the detail
 panel) for Edit, Merge (fold a duplicate into its canonical entry), New
-Parent/Child Place, or Delete. Select more than one place and the panel
+Parent/Child Place, or Delete. New Child Place fills in the Parent field for
+you. New Parent Place fills in the place's current parent, so the new place
+goes between the two. When you delete a place, its child places move up to
+the deleted place's parent; they do not lose their country chain. If a save,
+move, or delete fails, an error message tells you. Select more than one place and the panel
 offers Edit N Places and Delete N Places. Bulk-edit changes Type, Latitude,
 Longitude, Description, and Parent Place across all of them at once — a
 field left blank because the selection disagreed on it is left alone, not

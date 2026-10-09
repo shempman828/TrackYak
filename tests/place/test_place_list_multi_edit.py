@@ -23,6 +23,7 @@ class _FakePlace:
         self.parent_id = parent_id
         self.association_count = 0
         self.recursive_association_count = 0
+        self.associations = []
         self.place_latitude = place_latitude
         self.place_longitude = place_longitude
         self.place_description = place_description

@@ -12,6 +12,7 @@ class _FakePlace:
         self.parent_id = parent_id
         self.association_count = 0
         self.recursive_association_count = 0
+        self.associations = []
         self.place_latitude = None
         self.place_longitude = None
         self.place_description = ""
@@ -59,7 +60,7 @@ def test_checking_no_parent_shows_only_top_level_places(qapp):
         list_view.no_parent_checkbox.setChecked(True)
         assert list_view.no_parent_only is True
         # Only USA and Canada have no parent
-        assert list_view.tree_widget.count_visible() == 2
+        assert list_view.tree_widget.count_items()[1] == 2
     finally:
         list_view.close()
 
@@ -71,7 +72,7 @@ def test_unchecking_no_parent_shows_all_places_again(qapp):
         list_view.no_parent_checkbox.setChecked(False)
 
         assert list_view.no_parent_only is False
-        assert list_view.tree_widget.count_visible() == list_view.tree_widget.count_total()
+        assert list_view.tree_widget.count_items()[1] == list_view.tree_widget.count_items()[0]
     finally:
         list_view.close()
 
@@ -86,7 +87,7 @@ def test_clear_filters_unchecks_no_parent_checkbox(qapp):
 
         assert not list_view.no_parent_checkbox.isChecked()
         assert list_view.no_parent_only is False
-        assert list_view.tree_widget.count_visible() == list_view.tree_widget.count_total()
+        assert list_view.tree_widget.count_items()[1] == list_view.tree_widget.count_items()[0]
     finally:
         list_view.close()
 
@@ -96,7 +97,8 @@ def test_no_parent_filter_combines_with_search_text(qapp):
     try:
         list_view.no_parent_checkbox.setChecked(True)
         list_view.search_bar.setText("Canada")
+        list_view.filter_places("Canada")
 
-        assert list_view.tree_widget.count_visible() == 1
+        assert list_view.tree_widget.count_items()[1] == 1
     finally:
         list_view.close()
