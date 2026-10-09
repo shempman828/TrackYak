@@ -1,21 +1,29 @@
 """View to see places linked to music library"""
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
+from src.common.widgets.segmented_control import SegmentedControl
 from src.place.map.place_map import MapView
 from src.place.place_list import ListView
 
+# QSettings key for the tab (Map/List) the view last showed
+_SETTINGS_LAST_TAB = "places/last_tab"
+
+_TAB_MAP, _TAB_LIST = 0, 1
+
 
 class PlaceView(QWidget):
-    """Main container for place management with toggleable views"""
+    """Places page: a Map tab and a List tab under one header, each with its own filters."""
 
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
         self.current_places = []
-        # MapView already loads itself once during construction (see init_ui),
-        # so nothing is dirty yet — avoids a redundant redraw on startup.
-        self._map_dirty = False
+        self._settings = QSettings()
+        # The map is only rebuilt while visible; edits made on the List tab
+        # mark it dirty and it catches up the next time it is opened.
+        self._map_dirty = True
 
         self.init_ui()
         self.load_places()
@@ -24,55 +32,82 @@ class PlaceView(QWidget):
         """Initialize main UI components"""
         self.setWindowTitle("Place Manager")
         main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(10)
 
-        # View toggle controls
-        toggle_layout = QHBoxLayout()
-        self.map_button = QPushButton("Map View")
-        self.list_button = QPushButton("List View")
-        self.map_button.clicked.connect(self.show_map_view)
-        self.list_button.clicked.connect(self.show_list_view)
-        toggle_layout.addWidget(self.map_button)
-        toggle_layout.addWidget(self.list_button)
+        header = QHBoxLayout()
+        self.tab_control = SegmentedControl(["Map", "List"])
+        self.tab_control.setItemToolTip(_TAB_MAP, "See places on a world map")
+        self.tab_control.setItemToolTip(_TAB_LIST, "Browse, repair, and organize places")
+        header.addWidget(self.tab_control)
+        header.addStretch()
+        self.add_button = QPushButton("+ Add Place")
+        self.add_button.setObjectName("PrimaryButton")
+        header.addWidget(self.add_button)
+        main_layout.addLayout(header)
 
-        # Stacked widget for views
         self.stacked_widget = QStackedWidget()
-        self.map_view = MapView(self.controller)
+        self.map_view = MapView(self.controller, autoload=False)
         self.list_view = ListView(self.controller)
         self.list_view.set_parent_view(self)
-
         self.stacked_widget.addWidget(self.map_view)
         self.stacked_widget.addWidget(self.list_view)
+        main_layout.addWidget(self.stacked_widget, 1)
 
-        main_layout.addLayout(toggle_layout)
-        main_layout.addWidget(self.stacked_widget)
+        self.add_button.clicked.connect(self.list_view.add_place)
+        self.map_view.show_in_list_requested.connect(self.show_place_in_list)
+        self.map_view.show_unmapped_requested.connect(self._show_unmapped_in_list)
 
-        self.show_map_view()
+        last_tab = self._settings.value(_SETTINGS_LAST_TAB, _TAB_MAP, type=int)
+        if last_tab not in (_TAB_MAP, _TAB_LIST):
+            last_tab = _TAB_MAP
+        self.tab_control.setCurrentIndex(last_tab)
+        self.stacked_widget.setCurrentIndex(last_tab)
+        self.tab_control.currentIndexChanged.connect(self._on_tab_changed)
+
+    def _on_tab_changed(self, index):
+        self._settings.setValue(_SETTINGS_LAST_TAB, index)
+        if index == _TAB_MAP:
+            self.show_map_view()
+        else:
+            self.show_list_view()
 
     def show_map_view(self):
-        self.stacked_widget.setCurrentIndex(0)
-        self.map_button.setEnabled(False)
-        self.list_button.setEnabled(True)
+        if self.tab_control.currentIndex() != _TAB_MAP:
+            self.tab_control.setCurrentIndex(_TAB_MAP)  # re-enters via _on_tab_changed
+            return
+        self.stacked_widget.setCurrentIndex(_TAB_MAP)
         if self._map_dirty:
-            # refresh_place_types() already calls load_places() internally,
-            # so calling both here would rebuild the map twice.
-            self.map_view.refresh_place_types()
+            self.map_view.refresh_place_types(self.current_places)
             self._map_dirty = False
 
     def show_list_view(self):
-        self.stacked_widget.setCurrentIndex(1)
-        self.list_button.setEnabled(False)
-        self.map_button.setEnabled(True)
+        if self.tab_control.currentIndex() != _TAB_LIST:
+            self.tab_control.setCurrentIndex(_TAB_LIST)
+            return
+        self.stacked_widget.setCurrentIndex(_TAB_LIST)
+
+    def show_place_on_map(self, place_id):
+        """Switch to the Map tab and open the given place's marker."""
+        self.show_map_view()
+        self.map_view.focus_place(place_id)
+
+    def show_place_in_list(self, place_id):
+        """Switch to the List tab and select the given place."""
+        self.show_list_view()
+        self.list_view.select_place(place_id)
+
+    def _show_unmapped_in_list(self):
+        self.show_list_view()
+        self.list_view.show_missing_coordinates()
 
     def load_places(self):
         """Refresh data. The list is always redrawn; the map is only
         redrawn immediately if it's the visible view, otherwise it's
         marked dirty and rebuilt the next time it's opened."""
         self.current_places = self.controller.get.get_all_entities("Place")
-        self.list_view.load_places()
-        if self.stacked_widget.currentIndex() == 0:
-            # refresh_place_types() already calls load_places() internally,
-            # so calling both here would rebuild the map twice.
-            self.map_view.refresh_place_types()
+        self.list_view.load_places(self.current_places)
+        if self.stacked_widget.currentIndex() == _TAB_MAP:
+            self.map_view.refresh_place_types(self.current_places)
             self._map_dirty = False
         else:
             self._map_dirty = True

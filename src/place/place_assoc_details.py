@@ -1,14 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
@@ -144,12 +135,7 @@ class AssociationDetailsDialog(QDialog):
         self.associations_tree.clear()
 
         try:
-            if self.recursive_mode:
-                associations = self.get_recursive_associations(self.place.place_id)
-            else:
-                associations = self.controller.get.get_all_entities(
-                    "PlaceAssociation", place_id=self.place.place_id
-                )
+            associations = fetch_place_associations(self.controller, self.place.place_id, recursive=self.recursive_mode)
 
             if not associations:
                 no_assoc_item = QTreeWidgetItem(["No associations found", "", "", ""])
@@ -180,9 +166,9 @@ class AssociationDetailsDialog(QDialog):
                 type_item.setExpanded(len(type_associations) <= GROUP_AUTO_EXPAND_THRESHOLD)
 
                 for assoc in type_associations:
-                    entity = self.get_entity_details(assoc.entity_type, assoc.entity_id)
+                    entity = fetch_entity(self.controller, assoc.entity_type, assoc.entity_id)
                     if entity:
-                        display_name = self.get_entity_display_name(entity, assoc.entity_type)
+                        display_name = entity_display_name(entity, assoc.entity_type)
 
                         # Create child item
                         child_item = QTreeWidgetItem(
@@ -199,7 +185,7 @@ class AssociationDetailsDialog(QDialog):
                         child_item.setData(0, Qt.UserRole + 1, assoc)
 
                         # Add tooltip with more details
-                        tooltip = self.create_entity_tooltip(entity, assoc.entity_type)
+                        tooltip = entity_tooltip(entity, assoc.entity_type)
                         if hasattr(assoc, "place_path"):
                             tooltip += f"\nPath: {assoc.place_path}"
                         child_item.setToolTip(0, tooltip)
@@ -229,104 +215,80 @@ class AssociationDetailsDialog(QDialog):
             error_item = QTreeWidgetItem([f"Error loading associations: {e!s}", "", "", ""])
             self.associations_tree.addTopLevelItem(error_item)
 
-    def create_entity_tooltip(self, entity, entity_type):
-        """Create detailed tooltip for different entity types."""
-        tooltip = ""
-        if entity_type == "artist" and hasattr(entity, "artist_name"):
-            tooltip = f"Artist: {entity.artist_name}\n"
-            tooltip += f"Type: {'Group' if entity.isgroup else 'Person'}\n"
-            if entity.begin_year:
-                tooltip += f"Born: {entity.begin_year}"
-                if entity.end_year:
-                    tooltip += f" - Died: {entity.end_year}"
-        elif entity_type == "track" and hasattr(entity, "track_name"):
-            tooltip = f"Track: {entity.track_name}\n"
-            if hasattr(entity, "album") and entity.album:
-                tooltip += f"Album: {entity.album.album_name}\n"
-            if entity.duration:
-                tooltip += f"Duration: {entity.duration_formatted}"
-        elif entity_type == "album" and hasattr(entity, "album_name"):
-            tooltip = f"Album: {entity.album_name}\n"
-            if entity.release_year:
-                tooltip += f"Released: {entity.release_year}"
-        elif entity_type == "publisher" and hasattr(entity, "publisher_name"):
-            tooltip = f"Publisher: {entity.publisher_name}"
-        elif entity_type == "playlist" and hasattr(entity, "playlist_name"):
-            tooltip = f"Playlist: {entity.playlist_name}\n"
-            if entity.playlist_description:
-                tooltip += f"Description: {entity.playlist_description}"
-        else:
-            tooltip = f"{entity_type.title()}: {getattr(entity, 'name', 'Unknown')}"
 
+def fetch_place_associations(controller, place_id, recursive=False):
+    """Associations of a place; with `recursive`, also those of every
+    descendant place, each tagged with a `place_path` ("A → B → C")."""
+    if not recursive:
+        return controller.get.get_all_entities("PlaceAssociation", place_id=place_id)
+    return _recursive_associations(controller, place_id, [], set())
+
+
+def _recursive_associations(controller, place_id, current_path, visited):
+    if place_id in visited:  # guards against a parent_id cycle in the data
+        return []
+    visited.add(place_id)
+    place = controller.get.get_entity_object("Place", place_id=place_id)
+    if not place:
+        return []
+
+    new_path = [*current_path, place.place_name]
+    path_str = " → ".join(new_path)
+    associations = []
+    for assoc in controller.get.get_all_entities("PlaceAssociation", place_id=place_id):
+        assoc.place_path = path_str
+        associations.append(assoc)
+    for child in controller.get.get_all_entities("Place", parent_id=place_id):
+        associations.extend(_recursive_associations(controller, child.place_id, new_path, visited))
+    return associations
+
+
+def fetch_entity(controller, entity_type, entity_id):
+    """Fetch the entity an association points at, e.g. ("track", 5) -> Track 5."""
+    if not entity_type:
+        return None
+    try:
+        return controller.get.get_entity_object(entity_type.title(), **{f"{entity_type.lower()}_id": entity_id})
+    except SQLAlchemyError:
+        logger.exception("Error getting entity details for %s id=%s", entity_type, entity_id)
+        return None
+
+
+def entity_display_name(entity, entity_type):
+    """Display name of an associated entity (its `<type>_name` attribute)."""
+    if not entity or not entity_type:
+        return f"Unknown {entity_type or 'entity'}"
+    return getattr(entity, f"{entity_type.lower()}_name", getattr(entity, "name", f"Unknown {entity_type}"))
+
+
+def entity_tooltip(entity, entity_type):
+    """Multi-line tooltip with the most useful facts about an associated entity."""
+    entity_type = (entity_type or "").lower()
+    if entity_type == "artist" and hasattr(entity, "artist_name"):
+        tooltip = f"Artist: {entity.artist_name}\n"
+        tooltip += f"Type: {'Group' if entity.isgroup else 'Person'}\n"
+        if entity.begin_year:
+            tooltip += f"Born: {entity.begin_year}"
+            if entity.end_year:
+                tooltip += f" - Died: {entity.end_year}"
         return tooltip
-
-    def get_recursive_associations(self, place_id, current_path=None):
-        """Get associations for this place and all child places recursively."""
-        if current_path is None:
-            current_path = []
-
-        associations = []
-        current_place = self.controller.get.get_entity_object("Place", place_id=place_id)
-
-        if not current_place:
-            return associations
-
-        # Add current place to path
-        new_path = current_path + [current_place.place_name]
-        path_str = " → ".join(new_path)
-
-        # Get direct associations for this place
-        direct_associations = self.controller.get.get_all_entities(
-            "PlaceAssociation", place_id=place_id
-        )
-
-        # Add path information to each association
-        for assoc in direct_associations:
-            assoc.place_path = path_str
-            associations.append(assoc)
-
-        # Get child places and their associations recursively
-        child_places = self.controller.get.get_all_entities("Place", parent_id=place_id)
-        for child in child_places:
-            child_associations = self.get_recursive_associations(child.place_id, new_path)
-            associations.extend(child_associations)
-
-        return associations
-
-    def get_entity_details(self, entity_type, entity_id):
-        """
-        Generic fetch for entity objects.
-        Assumes controller.get.get_entity_object(entity_name, <entity_lower>_id=...) works.
-        """
-        try:
-            if not entity_type:
-                return None
-
-            # normalize casing: "Track" -> "Track", "track" -> "Track"
-            entity_name = entity_type.title()
-            id_kwarg = f"{entity_type.lower()}_id"
-
-            # call the controller getter with a dynamic kwarg
-            return self.controller.get.get_entity_object(entity_name, **{id_kwarg: entity_id})
-
-        except SQLAlchemyError as e:
-            logger.exception(
-                "Error getting entity details for %s id=%s: %s", entity_type, entity_id, e
-            )
-            return None
-
-    def get_entity_display_name(self, entity, entity_type):
-        """
-        Generic display-name resolution.
-        Assumes attribute is named '<entity_lower>_name', e.g. 'track_name'.
-        """
-        try:
-            if not entity or not entity_type:
-                return f"Unknown {entity_type or 'entity'}"
-
-            attr = f"{entity_type.lower()}_name"
-            # getattr fallback to a generic `name` or to a string indicating unknown
-            return getattr(entity, attr, getattr(entity, "name", f"Unknown {entity_type}"))
-        except SQLAlchemyError:
-            logger.exception("Error retrieving display name for %s", entity_type)
-            return f"Unknown {entity_type}"
+    if entity_type == "track" and hasattr(entity, "track_name"):
+        tooltip = f"Track: {entity.track_name}\n"
+        if getattr(entity, "album", None):
+            tooltip += f"Album: {entity.album.album_name}\n"
+        if entity.duration:
+            tooltip += f"Duration: {entity.duration_formatted}"
+        return tooltip
+    if entity_type == "album" and hasattr(entity, "album_name"):
+        tooltip = f"Album: {entity.album_name}\n"
+        if entity.release_year:
+            tooltip += f"Released: {entity.release_year}"
+        return tooltip
+    if entity_type == "publisher" and hasattr(entity, "publisher_name"):
+        return f"Publisher: {entity.publisher_name}"
+    if entity_type == "playlist" and hasattr(entity, "playlist_name"):
+        tooltip = f"Playlist: {entity.playlist_name}\n"
+        if entity.playlist_description:
+            tooltip += f"Description: {entity.playlist_description}"
+        return tooltip
+    return f"{entity_type.title()}: {getattr(entity, 'name', 'Unknown')}"

@@ -3,17 +3,19 @@ import json
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import QObject, QSettings, Slot
+from PySide6.QtCore import QObject, QSettings, Signal, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.segmented_control import SegmentedControl
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.place.map.place_map_filter import MultiSelectWidget
 from src.place.place_assoc_details import AssociationDetailsDialog
+from src.place.place_types import merge_type_selection, order_types_by_hierarchy, type_color, type_label
 
 # QSettings key for remembering the selected place type filters
 _SETTINGS_SELECTED_TYPES = "place_map/selected_types"
@@ -21,22 +23,42 @@ _SETTINGS_SELECTED_TYPES = "place_map/selected_types"
 # QSettings key for remembering the marker clustering aggressiveness
 _SETTINGS_CLUSTER_LEVEL = "place_map/cluster_level"
 
+# The legend lists the most common types on the map; the rest fold into "+N more".
+_LEGEND_MAX_TYPES = 10
+
+# Injected once per page load: a legend control in the bottom-left corner and
+# the function that refreshes it, plus the marker registry used by focus.
+_LEGEND_SETUP_JS = """
+if (!window.placeLegend) {
+    var style = document.createElement('style');
+    style.textContent = `
+        .place-legend { background: rgba(17, 18, 26, 0.88); color: #b8c0f0;
+            border: 1px solid rgba(133, 153, 234, 0.35); border-radius: 8px;
+            padding: 8px 10px; font: 12px Cambria, Georgia, serif; line-height: 1.6; }
+        .place-legend .dot { display: inline-block; width: 9px; height: 9px;
+            border-radius: 50%; margin-right: 6px; border: 1px solid rgba(255,255,255,0.6); }
+        .place-legend .count { color: #7a82a8; margin-left: 4px; }
+        .place-legend .more { color: #7a82a8; font-style: italic; }
+        .place-marker-focus { box-shadow: 0 0 0 4px rgba(234, 214, 133, 0.85) !important; }
+    `;
+    document.head.appendChild(style);
+    window.placeLegend = L.control({ position: 'bottomleft' });
+    window.placeLegend.onAdd = function () { return L.DomUtil.create('div', 'place-legend'); };
+    window.placeLegend.addTo(map);
+    window.setPlaceLegend = function (html) {
+        var el = window.placeLegend.getContainer();
+        el.innerHTML = html;
+        el.style.display = html ? '' : 'none';
+    };
+}
+"""
+
 
 class MapView(QWidget):
-    """Interactive map display with color-coded markers based on place type."""
+    """Map tab: a full-size Leaflet map with one marker per place, colored by type."""
 
-    # Define color mapping for place types
-    COLOR_MAPPING: ClassVar[dict[str, str]] = {
-        "country": "#2ecc71",  # Green
-        "state": "#e67e22",  # Orange
-        "county": "#f1c40f",  # Yellow/Gold
-        "city": "#3498db",  # Blue
-        "district": "#9b59b6",  # Purple
-        "building": "#7f8c8d",  # Gray/Stone
-        "room": "#1abc9c",  # Teal
-        "point of interest": "#e74c3c",  # Red
-        "default": "#8599ea",  # Your theme accent color
-    }
+    show_in_list_requested = Signal(int)  # place_id from a marker popup
+    show_unmapped_requested = Signal()  # the "N places not on map" link
 
     # How aggressively nearby markers snap together into a single cluster.
     # "radius" is Leaflet.markercluster's maxClusterRadius (pixels around a
@@ -51,7 +73,7 @@ class MapView(QWidget):
     }
     DEFAULT_CLUSTER_LEVEL = "Medium"
 
-    def __init__(self, controller):
+    def __init__(self, controller, autoload=True):
         super().__init__()
         self.controller = controller
         self.selected_types = set()  # Track selected types
@@ -60,64 +82,51 @@ class MapView(QWidget):
         self._map_initialized = False
         self._page_ready = False
         self._pending_js = []
+        self._mapped_place_ids = set()
         self.cluster_level = self._load_saved_cluster_level()
         self.init_ui()
         self.setup_js_communication()
+        if autoload:
+            self.refresh_place_types()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-        # 1. Header with Toggle Button
-        header_layout = QHBoxLayout()
-        self.toggle_filter_button = QPushButton("Show Filters")
-        self.toggle_filter_button.setCheckable(True)
-        self.toggle_filter_button.setChecked(False)
-        self.toggle_filter_button.clicked.connect(self.toggle_filter_visibility)
-
-        header_layout.addWidget(self.toggle_filter_button)
-        header_layout.addStretch()
-
-        header_layout.addWidget(QLabel("Marker stacking:"))
-        self.cluster_combo = QComboBox()
-        self.cluster_combo.addItems(list(self.CLUSTER_LEVELS.keys()))
-        self.cluster_combo.setCurrentText(self.cluster_level)
-        self.cluster_combo.currentTextChanged.connect(self.apply_cluster_level)
-        header_layout.addWidget(self.cluster_combo)
-
-        layout.addLayout(header_layout)
-
-        # 2. Filter Container (The part that hides/shows)
-        self.filter_container = QWidget()
-        self.filter_container.setVisible(False)  # Hide by default
-        # Fixed vertical policy so the container only claims its sizeHint,
-        # instead of splitting leftover space evenly with the map widget.
-        self.filter_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        filter_main_layout = QVBoxLayout(self.filter_container)
-        filter_main_layout.setContentsMargins(0, 0, 0, 5)
-
-        filter_controls = QHBoxLayout()
-        filter_controls.addWidget(QLabel("Filter by type:"))
+        # Filter bar: one always-visible line
+        bar = QWidget()
+        bar.setObjectName("PlaceFilterBar")
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(0, 0, 0, 0)
+        bar_layout.setSpacing(8)
 
         self.multi_select_widget = MultiSelectWidget()
         self.multi_select_widget.selection_changed.connect(self.apply_filter)
-        filter_controls.addWidget(self.multi_select_widget)
+        bar_layout.addWidget(self.multi_select_widget)
 
-        self.refresh_types_button = QPushButton("Refresh Types")
-        self.refresh_types_button.clicked.connect(self.refresh_place_types)
-        filter_controls.addWidget(self.refresh_types_button)
-        filter_controls.addStretch()
+        self.unmapped_button = QPushButton()
+        self.unmapped_button.setProperty("linkButton", True)
+        self.unmapped_button.setToolTip("Open these places in the list so you can add coordinates")
+        self.unmapped_button.clicked.connect(self.show_unmapped_requested)
+        self.unmapped_button.hide()
+        bar_layout.addWidget(self.unmapped_button)
+        bar_layout.addStretch()
 
-        filter_main_layout.addLayout(filter_controls)
-        layout.addWidget(self.filter_container)
+        stacking_label = QLabel("Stacking")
+        stacking_label.setProperty("textRole", "muted")
+        bar_layout.addWidget(stacking_label)
+        self.cluster_control = SegmentedControl(list(self.CLUSTER_LEVELS))
+        self.cluster_control.setToolTip("How strongly nearby markers group together")
+        self.cluster_control.setCurrentText(self.cluster_level)
+        self.cluster_control.currentTextChanged.connect(self.apply_cluster_level)
+        bar_layout.addWidget(self.cluster_control)
+        layout.addWidget(bar)
 
-        # 3. Map Widget
         self.map_widget = QWebEngineView()
+        self.map_widget.setObjectName("PlaceMap")
         self.map_widget.loadFinished.connect(self._on_page_loaded)
         layout.addWidget(self.map_widget, 1)
-
-        self.refresh_place_types()
 
     def _on_page_loaded(self, ok):
         self._page_ready = ok
@@ -132,132 +141,26 @@ class MapView(QWidget):
         else:
             self._pending_js.append(code)
 
-    def _get_color_for_type(self, place_type: str) -> str:
-        """Returns a mapped color or generates a stable dynamic color for new types."""
-        if not place_type:
-            return self.COLOR_MAPPING["default"]
-
-        type_lower = place_type.lower().strip()
-
-        # 1. Check if we have a predefined color
-        if type_lower in self.COLOR_MAPPING:
-            return self.COLOR_MAPPING[type_lower]
-
-        # 2. Fallback: Generate a stable color based on the text hash
-        # This ensures "Kitchen" always gets the same color without hardcoding it.
-        import hashlib
-
-        hash_val = int(hashlib.md5(type_lower.encode()).hexdigest(), 16)
-
-        # A palette of vibrant modern colors
-        palette = [
-            "#ff7675",
-            "#6c5ce7",
-            "#00b894",
-            "#fdcb6e",
-            "#e84393",
-            "#00cec9",
-            "#fab1a0",
-            "#a29bfe",
-        ]
-        return palette[hash_val % len(palette)]
-
-    def _order_types_by_hierarchy(self, raw_places, unique_types) -> list[str]:
-        """Order place types broad-to-narrow (country, state, ... building).
-
-        Rather than relying solely on a hardcoded list, this walks the real
-        parent_id tree already maintained for places (see place_list.py) and
-        ranks each type by the average depth at which it actually appears —
-        e.g. if "City" places tend to sit two levels below "Country" places,
-        City is ordered after Country. Types with no depth signal (isolated
-        places) fall back to the static COLOR_MAPPING order, then to
-        alphabetical order, so the list is always fully and stably ordered.
-        """
-        places_by_id = {p.place_id: p for p in raw_places}
-        depth_cache = {}
-
-        def depth_of(place, seen):
-            if place.place_id in depth_cache:
-                return depth_cache[place.place_id]
-            parent = places_by_id.get(place.parent_id) if place.parent_id is not None else None
-            if parent is None or place.place_id in seen:
-                depth_cache[place.place_id] = 0
-                return 0
-            depth = 1 + depth_of(parent, seen | {place.place_id})
-            depth_cache[place.place_id] = depth
-            return depth
-
-        depths_by_type = {}
-        for place in raw_places:
-            if not place.place_type or not place.place_type.strip():
-                continue
-            type_name = place.place_type.strip().title()
-            depths_by_type.setdefault(type_name, []).append(depth_of(place, set()))
-
-        avg_depth = {t: sum(ds) / len(ds) for t, ds in depths_by_type.items()}
-
-        static_order = [t for t in self.COLOR_MAPPING if t != "default"]
-        static_rank = {t.title(): i for i, t in enumerate(static_order)}
-
-        def sort_key(type_name):
-            return (
-                avg_depth.get(type_name, float("inf")),
-                static_rank.get(type_name, len(static_rank)),
-                type_name,
-            )
-
-        return sorted(unique_types, key=sort_key)
-
-    def toggle_filter_visibility(self):
-        """Toggles the filter container visibility and updates button text."""
-        is_visible = self.filter_container.isVisible()
-        self.filter_container.setVisible(not is_visible)
-
-        if not is_visible:
-            self.toggle_filter_button.setText("Hide Filters")
-        else:
-            self.toggle_filter_button.setText("Show Filters")
-
-    def refresh_place_types(self):
-        """Dynamically load place types from the database."""
+    def refresh_place_types(self, places=None):
+        """Reload the type filter options from the data, then redraw the map.
+        `places` lets a caller that already fetched them skip a query."""
         try:
-            # Get all places and extract unique types
-            places = self.controller.get.get_all_entities("Place")
-            unique_types = set()
+            if places is None:
+                places = self.controller.get.get_all_entities("Place")
+            unique_types = {type_label(p.place_type) for p in places}
 
-            for place in places:
-                if place.place_type and place.place_type.strip():
-                    # Clean up the type name
-                    type_name = place.place_type.strip().title()
-                    unique_types.add(type_name)
-
+            restored = merge_type_selection(self.all_place_types, self.selected_types, unique_types, initial=self._load_saved_selected_types())
             self.all_place_types = unique_types
-
-            # Restore the previously saved filter selection, if any, limited
-            # to types that still exist.
-            saved_types = self._load_saved_selected_types()
-            if saved_types is not None:
-                restored_types = saved_types & unique_types
-            else:
-                restored_types = set(unique_types)
-
-            ordered_types = self._order_types_by_hierarchy(places, unique_types)
-
-            # Update the multi-select widget without letting it auto-select
-            # everything, then apply the restored selection explicitly.
-            self.multi_select_widget.set_items(ordered_types, default_selected=False)
-            self.multi_select_widget.set_selected_items(restored_types)
-
-            # Store the selected types
+            self.multi_select_widget.blockSignals(True)
+            try:
+                self.multi_select_widget.set_items(order_types_by_hierarchy(places, unique_types), default_selected=False)
+                self.multi_select_widget.set_selected_items(restored)
+            finally:
+                self.multi_select_widget.blockSignals(False)
             self.selected_types = set(self.multi_select_widget.get_selected_items())
 
-            logger.info(
-                f"Refreshed place types: {len(unique_types)} unique types found, "
-                f"{len(self.selected_types)} selected"
-            )
-
-            # Reload places with current filter
-            self.load_places()
+            logger.info(f"Refreshed place types: {len(unique_types)} unique types found, {len(self.selected_types)} selected")
+            self.load_places([self._create_place_data(p) for p in places])
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error refreshing place types: {e!s}")
@@ -276,9 +179,10 @@ class MapView(QWidget):
                 try:
                     data = json.loads(message)
                     if data.get("type") == "viewAssociations":
-                        place_id = data.get("placeId")
-                        self.map_view.show_associations_for_place(place_id)
-                except json.JSONDecodeError as e:
+                        self.map_view.show_associations_for_place(data.get("placeId"))
+                    elif data.get("type") == "showInList":
+                        self.map_view.show_in_list_requested.emit(int(data.get("placeId")))
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
                     logger.error(f"Error handling JS message: {e!s}")
 
         self.bridge = Bridge(self)
@@ -350,17 +254,11 @@ class MapView(QWidget):
                 raw_places = self.controller.get.get_all_entities("Place")
                 places = [self._create_place_data(p) for p in raw_places]
 
-            # Ensure we always filter, even if selected_types is empty
-            filtered_places = []
-            for place in places:
-                # MUST use .strip().title() to match refresh_place_types logic
-                raw_type = place.get("type") or ""
-                place_type = raw_type.strip().title()
+            filtered_places = [p for p in places if p["type_label"] in self.selected_types]
+            unmapped = sum(1 for p in filtered_places if p["lat"] is None or p["lon"] is None)
+            self.unmapped_button.setVisible(unmapped > 0)
+            self.unmapped_button.setText(f"{unmapped} place{'s' if unmapped != 1 else ''} not on map →")
 
-                if place_type in self.selected_types:
-                    filtered_places.append(place)
-
-            # Always generate map with the filtered list
             self.generate_map(filtered_places)
 
         except SQLAlchemyError as e:
@@ -370,6 +268,7 @@ class MapView(QWidget):
         """Create and display Leaflet map with color-coded markers."""
         try:
             valid_places = [p for p in places if p["lat"] is not None and p["lon"] is not None]
+            self._mapped_place_ids = {p["id"] for p in valid_places}
 
             if valid_places:
                 avg_lat = sum(p["lat"] for p in valid_places) / len(valid_places)
@@ -389,19 +288,47 @@ class MapView(QWidget):
                 self._page_ready = False
                 self.map_widget.setHtml(html_content)
                 self._map_initialized = True
+                self._run_js(_LEGEND_SETUP_JS)
             else:
                 markers_js = self._create_markers_js(valid_places)
                 bounds_js = self._create_bounds_js(valid_places)
-                self._run_js(f"markerClusterGroup.clearLayers();\n{markers_js}\n{bounds_js}")
+                self._run_js(f"markerClusterGroup.clearLayers();\nwindow.placeMarkers = {{}};\n{markers_js}\n{bounds_js}")
+            self._run_js(f"window.setPlaceLegend && window.setPlaceLegend({json.dumps(self._legend_html(valid_places))});")
 
-            logger.info(
-                f"Map generated with {len(valid_places)} valid places "
-                f"(filter: {len(self.selected_types)} types selected)"
-            )
+            logger.info(f"Map generated with {len(valid_places)} valid places (filter: {len(self.selected_types)} types selected)")
 
         except (KeyError, RuntimeError) as e:
             logger.error(f"Map generation failed: {e!s}", exc_info=True)
             self.show_fallback_map()
+
+    def _legend_html(self, places: list[dict]) -> str:
+        """Legend rows for the types currently on the map, most common first."""
+        counts = {}
+        for place in places:
+            counts[place["type_label"]] = counts.get(place["type_label"], 0) + 1
+        ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        rows = [
+            f"<div><span class='dot' style='background:{type_color(label)}'></span>{html_escape.escape(label)}<span class='count'>{count}</span></div>"
+            for label, count in ordered[:_LEGEND_MAX_TYPES]
+        ]
+        if len(ordered) > _LEGEND_MAX_TYPES:
+            rows.append(f"<div class='more'>+{len(ordered) - _LEGEND_MAX_TYPES} more types</div>")
+        return "".join(rows)
+
+    def focus_place(self, place_id) -> bool:
+        """Zoom to a place's marker and open its popup. Returns False (and
+        tells the user why) when the place has no marker on the map."""
+        if place_id not in self._mapped_place_ids:
+            show_status_message(self, "This place is not on the map. Its type is hidden by the map's type filter, or it has no coordinates.")
+            return False
+        self._run_js(f"""
+            (function () {{
+                var m = window.placeMarkers && window.placeMarkers[{int(place_id)}];
+                if (!m) return;
+                markerClusterGroup.zoomToShowLayer(m, function () {{ m.openPopup(); }});
+            }})();
+        """)
+        return True
 
     def _create_map_html(
         self, places: list[dict], center_lat: float, center_lon: float, zoom: int
@@ -439,37 +366,25 @@ class MapView(QWidget):
         return html.replace("{cluster_disable_zoom}", str(cluster_opts["disable_zoom"]))
 
     def _create_markers_js(self, places: list[dict]) -> str:
-        """Create JavaScript code for map markers with dynamic coloring."""
-        marker_chunks = []
+        """JavaScript that adds one type-colored marker per place and registers
+        it in window.placeMarkers (by place id) so focus_place can find it."""
+        marker_chunks = ["window.placeMarkers = window.placeMarkers || {};\n"]
         for place in places:
-            # Use the new dynamic color helper
-            marker_color = self._get_color_for_type(place.get("type", ""))
-
-            popup_content = self._create_popup_content(place)
-
-            # Escape backticks and backslashes so they don't break the JS template literal
-            popup_content_escaped = popup_content.replace("\\", "\\\\").replace("`", "\\`")
-
-            # Escape single quotes in the tooltip name so they don't break the JS string
-            tooltip_name = place["name"].replace("'", "\\'")
-
-            marker_html = (
-                f'<div style="background-color: {marker_color}; width: 18px; '
-                "height: 18px; border-radius: 50%; border: 2px solid white; "
-                'box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>'
+            marker_color = type_color(place["type_label"])
+            popup_content = json.dumps(self._create_popup_content(place))
+            tooltip_name = json.dumps(place["name"] or "")
+            marker_html = json.dumps(
+                f'<div style="background-color: {marker_color}; width: 18px; height: 18px; border-radius: 50%; '
+                'border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>'
             )
-
             marker_chunks.append(f"""
-                markerClusterGroup.addLayer(L.marker([{place["lat"]}, {place["lon"]}], {{
-                    icon: L.divIcon({{
-                        className: 'custom-div-icon',
-                        html: '{marker_html}',
-                        iconSize: [18, 18],
-                        iconAnchor: [9, 9]
-                    }})
-                }})
-                .bindPopup(`{popup_content_escaped}`)
-                .bindTooltip('{tooltip_name}'));
+                (function () {{
+                    var m = L.marker([{place["lat"]}, {place["lon"]}], {{
+                        icon: L.divIcon({{ className: 'custom-div-icon', html: {marker_html}, iconSize: [18, 18], iconAnchor: [9, 9] }})
+                    }}).bindPopup({popup_content}).bindTooltip({tooltip_name});
+                    window.placeMarkers[{int(place["id"])}] = m;
+                    markerClusterGroup.addLayer(m);
+                }})();
                 """)
         return "".join(marker_chunks)
 
@@ -526,6 +441,14 @@ class MapView(QWidget):
                 }}));
             }}
         }};
+        window.showInList = function(placeId) {{
+            if (window.pyBridge) {{
+                window.pyBridge.handle_js_message(JSON.stringify({{
+                    type: 'showInList',
+                    placeId: placeId
+                }}));
+            }}
+        }};
         var map = L.map('map', {{ worldCopyJump: true }})
             .setView([{{center_lat}}, {{center_lon}}], {{zoom}});
         // Esri "Dark Gray Canvas" -- keyless dark raster basemap (label-free
@@ -554,41 +477,29 @@ class MapView(QWidget):
 </html>"""
 
     def _create_popup_content(self, place: dict) -> str:
-        """Generate popup content with view associations button."""
-        # Escape HTML in the description to prevent XSS
-        description = ""
-        if place.get("description"):
-            description = html_escape.escape(place["description"])
-
+        """Popup HTML: name, type, coordinates, a description excerpt, and actions."""
+        name = html_escape.escape(place["name"] or "")
+        label = html_escape.escape(place["type_label"])
         content = [
-            f"<h3 style='margin: 0 0 8px 0; color: #8599ea;'>{place['name']}</h3>",
-            (
-                "<div style='border-bottom: 1px solid rgba(133, 153, 234, 0.3); "
-                "padding-bottom: 8px; margin-bottom: 8px;'>"
-            ),
-            f"<strong>Type:</strong> {place['type']}<br>",
+            f"<h3 style='margin: 0 0 8px 0; color: #8599ea;'>{name}</h3>",
+            "<div style='border-bottom: 1px solid rgba(133, 153, 234, 0.3); padding-bottom: 8px; margin-bottom: 8px;'>",
+            f"<strong>Type:</strong> {label}<br>",
             f"<strong>Coordinates:</strong> {place['lat']:.4f}, {place['lon']:.4f}",
             "</div>",
         ]
-
+        description = place.get("description") or ""
         if description:
-            ellipsis = "..." if len(description) > 200 else ""
-            content.append(
-                f"<div style='margin-top: 8px;'><strong>Description:</strong><br>"
-                f"{description[:200]}{ellipsis}</div>"
-            )
+            ellipsis = "…" if len(description) > 200 else ""
+            content.append(f"<div style='margin-top: 8px;'>{html_escape.escape(description[:200])}{ellipsis}</div>")
 
-        # Add view associations button
+        place_id = int(place["id"])
+        button_style = "border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin: 0 3px;"
         content.append(
-            f"""<div style='margin-top: 12px; text-align: center;'>
-                <button onclick='viewAssociations({place["id"]})'
-                        style='background-color: #8599ea; color: white; border: none;
-                               padding: 6px 12px; border-radius: 4px; cursor: pointer;'>
-                    View Associations
-                </button>
-            </div>"""
+            f"<div style='margin-top: 12px; text-align: center;'>"
+            f"<button onclick='viewAssociations({place_id})' style='background-color: #8599ea; color: #0b0c10; {button_style}'>View Associations</button>"
+            f"<button onclick='showInList({place_id})' style='background-color: #1a1b26; color: #b8c0f0; border: 1px solid #8599ea; {button_style}'>Show in List</button>"
+            "</div>"
         )
-
         return "".join(content)
 
     def show_associations_for_place(self, place_id):
@@ -625,6 +536,7 @@ class MapView(QWidget):
             "id": raw_place.place_id,
             "name": raw_place.place_name,
             "type": raw_place.place_type,
+            "type_label": type_label(raw_place.place_type),
             "lat": lat,
             "lon": lon,
             "description": raw_place.place_description,

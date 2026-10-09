@@ -244,11 +244,9 @@ def test_edit_selected_places_calls_update_entities_with_only_touched_fields(qap
 # ---- acceptance criteria 10-11: validation still applies -----------------
 
 
-def test_multi_dialog_rejects_non_numeric_latitude(qapp, monkeypatch):
+def test_multi_dialog_rejects_non_numeric_latitude(qapp):
     places = [_FakePlace(1, "Chicago"), _FakePlace(2, "Denver")]
     controller = _StubController(places)
-    warnings = []
-    monkeypatch.setattr(place_edit.QMessageBox, "warning", lambda *a, **k: warnings.append(a))
 
     dialog = PlaceEditDialog(controller, place=places)
     try:
@@ -258,16 +256,15 @@ def test_multi_dialog_rejects_non_numeric_latitude(qapp, monkeypatch):
         dialog.validate_and_accept()
 
         assert dialog.result() != PlaceEditDialog.Accepted
-        assert any("Invalid Coordinates" in str(call) for call in warnings)
+        assert "Invalid Coordinates" in dialog.coords_error.text()
+        assert not dialog.coords_error.isHidden()
     finally:
         dialog.close()
 
 
-def test_multi_dialog_rejects_unknown_parent_name(qapp, monkeypatch):
+def test_multi_dialog_rejects_unknown_parent_name(qapp):
     places = [_FakePlace(1, "Chicago"), _FakePlace(2, "Denver")]
     controller = _StubController(places)
-    warnings = []
-    monkeypatch.setattr(place_edit.QMessageBox, "warning", lambda *a, **k: warnings.append(a))
 
     dialog = PlaceEditDialog(controller, place=places)
     try:
@@ -277,7 +274,8 @@ def test_multi_dialog_rejects_unknown_parent_name(qapp, monkeypatch):
         changes = dialog.get_bulk_changes()
 
         assert changes is None
-        assert any("Invalid Parent" in str(call) for call in warnings)
+        assert "Invalid Parent" in dialog.parent_error.text()
+        assert not dialog.parent_error.isHidden()
     finally:
         dialog.close()
 

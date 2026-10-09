@@ -164,6 +164,15 @@
             }
         };
 
+        window.showInList = function(placeId) {
+            if (window.pyBridge) {
+                window.pyBridge.handle_js_message(JSON.stringify({
+                    type: 'showInList',
+                    placeId: placeId
+                }));
+            }
+        };
+
         // Initialize the map. worldCopyJump keeps markers in sync with the
         // tile layer's repeating world copies — without it, panning far
         // enough left/right shows a repeated copy of the map but markers

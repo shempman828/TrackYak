@@ -1076,44 +1076,103 @@ QCalendarWidget QAbstractItemView {
     selection-color: #b8c0f0;
 }
 
-/* ── SPECIAL: PlaceList ───────────────────────────────────────────────────────── */
-QListWidget#placeList {
-    background-color: #0e0f15;
-    border: 1px solid #1e1f2b;
-    border-radius: 6px;
-    padding: 4px;
-    outline: none;
-    color: #b8c0f0;
-}
+/* ── SPECIAL: Places (src/place) ───────────────────────────────────────────────
+   Map/List tabs, filter chips, painted place tree, detail panel, edit dialog. */
 
-QListWidget#placeList::item {
-    background-color: transparent;
-    padding: 6px 10px;
-    margin: 1px 0;
-    border-radius: 4px;
-}
-
-QListWidget#placeList::item:hover {
-    background-color: rgba(133, 153, 234, 0.1);
-    border: 1px solid rgba(133, 153, 234, 0.25);
-    color: #EA8599;
-}
-
-QListWidget#placeList::item:selected:active {
-    background-color: rgba(133, 153, 234, 0.22);
-    color: #b8c0f0;
-    border: 1px solid rgba(133, 153, 234, 0.5);
-}
-
-QListWidget#placeList::item:selected:!active {
-    background-color: rgba(133, 153, 234, 0.08);
+/* Filter chips and the type dropdown share one pill look */
+QWidget#PlaceFilterBar QPushButton[class="filterChip"],
+QPushButton#TypeFilterButton {
+    background-color: #11121a;
     color: #7a82a8;
-    border: 1px solid rgba(133, 153, 234, 0.2);
+    border: 1px solid #2a2c3e;
+    border-radius: 13px;
+    padding: 4px 12px;
 }
 
+QWidget#PlaceFilterBar QPushButton[class="filterChip"]:hover:!checked,
+QPushButton#TypeFilterButton:hover {
+    background-color: #1a1b26;
+    border-color: rgba(133, 153, 234, 0.5);
+    color: #EAD685;
+}
 
-QListWidget#placeList:focus {
+QWidget#PlaceFilterBar QPushButton[class="filterChip"]:checked,
+QPushButton#TypeFilterButton[filtered="true"],
+QPushButton#TypeFilterButton:checked {
+    background-color: rgba(133, 153, 234, 0.22);
+    border-color: rgba(133, 153, 234, 0.6);
+    color: #b8c0f0;
+}
+
+/* Place tree: rows are painted by PlaceRowDelegate; only the row
+   background (hover/selection) comes from these rules. */
+QTreeWidget#PlaceTree {
+    padding: 4px;
+    show-decoration-selected: 0;
+}
+
+QTreeWidget#PlaceTree::item {
+    padding: 0;
+    margin: 1px 0;
+    border-radius: 6px;
+}
+
+/* The delegate paints only the row; keep the indentation area plain. */
+QTreeWidget#PlaceTree::branch:selected {
+    background: transparent;
+}
+
+/* Keep the selected row visible while focus is in the detail panel. */
+QTreeWidget#PlaceTree::item:selected:!active {
+    background-color: rgba(133, 153, 234, 0.10);
+}
+
+/* Detail panel */
+QWidget#PlaceDetailPanel {
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QWidget#PlaceDetailPanel QLabel#PlaceTitle {
+    font-size: 22px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+QWidget#PlaceBreadcrumb QPushButton[linkButton="true"] {
+    padding: 0 2px;
+    font-size: 12px;
+}
+
+QWidget#PlaceBreadcrumb QLabel {
+    font-size: 12px;
+}
+
+QWidget#PlaceDetailPanel QLabel#PlaceDescription {
+    font-size: 13px;
+    color: #c8cbe0;
+}
+
+QWidget#PlaceDetailPanel QScrollArea,
+QWidget#PlaceDetailPanel QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+QTreeWidget#PlaceMusicTree {
+    background-color: transparent;
+    border: none;
+}
+
+QToolButton#PlaceMoreButton {
+    font-size: 16px;
+    padding: 2px 10px;
     border: 1px solid rgba(133, 153, 234, 0.5);
+    border-radius: 8px;
+}
+
+/* Edit dialog */
+QListWidget#GeocodeResults::item {
+    padding: 4px 8px;
 }
 
 /* ── SPECIAL: Player Dock ─────────────────────────────────────────────────────── */
@@ -1312,6 +1371,11 @@ QLabel[textRole="muted"] {
 QLabel[textRole="note"] {
     color: #555e7a;
     font-style: italic;
+}
+
+QLabel[textRole="error"] {
+    color: #EA8599;
+    font-size: 12px;
 }
 
 QLabel[textRole="placeholder"] {

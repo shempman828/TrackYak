@@ -447,39 +447,55 @@ count).
 ## Places
 
 Where in the world your music comes from — venues, cities, countries — shown
-as both a map and a list, and linkable to tracks, albums, and artists.
+on a **Map** tab and a **List** tab, and linkable to tracks, albums, and
+artists. The switch at the top left changes tabs, and the page remembers the
+tab you used last. **+ Add Place** at the top right works from either tab.
+Each tab has its own type filter.
 
 **Exploring the map**: places with coordinates show up as color-coded,
 clustered markers (green for countries, blue for cities, and so on down to
-custom types, which get their own stable color). Click a marker for its
-details and a "View Associations" button to see everything linked to it. Use
-the filter panel to show only certain place types, and the marker-stacking
-control if clusters are too aggressive or not aggressive enough for your
-zoom level.
+custom types, which get their own stable color). The legend in the bottom
+left corner shows which color is which type. Click a marker for its details,
+a "View Associations" button to see everything linked to it, and a "Show in
+List" button that opens the place in the List tab. Use the **Type** button to
+show only certain place types, and **Stacking** if clusters are too
+aggressive or not aggressive enough for your zoom level. The "N places not
+on map" link opens the List tab filtered to the places that still need
+coordinates.
 
-**Working the list instead**: the list view organizes places in the same
-parent/child hierarchy as the map (a City under its State under its
-Country, for instance), with search and filters for things like "missing
-coordinates" so you can find entries that still need cleanup. Check "No
-parent" to show only top-level places and hide every place that has a
-parent. Clear Filters resets the search box, type filter, and all
-checkboxes in one click. Drag a place onto another to reparent it. Use
-Expand All / Collapse All to open or close every branch at once (disabled
-in Flat View, where there's nothing to expand).
+**Working the list instead**: the list shows places in their parent/child
+hierarchy (a City under its State under its Country, for instance), or as one
+flat list with **Tree / Flat**. Sort with **A-Z / Most used**. Each row shows
+the type's color, the type, a count of the music connected to the place and
+the places inside it, and a ⚠ mark when the place has no coordinates or no
+type. The filter chips under the search box are always visible: **No
+coordinates** and **No MBID** show how many places need that repair, and
+**No parent** shows only top-level places. Clear Filters resets the search
+box, type filter, and all chips in one click. Drag a place onto another to
+reparent it. Use Expand all / Collapse all to open or close every branch at
+once (disabled in the Flat list, where there's nothing to expand).
 
-**Adding or fixing a place**: Add Place opens a form with a "Search
-Coordinates" button that geocodes an address or place name for you, so you
-usually don't need to look up latitude/longitude by hand. The Type field
-shows matching types from your library as you type, but you can still type
-a new type that is not in the list.
+**The detail panel**: select a place and the panel on the right shows its
+parent chain (click a parent to go to it), its type, coordinates, and
+MusicBrainz link, its description, and the music connected to it. Switch
+**Direct / With children** to include music connected to places inside it.
+**Show on Map** opens the Map tab at that place.
 
-**Other actions**: right-click for View Associations, View Details, Edit,
-Merge (fold a duplicate into its canonical entry), New Parent/Child Place,
-or Delete. Select more than one place first and Edit bulk-edits Type,
-Latitude, Longitude, Description, and Parent Place across all of them at
-once — a field left blank because the selection disagreed on it is left
-alone, not cleared; only fields you actually change are applied. Delete
-also works across a multi-selection.
+**Adding or fixing a place**: the form has three sections. Under Location,
+type an optional region and click **Find Coordinates** to geocode the name;
+when the name matches more than one place, click the correct result in the
+list. The Type field shows matching types from your library as you type, but
+you can still type a new type that is not in the list. Mistakes, such as a
+latitude that is not a number or a parent that does not exist, show in red
+under the field.
+
+**Other actions**: right-click a place (or use the ⋯ button in the detail
+panel) for Edit, Merge (fold a duplicate into its canonical entry), New
+Parent/Child Place, or Delete. Select more than one place and the panel
+offers Edit N Places and Delete N Places. Bulk-edit changes Type, Latitude,
+Longitude, Description, and Parent Place across all of them at once — a
+field left blank because the selection disagreed on it is left alone, not
+cleared; only fields you actually change are applied.
 
 **Untangling duplicates**: right-click → Find Duplicate Places to run a
 fuzzy-match scan across your whole place list, then review and bulk-merge

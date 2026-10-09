@@ -81,14 +81,12 @@ def test_expand_collapse_buttons_disabled_in_flat_view(qapp):
         assert list_view.expand_all_button.isEnabled()
         assert list_view.collapse_all_button.isEnabled()
 
-        list_view.flat_view_button.setChecked(True)
-        list_view.toggle_flat_view()
+        list_view.view_mode_control.setCurrentIndex(1)  # Flat
 
         assert not list_view.expand_all_button.isEnabled()
         assert not list_view.collapse_all_button.isEnabled()
 
-        list_view.flat_view_button.setChecked(False)
-        list_view.toggle_flat_view()
+        list_view.view_mode_control.setCurrentIndex(0)  # Tree
 
         assert list_view.expand_all_button.isEnabled()
         assert list_view.collapse_all_button.isEnabled()

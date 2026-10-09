@@ -1,14 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from src.common.widgets.layout_utils import clear_layout
 from src.common.widgets.qt_text import esc_amp
@@ -76,8 +67,10 @@ class MultiSelectWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.toggle_button = QPushButton("No items")
+        self.toggle_button = QPushButton("Type: All  ▾")
+        self.toggle_button.setObjectName("TypeFilterButton")
         self.toggle_button.setCheckable(True)
+        self.toggle_button.setCursor(Qt.PointingHandCursor)
         self.toggle_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.toggle_button.setMaximumWidth(_TOGGLE_BUTTON_MAX_WIDTH)
         self.toggle_button.clicked.connect(self._toggle_popup)
@@ -179,12 +172,18 @@ class MultiSelectWidget(QWidget):
         """Update the toggle button's label to summarize the current selection."""
         total = len(self.checkboxes)
         selected = len(self.selected_items)
-        if total == 0:
-            text = "No items"
-        elif selected == total:
-            text = f"All types ({total})"
+        if total == 0 or selected == total:
+            summary = "All"
         elif selected == 0:
-            text = "No types selected"
+            summary = "None"
+        elif selected == 1:
+            summary = next(iter(self.selected_items))
         else:
-            text = f"{selected} of {total} selected"
-        self.toggle_button.setText(text)
+            summary = f"{selected} of {total}"
+        self.toggle_button.setText(esc_amp(f"Type: {summary}  ▾"))
+        # "filtered" lets the theme tint the button like an active filter chip.
+        filtered = 0 < total != selected
+        if self.toggle_button.property("filtered") != filtered:
+            self.toggle_button.setProperty("filtered", filtered)
+            self.toggle_button.style().unpolish(self.toggle_button)
+            self.toggle_button.style().polish(self.toggle_button)
