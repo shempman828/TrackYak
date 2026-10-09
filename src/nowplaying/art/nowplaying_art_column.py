@@ -8,8 +8,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class _SlideDots(QWidget):
-    """One dot per distinct slideshow image; the current one is a wider pill.
-    Paints nothing when there is only one image."""
+    """One dot per distinct slideshow image, the current one a wider pill; nothing for a single image."""
 
     _DOT = 6
     _ACTIVE_W = 16
@@ -27,11 +26,13 @@ class _SlideDots(QWidget):
         self._index = 0
 
     def set_count(self, count: int):
+        """Set the number of dots."""
         self._count = max(0, count)
         self._index = min(self._index, max(0, self._count - 1))
         self.update()
 
     def set_index(self, index: int):
+        """Mark dot ``index`` as current (clamped)."""
         self._index = max(0, min(index, self._count - 1)) if self._count else 0
         self.update()
 
@@ -63,13 +64,11 @@ class _SlideDots(QWidget):
 
 
 class _ArtColumn(QWidget):
-    """Lays out the art card with the slide dots and the progress strip
-    directly under it, and centres the group vertically.
+    """Art card with the slide dots and progress strip under it, centred vertically as one group."""
 
-    The art gets the largest square that leaves room for the two rows below.
-    The card's widget rect is that square grown by the card's shadow pad, so
-    the shadow can paint into this widget's contents margins.
-    """
+    # The art gets the largest square that leaves room for the rows below; the
+    # card's rect is that square grown by its shadow pad, so the shadow paints
+    # into this widget's contents margins.
 
     _GAP = 14
 
@@ -98,6 +97,7 @@ class _ArtColumn(QWidget):
         self._relayout()
 
     def _relayout(self):
+        """Place the art card, dots, and progress strip for the current size."""
         area = self.contentsRect()
         dots_h = self._dots.sizeHint().height()
         below = self._GAP + dots_h

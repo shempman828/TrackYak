@@ -16,6 +16,7 @@ from src.nowplaying.nowplaying_marquee import MarqueeLabel
 def card(qapp):
     w = _ArtCard()
     w.resize(400, 400)
+    w.show()  # the caption pans only while the card is on screen
     yield w
     w.deleteLater()
 

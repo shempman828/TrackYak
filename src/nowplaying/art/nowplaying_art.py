@@ -1,14 +1,5 @@
 from PySide6.QtCore import Property, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QFontMetrics,
-    QLinearGradient,
-    QPainter,
-    QPainterPath,
-    QPixmap,
-    QRegion,
-)
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -17,12 +8,10 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class _ArtCard(QWidget):
-    """Rounded album-art display with a soft drop shadow.
+    """Rounded album-art display with a soft drop shadow and crossfades between images."""
 
-    ``shadow_pad`` is the margin reserved on every side of the art for the
-    shadow; the art itself is laid out inside the remaining inner rect.
-    """
-
+    # ``shadow_pad`` is the margin kept on every side for the shadow; the art
+    # is laid out inside the remaining inner rect.
     _RADIUS = 18
 
     # The shadow sits this far below the art and spreads into the rest of
@@ -54,6 +43,10 @@ class _ArtCard(QWidget):
     _LABEL_PAUSE_TICKS = 45  # ticks held at each end (~0.7 s)
     _LABEL_END_PAD = 8  # extra px so the last glyph fully clears the clip
 
+    # Smooth-scaled pixmaps kept for reuse: a crossfade or caption pan repaints
+    # at ~60 fps, and re-scaling a full-size cover every frame is costly.
+    _SCALED_CACHE_SIZE = 4
+
     def __init__(self, parent=None, backdrop: QWidget | None = None, shadow_pad: int = 0):
         super().__init__(parent)
         self._shadow_pad = max(0, shadow_pad)
@@ -80,7 +73,10 @@ class _ArtCard(QWidget):
         self._label_timer.setInterval(self._LABEL_SCROLL_INTERVAL_MS)
         self._label_timer.timeout.connect(self._tick_label_scroll)
 
+        self._scaled_cache: dict[tuple[int, int, int], QPixmap] = {}
+
     def set_art(self, pixmap: QPixmap | None, is_artist: bool = False, label: str | None = None):
+        """Start a crossfade from the current image to ``pixmap`` (captioned with ``label`` when an artist photo)."""
         # Remember the outgoing image so paintEvent can crossfade into the
         # new one instead of popping straight to it.
         self._prev_pixmap = self._pixmap
@@ -131,29 +127,12 @@ class _ArtCard(QWidget):
 
         if t < 1.0:
             zoom = 1.0 + self._ZOOM_AMOUNT * t
-            self._paint_layer(
-                painter,
-                self._prev_pixmap,
-                self._prev_is_artist,
-                self._prev_label,
-                frame,
-                1.0 - t,
-                zoom,
-            )
+            self._paint_layer(painter, self._prev_pixmap, self._prev_is_artist, self._prev_label, frame, 1.0 - t, zoom)
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         if t > 0.0:
             zoom = 1.0 - self._ZOOM_AMOUNT * (1.0 - t)
-            self._paint_layer(
-                painter,
-                self._pixmap,
-                self._is_artist,
-                self._label,
-                frame,
-                t,
-                zoom,
-                self._label_offset,
-            )
+            self._paint_layer(painter, self._pixmap, self._is_artist, self._label, frame, t, zoom, self._label_offset)
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         # Pixels left over from a previous, larger/differently shaped paint
@@ -178,6 +157,7 @@ class _ArtCard(QWidget):
         painter.end()
 
     def shadow_pad(self) -> int:
+        """Margin (px) kept around the art for the shadow."""
         return self._shadow_pad
 
     def _inner_size(self) -> tuple[int, int]:
@@ -191,8 +171,7 @@ class _ArtCard(QWidget):
         return rect.translated(self._shadow_pad, self._shadow_pad) if rect.isValid() else rect
 
     def _paint_shadow(self, painter: QPainter, frame: QRect) -> QRect:
-        """Soft shadow under ``frame``; returns the rect it covers (empty when
-        the card has no shadow pad)."""
+        """Paint a soft shadow under ``frame``; return the rect it covers (empty with no shadow pad)."""
         if self._shadow_pad <= 0 or not frame.isValid():
             return QRect()
         off = self._SHADOW_OFFSET_Y
@@ -207,17 +186,8 @@ class _ArtCard(QWidget):
         painter.restore()
         return frame.adjusted(-max_spread, -max_spread + off, max_spread, max_spread + off)
 
-    def _paint_layer(
-        self,
-        painter: QPainter,
-        pixmap: QPixmap | None,
-        is_artist: bool,
-        label: str | None,
-        rect: QRect,
-        opacity: float,
-        zoom: float,
-        label_offset: float = 0,
-    ):
+    def _paint_layer(self, painter: QPainter, pixmap: QPixmap | None, is_artist: bool, label: str | None, rect: QRect, opacity: float, zoom: float, label_offset: float = 0):
+        """Paint one crossfade layer (image or placeholder, plus caption) at ``opacity`` and ``zoom``."""
         painter.save()
         painter.setOpacity(opacity)
         if zoom != 1.0:
@@ -253,8 +223,7 @@ class _ArtCard(QWidget):
         return QRect(round(cx - w / 2), round(cy - h / 2), round(w), round(h))
 
     def _layout_rect(self, pixmap: QPixmap | None, is_artist: bool, w: int, h: int) -> QRect:
-        """Compute the rect this content would occupy at rest (transition
-        progress 1), without painting anything."""
+        """Rect this content occupies at rest (transition progress 1)."""
         if pixmap and not pixmap.isNull() and is_artist:
             return self._artist_photo_rect(pixmap, w, h)
         if pixmap and not pixmap.isNull():
@@ -287,21 +256,30 @@ class _ArtCard(QWidget):
         painter.drawText(x, y, rw, rh, Qt.AlignCenter, "♪")
 
     def _label_geometry(self, rect: QRect) -> tuple[QFont, QRect, int]:
-        """Caption font, text box, and gradient-bar height for an artist
-        photo occupying `rect` — shared by _draw_label (painting) and
-        _check_label_scroll (the overflow test that drives the pan)."""
+        """Caption font, text box, and gradient-bar height for an artist photo in ``rect``."""
+        # Shared by _draw_label (painting) and _check_label_scroll (overflow test).
         bar_h = max(44, int(rect.height() * 0.18))
         font = QFont("Cambria", max(13, min(20, rect.width() // 20)), QFont.Bold)
         text_rect = QRect(rect.x() + 18, rect.bottom() - bar_h, rect.width() - 36, bar_h - 8)
         return font, text_rect, bar_h
 
     def resizeEvent(self, event):
+        """Re-check the caption overflow at the new size."""
         super().resizeEvent(event)
         self._check_label_scroll()
 
+    def showEvent(self, event):
+        """Resume the caption pan when the card shows again."""
+        super().showEvent(event)
+        self._check_label_scroll()
+
+    def hideEvent(self, event):
+        """Stop the caption pan while the card is not on screen."""
+        super().hideEvent(event)
+        self._label_timer.stop()
+
     def _check_label_scroll(self):
-        """(Re)start or stop the caption pan depending on whether the current
-        artist-photo caption actually overflows its text box at this size."""
+        """Start or stop the caption pan by whether the caption overflows and the card is on screen."""
         text = self._label
         if not text or not self._is_artist:
             self._label_timer.stop()
@@ -314,7 +292,7 @@ class _ArtCard(QWidget):
         self._label_text_w = QFontMetrics(font).horizontalAdvance(text)
         self._label_avail_w = text_rect.width()
         if self._label_text_w > self._label_avail_w:
-            if not self._label_timer.isActive():
+            if self.isVisible() and not self._label_timer.isActive():
                 self._label_timer.start()
         else:
             self._label_timer.stop()
@@ -322,6 +300,7 @@ class _ArtCard(QWidget):
             self.update()
 
     def _tick_label_scroll(self):
+        """Move the caption one step; pause and reverse at each end."""
         if self._label_pause > 0:
             self._label_pause -= 1
             return
@@ -337,13 +316,8 @@ class _ArtCard(QWidget):
             self._label_pause = self._LABEL_PAUSE_TICKS
         self.update()
 
-    def _draw_label(
-        self, painter: QPainter, rect: QRect, text: str | None, opacity: float, offset: float = 0
-    ):
-        """Caption an artist photo with the artist's name, faded in/out in
-        step with the photo's own crossfade opacity. A credit line too wide
-        for the card is panned horizontally by `offset` px and hard-clipped
-        to the text box so it doesn't spill past the art's edge."""
+    def _draw_label(self, painter: QPainter, rect: QRect, text: str | None, opacity: float, offset: float = 0):
+        """Caption an artist photo at the photo's crossfade ``opacity``, panned by ``offset`` px when too wide."""
         if not text or opacity <= 0.0 or not rect.isValid():
             return
 
@@ -351,9 +325,7 @@ class _ArtCard(QWidget):
         painter.setOpacity(opacity)
 
         clip = QPainterPath()
-        clip.addRoundedRect(
-            rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS
-        )
+        clip.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS)
         painter.setClipPath(clip)
 
         font, text_rect, bar_h = self._label_geometry(rect)
@@ -367,12 +339,7 @@ class _ArtCard(QWidget):
         text_w = painter.fontMetrics().horizontalAdvance(text)
         if text_w > text_rect.width():
             painter.setClipRect(text_rect)
-            shifted = QRect(
-                round(text_rect.x() - offset),
-                text_rect.y(),
-                text_w + self._LABEL_END_PAD,
-                text_rect.height(),
-            )
+            shifted = QRect(round(text_rect.x() - offset), text_rect.y(), text_w + self._LABEL_END_PAD, text_rect.height())
             painter.drawText(shifted, Qt.AlignLeft | Qt.AlignBottom | Qt.TextDontClip, text)
         else:
             painter.setClipping(False)
@@ -381,8 +348,7 @@ class _ArtCard(QWidget):
         painter.restore()
 
     def _square_art_rect(self, pixmap: QPixmap, w: int, h: int) -> QRect:
-        """Album art's at-rest rect: nearly-square art keeps its native aspect
-        ratio; anything further off-square is cropped to a perfect square."""
+        """Album art's at-rest rect: nearly-square art keeps its aspect ratio, other art is cropped square."""
         pw, ph = pixmap.width(), pixmap.height()
 
         if pw > 0 and ph > 0 and abs((pw / ph) - 1.0) <= self._SQUARE_TOLERANCE:
@@ -398,9 +364,7 @@ class _ArtCard(QWidget):
         return QRect(x, y, side, side)
 
     def _artist_photo_rect(self, pixmap: QPixmap, w: int, h: int) -> QRect:
-        """Artist photo's at-rest rect: keeps its native aspect ratio and
-        avoids over-enlarging small images, instead of cropping it into a
-        forced square."""
+        """Artist photo's at-rest rect: native aspect ratio, upscale capped at ``_MAX_UPSCALE``."""
         pw, ph = pixmap.width(), pixmap.height()
         if pw <= 0 or ph <= 0:
             return QRect()
@@ -413,24 +377,28 @@ class _ArtCard(QWidget):
         return QRect(x, y, new_w, new_h)
 
     def _paint_pixmap_cover(self, painter: QPainter, pixmap: QPixmap, rect: QRect):
-        """Draw `pixmap` scaled/cropped to cover `rect`, clipped to its
-        rounded shape. When `rect` is the content's own at-rest rect (the
-        steady-state case, once the crossfade settles) this reproduces the
-        un-cropped layout exactly; mid-transition, where `rect` is
-        interpolated between the outgoing and incoming content's shapes, it
-        crops as needed so the frame morphs smoothly instead of the image
-        stretching or snapping between aspect ratios."""
+        """Draw ``pixmap`` scaled and cropped to cover ``rect``, clipped to its rounded shape."""
+        # At rest ``rect`` is the content's own shape, so nothing is cropped;
+        # mid-crossfade it is interpolated, and cropping lets the frame morph
+        # instead of the image stretching.
         if not rect.isValid() or rect.width() <= 0 or rect.height() <= 0:
             return
         path = QPainterPath()
-        path.addRoundedRect(
-            rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS
-        )
+        path.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS)
         painter.setClipPath(path)
-        scaled = pixmap.scaled(
-            rect.width(), rect.height(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-        )
+        scaled = self._scaled_pixmap(pixmap, rect.width(), rect.height())
         ox = rect.x() + (rect.width() - scaled.width()) // 2
         oy = rect.y() + (rect.height() - scaled.height()) // 2
         painter.drawPixmap(ox, oy, scaled)
         painter.setClipping(False)
+
+    def _scaled_pixmap(self, pixmap: QPixmap, w: int, h: int) -> QPixmap:
+        """``pixmap`` smooth-scaled to cover ``w`` x ``h``, from a small LRU cache."""
+        key = (pixmap.cacheKey(), w, h)
+        scaled = self._scaled_cache.pop(key, None)
+        if scaled is None:
+            scaled = pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            while len(self._scaled_cache) >= self._SCALED_CACHE_SIZE:
+                self._scaled_cache.pop(next(iter(self._scaled_cache)))
+        self._scaled_cache[key] = scaled  # re-insert: most recently used goes last
+        return scaled

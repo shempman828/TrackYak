@@ -21,14 +21,9 @@ _FALLBACK_TINT = QColor(133, 153, 234)
 
 
 def _blur_pixmap(pixmap: QPixmap) -> QPixmap:
-    """A small, heavily blurred copy of ``pixmap``.
-
-    The blur fades the image edges to transparent, so a margin of one blur
-    radius is cropped from each side of the result.
-    """
-    small = pixmap.scaled(
-        _BLUR_SOURCE_PX, _BLUR_SOURCE_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation
-    )
+    """A small, heavily blurred copy of ``pixmap``."""
+    # The blur fades the edges to transparent, so one blur radius is cropped from each side.
+    small = pixmap.scaled(_BLUR_SOURCE_PX, _BLUR_SOURCE_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     scene = QGraphicsScene()
     item = QGraphicsPixmapItem(small)
     effect = QGraphicsBlurEffect()
@@ -48,8 +43,7 @@ def _blur_pixmap(pixmap: QPixmap) -> QPixmap:
 
 
 def _tint_from(pixmap: QPixmap) -> QColor:
-    """Average colour of ``pixmap``, pushed to a saturation and value that
-    reads as a colour wash on the dark theme."""
+    """Average colour of ``pixmap``, pushed to a saturation and value that reads as a wash on the dark theme."""
     avg = pixmap.scaled(1, 1, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).toImage()
     c = avg.pixelColor(0, 0)
     h, s, v, _ = c.getHsv()
@@ -59,8 +53,7 @@ def _tint_from(pixmap: QPixmap) -> QColor:
 
 
 class _BlurredBackdrop(QWidget):
-    """Full-widget blurred album-art background with a colour wash taken from
-    the art, a scrim, and a vignette."""
+    """Full-widget blurred album-art background with a colour wash from the art, a scrim, and a vignette."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,17 +65,20 @@ class _BlurredBackdrop(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
     def set_pixmap(self, pixmap: QPixmap | None):
+        """Blur ``pixmap`` (or clear the art) and take its tint."""
         self._pixmap = pixmap
         self._scaled_cache = None
         if pixmap and not pixmap.isNull():
             self._blurred = _blur_pixmap(pixmap)
-            self._tint = _tint_from(pixmap)
+            # The small blurred copy has the same average colour and is far cheaper to reduce to 1x1.
+            self._tint = _tint_from(self._blurred)
         else:
             self._blurred = None
             self._tint = QColor(_FALLBACK_TINT)
         self.update()
 
     def tint(self) -> QColor:
+        """Copy of the current wash colour."""
         return QColor(self._tint)
 
     def _get_opacity(self) -> float:
@@ -95,11 +91,10 @@ class _BlurredBackdrop(QWidget):
     backdropOpacity = Property(float, _get_opacity, _set_opacity)
 
     def _scaled_blur(self, w: int, h: int) -> QPixmap:
+        """Blurred art scaled to cover ``w`` x ``h``, cached for the last size."""
         size = QSize(w, h)
         if self._scaled_cache is None or self._scaled_cache[0] != size:
-            scaled = self._blurred.scaled(
-                w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
+            scaled = self._blurred.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             self._scaled_cache = (size, scaled)
         return self._scaled_cache[1]
 

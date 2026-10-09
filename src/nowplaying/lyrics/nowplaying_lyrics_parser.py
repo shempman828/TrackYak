@@ -1,51 +1,57 @@
+from bisect import bisect_right
 import re
 
-_TS_RE = re.compile(r"^\[(\d{1,2}):(\d{2})(?:[.,](\d+))?\](.*)")
+# One leading LRC timestamp, e.g. [01:02.34]; a line may carry several in a row.
+_TS_RE = re.compile(r"\[(\d+):(\d{2})(?:[.,](\d+))?\]")
+
+# LRC ID tags ([ar:Artist], [offset:+500], ...) are metadata, not lyric lines.
+# Only the standard tag names match, so plain-text section headers such as
+# "[Chorus: Artist]" stay as lyrics.
+_ID_TAG_RE = re.compile(r"^\[(?:ar|al|ti|au|by|length|offset|re|ve|tool|la|lr|#)\s*:.*\]$", re.IGNORECASE)
 
 
 def parse_lyrics(raw: str) -> tuple[bool, list[tuple[int, str]]]:
-    """
-    Parse raw lyrics string.
-
-    Returns (is_synced, lines) where lines is a list of (timestamp_ms, text).
-    For plain lyrics, all timestamps are 0.
-    """
-    lines = []
+    """Parse raw lyrics into ``(is_synced, [(timestamp_ms, text), ...])``; plain lyrics get 0 ms stamps."""
+    entries: list[tuple[int | None, str]] = []
     timed_ms: list[int] = []
-    is_synced = False
-    for line in raw.splitlines():
-        m = _TS_RE.match(line.strip())
-        if m:
-            is_synced = True
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if _ID_TAG_RE.match(line):
+            continue
+        stamps, pos = [], 0
+        while m := _TS_RE.match(line, pos):
             mins, secs = int(m.group(1)), int(m.group(2))
             frac = m.group(3) or "0"
-            # Normalise fraction to milliseconds (handles 2- or 3-digit fracs)
-            ms = (mins * 60 + secs) * 1000 + int(frac.ljust(3, "0")[:3])
-            text = m.group(4).strip()
-            lines.append((ms, text))
-            timed_ms.append(ms)
+            # Normalise the fraction to milliseconds (handles 1- to 3+-digit fractions).
+            stamps.append((mins * 60 + secs) * 1000 + int(frac.ljust(3, "0")[:3]))
+            pos = m.end()
+        text = line[pos:].strip()
+        if stamps:
+            entries.extend((ms, text) for ms in stamps)
+            timed_ms.extend(stamps)
         else:
-            lines.append((0, line.strip()))
+            entries.append((None, text))
 
-    if not lines:
+    if not entries:
         return False, []
 
-    if is_synced and _is_fake_timing(timed_ms):
-        # Placeholder timing: line N stamped at exactly N seconds (or every
-        # line on the same stamp). Not real sync -- render as plain text.
-        return False, [(0, text) for _, text in lines]
+    if not timed_ms or _is_fake_timing(timed_ms):
+        # Fake timing is placeholder stamps (line N at exactly N s); render as plain text.
+        return False, [(0, text) for _, text in entries]
 
-    # If mixed (some timed, some not), treat as plain
-    if is_synced:
-        lines.sort(key=lambda x: x[0])
-
-    return is_synced, lines
+    # An untimed line inside synced lyrics (e.g. a blank stanza break) keeps
+    # its place by taking the stamp of the line before it; sort is stable.
+    lines: list[tuple[int, str]] = []
+    prev_ms = 0
+    for ms, text in entries:
+        prev_ms = prev_ms if ms is None else ms
+        lines.append((prev_ms, text))
+    lines.sort(key=lambda x: x[0])
+    return True, lines
 
 
 def _is_fake_timing(stamps: list[int]) -> bool:
-    """True when *stamps* are a trivial sequence rather than real timing:
-    four or more timestamps that are exactly 0s, 1s, 2s, ... (the shape of
-    fabricated per-line placeholder timestamps), or every stamp identical."""
+    """True when four or more stamps are all identical or exactly 0 s, 1 s, 2 s, ..."""
     if len(stamps) < 4:
         return False
     if len(set(stamps)) == 1:
@@ -68,11 +74,5 @@ def build_lrc(lines: list[tuple[int, str]]) -> str:
 
 
 def active_index(lines: list[tuple[int, str]], position_ms: int) -> int:
-    """Return the index of the line that should be shown at position_ms."""
-    idx = 0
-    for i, (ts, _) in enumerate(lines):
-        if ts <= position_ms:
-            idx = i
-        else:
-            break
-    return idx
+    """Index of the line to show at ``position_ms`` (0 before the first line); ``lines`` must be sorted."""
+    return max(0, bisect_right(lines, position_ms, key=lambda x: x[0]) - 1)

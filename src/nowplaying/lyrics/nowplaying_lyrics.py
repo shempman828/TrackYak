@@ -1,10 +1,4 @@
-"""
-nowplaying_lyrics.py
-
-Lyrics/karaoke sync engine for NowPlayingView: parsing, feeding the lyric
-column, follow vs. browse-all mode, position-driven active-line tracking,
-the "lyrics coming soon" countdown, and the sync-offset stepper.
-"""
+"""Lyrics sync engine for NowPlayingView: lyric column, follow mode, countdown, and sync offset."""
 
 from src.foundation.censor import censor_text
 from src.foundation.config_setup import app_config
@@ -26,17 +20,12 @@ _OFFSET_LIMIT_TENTHS = 50
 
 
 class NowPlayingLyricsMixin:
-    """
-    Expects the host class to provide: self._is_synced, self._show_all_lyrics,
-    self._lyrics_lines, self._active_idx, self._last_position_ms,
-    self._sync_offset_ms, self._offset_tenths, self._offset_save_timer,
-    self._countdown_timer, self._next_lyric_ms, self._lyric_column,
-    self._countdown_lbl, self._lyrics_toolbar, self._offset_group,
-    self._offset_value_btn, self._toggle_mode_btn, self._manual_sync_btn,
-    self._sync_dialog, self._set_active(), self._switch_tab(), self._player_duration(),
-    self._PAGE_LYRICS, self._PAGE_CREDITS, self.controller, self.track, and to
-    be a QWidget subclass.
-    """
+    """Lyrics behaviour mixed into NowPlayingView."""
+
+    # Host contract: the lyric state attributes and timers set in
+    # NowPlayingView.__init__, the lyric widgets built in _initUI, plus
+    # _set_active(), _switch_tab(), _player_duration(), _PAGE_LYRICS,
+    # _PAGE_CREDITS, controller and track; the host is a QWidget.
 
     # ── follow / browse-all toggle ─────────────────────────────────────────
 
@@ -55,6 +44,7 @@ class NowPlayingLyricsMixin:
     # ── lyrics ────────────────────────────────────────────────────────────
 
     def _update_lyrics(self, track):
+        """Load ``track``'s lyrics into the column and switch to the LYRICS or CREDITS tab."""
         # Instrumental tracks have no lyrics by definition — disable the LYRICS
         # tab entirely and pin the panel to CREDITS. Re-enable for every other
         # track so the state tracks the current track, not history.
@@ -99,6 +89,7 @@ class NowPlayingLyricsMixin:
         self._switch_tab(self._PAGE_CREDITS)
 
     def _set_lyrics_mode_karaoke(self):
+        """Show synced lyrics with the offset stepper."""
         self._lyric_column.set_lines([t for _, t in self._lyrics_lines], synced=True)
         self._set_active(self._toggle_mode_btn, False)
         self._toggle_mode_btn.setVisible(True)
@@ -107,6 +98,7 @@ class NowPlayingLyricsMixin:
         self._switch_tab(self._PAGE_LYRICS)
 
     def _set_lyrics_mode_plain(self):
+        """Show unsynced lyrics paced by song progress."""
         self._lyric_column.set_lines([t for _, t in self._lyrics_lines], synced=False)
         # Unsynced text is paced by song progress; it has no timing to offset.
         self._set_active(self._toggle_mode_btn, False)
@@ -118,6 +110,7 @@ class NowPlayingLyricsMixin:
     # ── position sync ─────────────────────────────────────────────────────
 
     def _on_position_changed(self, position_ms: int):
+        """Move the active line and countdown to the player position."""
         if not self._lyrics_lines:
             return
         if not self._is_synced:
@@ -178,6 +171,9 @@ class NowPlayingLyricsMixin:
         if self._next_lyric_ms < 0:
             self._countdown_timer.stop()
             return
+        if self._last_position_ms < 0:
+            # Position unknown (offset just changed); keep the last text until the next tick.
+            return
         remaining_ms = self._next_lyric_ms - (self._last_position_ms + self._sync_offset_ms)
         if remaining_ms <= 0:
             self._stop_countdown()
@@ -202,9 +198,11 @@ class NowPlayingLyricsMixin:
         self._offset_save_timer.start()
 
     def _nudge_offset(self, step: int):
+        """Move the offset by ``step`` tenths of a second."""
         self._on_offset_changed(self._offset_tenths + step)
 
     def _reset_offset(self):
+        """Set the offset back to 0."""
         self._on_offset_changed(0)
 
     def _refresh_offset_btn(self):
@@ -230,15 +228,15 @@ class NowPlayingLyricsMixin:
     # ── manual sync dialog ───────────────────────────────────────────────
 
     def _on_open_sync_dialog(self):
-        """Launch the tap-to-sync dialog for the current track's raw lyrics.
-
-        Reads from the track's raw ``lyrics`` field, not ``self._lyrics_lines``
-        — the latter is built from the censor-filtered display copy, and
-        syncing off it would permanently bake censored placeholders into the
-        saved lyrics for tracks with explicit content.
-        """
+        """Open the tap-to-sync dialog for the current track, or raise the one already open."""
+        if self._sync_dialog is not None:
+            self._sync_dialog.raise_()
+            self._sync_dialog.activateWindow()
+            return
         if not self.track or not self._lyrics_lines:
             return
+        # Use the raw field, not self._lyrics_lines: those are the censored
+        # display copy, and saving them would bake the masks into the track.
         raw = getattr(self.track, "lyrics", None) or ""
         _, lines = parse_lyrics(raw)
         plain_lines = [text for _, text in lines]
@@ -248,6 +246,7 @@ class NowPlayingLyricsMixin:
         dlg = LyricSyncDialog(self.controller, self.track, plain_lines, self)
         dlg.saved.connect(lambda: self._update_lyrics(self.track))
         dlg.finished.connect(lambda _=None: setattr(self, "_sync_dialog", None))
+        dlg.finished.connect(dlg.deleteLater)
         self._sync_dialog = dlg
         dlg.show()
 

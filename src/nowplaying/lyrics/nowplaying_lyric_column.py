@@ -10,29 +10,13 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class _LyricColumn(QWidget):
-    """Every lyric line of the track in one painted, scrolling column.
+    """Every lyric line of the track in one painted column that scrolls to keep the current line centred."""
 
-    Synced lyrics: the active line is bright and sits at the vertical centre
-    of the widget; the lines above (already sung) and below (coming up) dim
-    with distance. The scroll is clamped to the content, so the first lines
-    start at the top, the last lines end at the bottom, and lyrics that fit
-    the widget never scroll. Each change of active line animates both the scroll and
-    the brightness hand-over from the old line to the new one.
-
-    While ``is_following()`` is True the column scrolls itself to keep the
-    active line centred (as far as the clamp allows). A mouse-wheel scroll, or ``set_following(False)``,
-    lets the user browse every line freely; the active line keeps its
-    highlight so it can still be found. ``follow_changed`` reports both.
-
-    Plain (unsynced) lyrics have no active line: every line gets the same
-    brightness. With no timing to follow, seeing more text wins: the font
-    shrinks (down to ``_MIN_PT``) until every line fits the widget. Lyrics too
-    long even at that size are paced by song progress instead: while
-    following, ``set_progress()`` centres the line at that share of the
-    content height, the same way synced lyrics centre the active line, but
-    without highlighting it (the estimate is rough).
-    """
-
+    # Synced: the active line is bright and centred; other lines dim with distance.
+    # Plain: no active line; the font shrinks to _MIN_PT to fit, and longer
+    # lyrics are paced by song progress via set_progress().
+    # The scroll is clamped to the content, so lyrics that fit never scroll.
+    # A wheel scroll or set_following(False) stops following; follow_changed reports it.
     follow_changed = Signal(bool)
 
     _FONT = QFont("Georgia", 20, QFont.Bold)  # synced lyrics; plain lyrics' largest size
@@ -58,6 +42,7 @@ class _LyricColumn(QWidget):
         self.setProperty("bgTransparent", True)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setAccessibleName("Lyrics")
 
         self._lines: list[str] = []
         self._synced = False
@@ -107,8 +92,7 @@ class _LyricColumn(QWidget):
     # ── public API ────────────────────────────────────────────────────────
 
     def set_lines(self, lines: list[str], synced: bool):
-        """Show ``lines`` scrolled to the top, in follow mode with no active
-        (synced) or paced (plain) line yet."""
+        """Show ``lines`` scrolled to the top, following, with no active or paced line yet."""
         self._scroll_anim.stop()
         self._emphasis_anim.stop()
         self._lines = list(lines)
@@ -117,6 +101,7 @@ class _LyricColumn(QWidget):
         self._prev_active = -1
         self._paced = -1
         self._emphasis = 1.0
+        self.setAccessibleDescription("")
         self._tops, self._heights, self._content_h = [], [], 0
         self._layout_key = None
         self._relayout()
@@ -145,14 +130,14 @@ class _LyricColumn(QWidget):
             return
         self._prev_active = self._active
         self._active = idx
+        self.setAccessibleDescription(self.active_text())
         self._emphasis_anim.stop()
         self._emphasis_anim.start()
         if self._following:
             self._scroll_to(self._follow_scroll(idx))
 
     def set_progress(self, fraction: float):
-        """Plain lyrics: centre the line at ``fraction`` (0..1) of the content
-        height while following. Synced lyrics ignore this."""
+        """Plain lyrics only: centre the line at ``fraction`` (0..1) of the content while following."""
         if self._synced or not self._tops:
             return
         y = max(0.0, min(1.0, fraction)) * self._content_h
@@ -194,8 +179,7 @@ class _LyricColumn(QWidget):
         self._tops, self._heights, self._content_h = self._measure(self._font, w)
 
     def _fit_font(self, w: int, h: int) -> QFont:
-        """Largest font from ``_FONT``'s size down to ``_MIN_PT`` at which every
-        line fits height ``h``; ``_MIN_PT`` when even that overflows."""
+        """Largest font from ``_FONT``'s size down to ``_MIN_PT`` that fits every line in height ``h``."""
         lo, hi = self._MIN_PT, self._FONT.pointSize()
         while lo < hi:  # binary search: content height grows with the size
             mid = (lo + hi + 1) // 2
@@ -232,8 +216,7 @@ class _LyricColumn(QWidget):
         return self._active if self._synced else self._paced
 
     def _follow_scroll(self, idx: int) -> float:
-        """Scroll value that centres line ``idx`` (-1 = before the first
-        line), clamped so no empty space shows above or below the lyrics."""
+        """Clamped scroll value that centres line ``idx`` (-1 = before the first line)."""
         if not self._tops:
             return 0.0
         idx = max(0, min(idx, len(self._tops) - 1))
@@ -270,7 +253,8 @@ class _LyricColumn(QWidget):
             self._scroll = self._clamp_scroll(self._scroll)
 
     def wheelEvent(self, event):
-        if not self._lines:
+        """Scroll freely and stop following; ignored when there is nothing to scroll."""
+        if not self._lines or self._scroll_bounds()[1] <= 0:
             event.ignore()
             return
         pixel = event.pixelDelta().y()
@@ -315,9 +299,8 @@ class _LyricColumn(QWidget):
     # ── line styling ──────────────────────────────────────────────────────
 
     def _edge_alpha(self, centre: float) -> float:
-        """Fade factor for a line centred at widget y ``centre``. An edge fades
-        only while more text is scrolled past it, so the first and last lines
-        are never dimmed when they are really the first and last."""
+        """Fade factor for a line centred at widget y ``centre``."""
+        # An edge fades only while more text lies past it, so the real first/last lines never dim.
         lo, hi = self._scroll_bounds()
         fade = 1.0
         if self._scroll > lo + 0.5:

@@ -104,7 +104,9 @@ def test_all_lines_button_stops_following_and_keeps_highlight(view):
 
 
 def test_wheel_scroll_switches_to_browse_mode(view):
-    view._update_lyrics(SimpleNamespace(lyrics=_SYNCED_LYRICS))
+    # Enough lines to overflow the column, so the wheel has something to scroll.
+    long_lyrics = "\n".join(f"[00:{i:02d}.50] line {i}" for i in range(60))
+    view._update_lyrics(SimpleNamespace(lyrics=long_lyrics))
     view._lyric_column.wheelEvent(_wheel(view._lyric_column))
     assert view._lyric_column.is_following() is False
     assert view._toggle_mode_btn.property("active") is True
@@ -241,6 +243,21 @@ def test_active_line_is_brightest_and_sung_lines_recede(column):
     assert active == pytest.approx(column._ACTIVE_ALPHA)
     assert column._base_alpha(4) > column._base_alpha(5)  # upcoming dims with distance
     assert column._base_alpha(2) < column._base_alpha(4)  # sung line dimmer than upcoming
+
+
+def test_wheel_on_lyrics_that_fit_is_ignored_and_keeps_following(column):
+    column.set_lines(["one", "two"], synced=True)
+    event = _wheel(column)
+    column.wheelEvent(event)
+    assert not event.isAccepted()
+    assert column.is_following() is True
+
+
+def test_active_line_is_the_accessible_description(column):
+    column.set_lines(["one", "two"], synced=True)
+    column.set_active(1)
+    assert column.accessibleName() == "Lyrics"
+    assert column.accessibleDescription() == "two"
 
 
 def test_wheel_on_empty_column_is_ignored(column):

@@ -335,3 +335,60 @@ def test_sync_dialog_uses_raw_lyrics_not_the_display_copy(view):
     view._on_open_sync_dialog()
 
     assert view._sync_dialog._lines == ["shit happened", "line two"]
+
+
+# ── Finalize fixes ──────────────────────────────────────────────────────────
+
+
+def test_enter_on_a_focused_button_stamps_instead_of_clicking_it(dialog, player):
+    player.position = 2_000
+    QTest.keyClick(dialog._play_btn, Qt.Key_Return)
+    assert player.toggle_calls == 0
+    assert dialog._stamps[0] is not None
+
+
+def test_no_dialog_button_is_auto_default(dialog):
+    for btn in (dialog._play_btn, dialog._undo_btn, dialog._cancel_btn, dialog._save_btn):
+        assert btn.autoDefault() is False
+
+
+def test_reject_disconnects_from_the_player(dialog, player):
+    dialog.reject()
+    dialog._play_btn.setText("unchanged")
+    player.state_changed.emit("playing")
+    assert dialog._play_btn.text() == "unchanged"
+
+
+def test_dialog_shows_the_key_hint(dialog):
+    from PySide6.QtWidgets import QLabel
+
+    hints = [lbl for lbl in dialog.findChildren(QLabel) if lbl.property("npRole") == "syncHint"]
+    assert len(hints) == 1
+    assert "Enter" in hints[0].text() and "Backspace" in hints[0].text()
+
+
+def test_failed_save_warns_and_keeps_the_dialog_open(dialog, player, update, monkeypatch):
+    from src.nowplaying.lyrics import nowplaying_lyrics_sync_dialog as mod
+
+    warnings = []
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warnings.append(a))
+    update.result = False
+    for _ in range(3):
+        dialog._tap()
+    dialog._save()
+    assert len(warnings) == 1
+    assert dialog.result() != QDialog.Accepted
+    assert all(s is not None for s in dialog._stamps)  # taps kept for a retry
+
+
+def test_second_sync_click_raises_the_open_dialog(view):
+    track = SimpleNamespace(track_id=1, lyrics=_PLAIN_LYRICS)
+    view.track = track
+    view._update_lyrics(track)
+    view._on_open_sync_dialog()
+    first = view._sync_dialog
+    view._on_open_sync_dialog()
+    assert view._sync_dialog is first
+    assert len(view.findChildren(LyricSyncDialog)) == 1
+    first.reject()
+    assert view._sync_dialog is None

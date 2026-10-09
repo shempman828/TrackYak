@@ -1,17 +1,11 @@
-"""
-nowplaying_art_slideshow.py
-
-Album-art/backdrop slideshow for NowPlayingView: gathering every available
-art image for a track (front/rear/liner covers + artist photos), cycling
-through them on a timer, and crossfading the small art card and the
-full-window blurred backdrop.
-"""
+"""Album-art slideshow for NowPlayingView: covers and artist photos on the art card, plus the backdrop."""
 
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QPixmap
 
+from src.foundation.censor import censor_text
 from src.image.album_art_worker import ArtCacheWorker
 from src.image.artwork_cache import get_artwork_cache
 
@@ -33,21 +27,45 @@ _FRONT_COVER_SHARE = 0.8
 # Duration of the crossfade between successive art-slideshow images.
 _ART_TRANSITION_MS = 950
 
+# Artist photos are decoded on the UI thread, so keep recent ones (scaled
+# down to what the card can show) instead of decoding them on every track.
+_ARTIST_PHOTO_MAX_PX = 1024
+_ARTIST_PHOTO_CACHE_SIZE = 32
+_artist_photo_cache: dict[tuple[str, int], QPixmap] = {}
+
+
+def _load_artist_photo(path: str) -> QPixmap | None:
+    """Artist photo at ``path``, at most ``_ARTIST_PHOTO_MAX_PX`` on its long side, cached by path and mtime."""
+    try:
+        mtime = Path(path).stat().st_mtime_ns
+    except OSError:
+        return None
+    key = (path, mtime)
+    px = _artist_photo_cache.pop(key, None)
+    if px is None:
+        px = QPixmap(path)
+        if px.isNull():
+            return None
+        if max(px.width(), px.height()) > _ARTIST_PHOTO_MAX_PX:
+            px = px.scaled(_ARTIST_PHOTO_MAX_PX, _ARTIST_PHOTO_MAX_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        while len(_artist_photo_cache) >= _ARTIST_PHOTO_CACHE_SIZE:
+            _artist_photo_cache.pop(next(iter(_artist_photo_cache)))
+    _artist_photo_cache[key] = px  # re-insert: most recently used goes last
+    return px
+
 
 class NowPlayingArtMixin:
-    """
-    Expects the host class to provide: self.track, self.default_art_path,
-    self._current_pixmap, self._fade_anim, self._art_transition_anim,
-    self._art_images, self._art_has_front, self._art_slide_idx,
-    self._art_slide_timer, self._art_worker, self._art_generation,
-    self._art_card, self._slide_dots, self._backdrop, and to be a QWidget
-    subclass.
-    """
+    """Album-art slideshow behaviour mixed into NowPlayingView."""
+
+    # Host contract: the art state attributes and timers set in
+    # NowPlayingView.__init__ (incl. _art_worker, _retired_art_workers,
+    # _art_generation), plus track, default_art_path, _art_card,
+    # _slide_dots and _backdrop; the host is a QWidget.
 
     # ── art ───────────────────────────────────────────────────────────────
 
     def _load_art(self, pixmap: QPixmap | None):
-        """Single-image path kept for clearUI / fallback use."""
+        """Show a single image (used by clearUI)."""
         self._start_art_slideshow([(pixmap, False, None)] if pixmap else [])
 
     def _load_art_from_track(self, track):
@@ -84,24 +102,22 @@ class NowPlayingArtMixin:
                             has_front = True
 
         # Also try artist-level image
-        album_artist_ids = {a.artist_id for a in (getattr(album, "album_artists", None) or [])}
+        album_artist_ids = {getattr(a, "artist_id", None) for a in (getattr(album, "album_artists", None) or [])}
+        album_artist_ids.discard(None)
         for artist in getattr(track, "artists", None) or []:
             p = getattr(artist, "profile_pic_path", None) or ""
-            if p and Path(p).exists():
-                px = QPixmap(str(p))
-                if not px.isNull():
-                    name = getattr(artist, "artist_name", None) or None
-                    if name and artist.artist_id not in album_artist_ids:
+            if p:
+                px = _load_artist_photo(str(p))
+                if px is not None:
+                    artist_id = getattr(artist, "artist_id", None)
+                    name = censor_text(getattr(artist, "artist_name", None) or None)
+                    if name and artist_id is not None and artist_id not in album_artist_ids:
                         credit_roles = []
                         for ar in getattr(track, "artist_roles", None) or []:
-                            if ar.artist_id != artist.artist_id:
+                            if getattr(ar, "artist_id", None) != artist_id:
                                 continue
-                            role_name = getattr(ar.role, "role_name", None)
-                            if (
-                                role_name
-                                and role_name not in ("Primary Artist", "Album Artist")
-                                and role_name not in credit_roles
-                            ):
+                            role_name = getattr(getattr(ar, "role", None), "role_name", None)
+                            if role_name and role_name not in ("Primary Artist", "Album Artist") and role_name not in credit_roles:
                                 credit_roles.append(role_name)
                         if credit_roles:
                             name = f"{name} ({', '.join(credit_roles)})"
@@ -117,39 +133,43 @@ class NowPlayingArtMixin:
         self._start_art_slideshow(pixmaps, has_front=has_front)
 
     def _cancel_art_worker(self):
-        if self._art_worker is not None:
-            self._art_worker.request_cancel()
-            self._art_worker.wait()
-            self._art_worker = None
+        """Cancel the art worker without blocking; it is kept alive until its thread ends."""
+        worker = self._art_worker
+        if worker is None:
+            return
+        self._art_worker = None
+        worker.request_cancel()
+        # A late ``resolved`` is harmless: _on_art_resolved drops stale generations.
+        # No wait(): the worker may be mid-decode of an audio file. A QThread
+        # destroyed while running aborts the app, so hold a reference until finished.
+        self._retired_art_workers.add(worker)
+        worker.finished.connect(lambda w=worker: self._retire_art_worker(w))
+        if worker.isFinished():
+            self._retire_art_worker(worker)
+
+    def _retire_art_worker(self, worker):
+        """Release a cancelled art worker once its thread has ended."""
+        if worker in self._retired_art_workers:
+            self._retired_art_workers.discard(worker)
+            worker.deleteLater()
 
     def _start_art_worker(self, album, gen: int, track):
+        """Warm ``album``'s art cache row off the UI thread, then reload the art."""
         cache = get_artwork_cache()
         self._art_worker = ArtCacheWorker([album], cache, "front")
-        self._art_worker.resolved.connect(
-            lambda _album_id, g=gen, t=track: self._on_art_resolved(g, t)
-        )
+        self._art_worker.resolved.connect(lambda _album_id, g=gen, t=track: self._on_art_resolved(g, t))
         self._art_worker.start()
 
     def _on_art_resolved(self, gen: int, track):
-        """Cache row for `track`'s album is now warm - re-run the (now
-        synchronous/cheap) art lookup, but only if nothing has superseded
-        this request in the meantime."""
+        """Re-run the now-cheap art lookup for ``track`` unless a newer request superseded it."""
         if gen != self._art_generation or track is not self.track:
             return
         self._load_art_from_track(track)
 
-    def _start_art_slideshow(
-        self, pixmaps: list[tuple[QPixmap, bool, str | None]], has_front: bool = False
-    ):
-        """Begin cycling through the given list of (pixmap, is_artist, label)
-        triples. The blurred backdrop stays pinned to the album art (the
-        first non-artist image) for the whole track; only the small art
-        card rotates through the full set, artist photos included.
-
-        When a front cover is present, the rotation interleaves it between
-        every other image (front, rear, front, liner, front, artist, ...)
-        instead of visiting it once per lap - see _dwell_for_index.
-        """
+    def _start_art_slideshow(self, pixmaps: list[tuple[QPixmap, bool, str | None]], has_front: bool = False):
+        """Start cycling the art card through ``(pixmap, is_artist, label)`` triples."""
+        # The backdrop stays on the first non-artist image for the whole track.
+        # A front cover is interleaved between every other image (see _dwell_for_index).
         self._art_slide_timer.stop()
 
         first = pixmaps[0] if pixmaps else (None, False, None)
@@ -179,6 +199,7 @@ class NowPlayingArtMixin:
             self._art_slide_timer.start()
 
     def _advance_art_slide(self):
+        """Show the next image in the sequence."""
         if not self._art_images:
             return
         self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
@@ -188,25 +209,16 @@ class NowPlayingArtMixin:
         self._art_slide_timer.setInterval(self._dwell_for_index(self._art_slide_idx))
 
     def _dot_index(self, idx: int) -> int:
-        """Distinct-image index (for the slide dots) of sequence slot `idx`.
-
-        With an interleaved front cover every even slot is the front cover
-        (dot 0) and odd slot k is secondary image (k + 1) // 2.
-        """
+        """Distinct-image index (for the slide dots) of sequence slot ``idx``."""
+        # Interleaved front cover: even slots are dot 0, odd slot k is image (k + 1) // 2.
         if not self._art_has_front or len(self._art_images) <= 1:
             return idx
         return 0 if idx % 2 == 0 else (idx + 1) // 2
 
     def _dwell_for_index(self, idx: int) -> int:
-        """How long the image at `idx` should stay on screen.
-
-        Normally each image just dwells for its per-type duration. When a
-        front cover is in the rotation, it occupies every even slot
-        (front/secondary/front/secondary/...) - each visit's dwell is set
-        relative to the secondary image right after it, so the front cover
-        gets _FRONT_COVER_SHARE of cycle time regardless of how many
-        secondary images there are, without any single slide ballooning.
-        """
+        """How long (ms) the image at ``idx`` stays on screen."""
+        # An interleaved front-cover visit dwells relative to the image after
+        # it, so the cover gets _FRONT_COVER_SHARE of the cycle at any image count.
         _, is_artist, _ = self._art_images[idx]
         base = _ARTIST_DWELL_MS if is_artist else _COVER_DWELL_MS
         if not self._art_has_front or len(self._art_images) <= 1:
@@ -235,14 +247,12 @@ class NowPlayingArtMixin:
         self._art_transition_anim.start()
 
     def _apply_backdrop(self, pixmap: QPixmap | None):
-        """Crossfade the full-window blurred backdrop to `pixmap`. Called
-        once per track (or when a new backdrop candidate appears), not on
-        every art-card slide."""
+        """Crossfade the blurred backdrop to ``pixmap`` (once per track, not per slide)."""
         if self._fade_anim:
             self._fade_anim.stop()
 
         self._backdrop.set_pixmap(pixmap)
-        self._backdrop._opacity = 0.0
+        self._backdrop.setProperty("backdropOpacity", 0.0)
 
         self._fade_anim = QPropertyAnimation(self._backdrop, b"backdropOpacity")
         self._fade_anim.setDuration(_ART_TRANSITION_MS)

@@ -1537,6 +1537,11 @@ QLabel[npRole="countdown"] {
     font-style: italic;
 }
 
+QLabel[npRole="syncHint"] {
+    color: rgba(133, 153, 234, 0.55);
+    font-size: 12px;
+}
+
 QLabel[npRole="creditsPlaceholder"] {
     color: rgba(133, 153, 234, 0.28);
     font-size: 13px;

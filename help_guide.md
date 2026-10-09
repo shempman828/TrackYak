@@ -170,8 +170,9 @@ plus photos of any non-album-artist contributors — it slowly cycles through
 them; each contributor photo is captioned with that person's name and
 instrument, and a caption too long for the card pans across so you can read
 all of it. On the right, the title, artist, and album sit above a row of
-quick-glance details (BPM, key, release year, play count, genres) that only
-show up if the track actually has that data. A title just wraps onto more
+quick-glance details (duration, BPM, key, time signature, recording year,
+play count, genres) that only show up if the track actually has that data;
+hover over a detail to see what it is. A title just wraps onto more
 lines as it gets longer; only once it would need more than three does it
 switch to slowly panning back and forth instead. For a track marked
 **Classical**, the title is built from its Classical fields instead of the
@@ -179,9 +180,9 @@ plain track name — composer, work, catalogue number, and movement, e.g.
 *"Ludwig van Beethoven: Symphony No. 5 in C minor Op. 67 — I. Allegro con
 brio"* — while the performers stay on the artist line below. A classical
 track with no work or movement filled in keeps its normal title. The artist line always
-pans when it's too long to fit. If
-the album has a subtitle set (e.g. "Deluxe Edition"), it appears on its own
-faint line just below the album name; albums without one show nothing there.
+pans when it's too long to fit. The album line reads *Album · Subtitle ·
+Year*: the subtitle (e.g. "Deluxe Edition") and the year appear only when the
+album has them.
 
 Below that, three tabs: **Lyrics** shows synced, karaoke-style lyrics if the
 track has them — every line is shown in one column, and the current line
@@ -208,9 +209,13 @@ the next line starts stamps that line with the current playback position
 (minus a small, adjustable reaction-time offset, since your keypress always
 lands a beat after you actually hear the line start). `Backspace` undoes the
 last tap if you miss the timing, and `Esc` (or **Cancel**) abandons the
-session with no changes saved. Once every line has been tapped, **Save**
-writes the new timing back to the track. **Credits** shows everyone credited
-on the track. **About** collects the
+session with no changes saved. A reminder of these keys is shown at the
+bottom of the tool. Once every line has been tapped, **Save** writes the new
+timing back to the track; if the save fails, a message says so and the tool
+stays open with your taps kept, so you can try again. **Credits** shows
+everyone credited on the track; a long list scrolls by itself like film
+credits, and scrolling it with the mouse wheel moves it to that spot and
+pauses for a moment before it continues. **About** collects the
 description and bio text already entered elsewhere — the artist bio editor, the
 album, genre, label, and mood editors — for the track, its album, its artists,
 its label(s), genre(s), and mood(s), shown read-only as a scrolling stack of

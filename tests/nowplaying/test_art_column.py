@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QFont, QPixmap
 import pytest
 
 from src.nowplaying.art.nowplaying_art import _ArtCard
@@ -173,3 +173,126 @@ def test_backdrop_blurs_a_small_copy_and_takes_a_tint(qapp):
 
 def test_greyscale_art_uses_the_accent_tint(qapp):
     assert _tint_from(_px(color="#808080")) == QColor(133, 153, 234)
+
+
+# ── Finalize fixes ───────────────────────────────────────────────────────
+
+
+class _FakeWorker(QObject):
+    resolved = Signal(int)
+    finished = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.cancelled = False
+        self.waited = False
+        self.done = False
+
+    def request_cancel(self):
+        self.cancelled = True
+
+    def wait(self):
+        self.waited = True
+
+    def isFinished(self):
+        return self.done
+
+
+def test_cancel_art_worker_does_not_block_and_keeps_the_worker_until_it_ends(view):
+    worker = _FakeWorker()
+    view._art_worker = worker
+    view._cancel_art_worker()
+    assert worker.cancelled and not worker.waited
+    assert view._art_worker is None
+    assert worker in view._retired_art_workers
+    worker.finished.emit()
+    assert worker not in view._retired_art_workers
+
+
+def test_backdrop_fade_starts_from_zero_through_the_property(view):
+    view._backdrop.setProperty("backdropOpacity", 1.0)
+    view._apply_backdrop(_px())
+    view._fade_anim.stop()
+    assert view._backdrop._opacity == 0.0
+
+
+def test_artist_photo_cache_reuses_and_downscales(tmp_path, qapp):
+    from src.nowplaying.art import nowplaying_art_slideshow as slideshow
+
+    path = tmp_path / "photo.png"
+    _px(2000, 1000).save(str(path))
+    slideshow._artist_photo_cache.clear()
+    first = slideshow._load_artist_photo(str(path))
+    second = slideshow._load_artist_photo(str(path))
+    assert first is second
+    assert max(first.width(), first.height()) == slideshow._ARTIST_PHOTO_MAX_PX
+    assert slideshow._load_artist_photo(str(tmp_path / "missing.png")) is None
+
+
+def test_art_card_reuses_the_scaled_pixmap(qapp):
+    card = _ArtCard()
+    px = _px(1200, 1200)
+    a = card._scaled_pixmap(px, 300, 300)
+    b = card._scaled_pixmap(px, 300, 300)
+    assert a is b
+    for size in range(10, 10 + 2 * card._SCALED_CACHE_SIZE):
+        card._scaled_pixmap(px, size, size)
+    assert len(card._scaled_cache) == card._SCALED_CACHE_SIZE
+    card.deleteLater()
+
+
+def test_hidden_view_pauses_slideshow_and_auto_cycle(view):
+    view.show()
+    view._start_art_slideshow([(_px(), False, None), (_px(color="blue"), False, None)])
+    view.toggle_auto_cycle()
+    view.hide()
+    assert not view._art_slide_timer.isActive()
+    assert not view._auto_cycle_timer.isActive()
+    view.show()
+    assert view._art_slide_timer.isActive()
+    assert view._auto_cycle_timer.isActive()
+    view.toggle_auto_cycle()
+
+
+def test_marquee_parses_its_colour_once(qapp):
+    from src.nowplaying.nowplaying_marquee import MarqueeLabel, _parse_color
+
+    assert _parse_color("rgba(180,190,240,0.70)") == QColor(180, 190, 240, 178)
+    assert _parse_color("#ff0000") == QColor("#ff0000")
+    assert _parse_color("rgba(bad)").isValid()
+    label = MarqueeLabel("x", QFont(), "rgba(10, 20, 30, 1)")
+    assert label._qcolor == QColor(10, 20, 30, 255)
+    assert label.accessibleName() == "x"
+    label.deleteLater()
+
+
+def test_marquee_pans_only_while_visible(qapp):
+    from src.nowplaying.nowplaying_marquee import MarqueeLabel
+
+    label = MarqueeLabel("a very long title " * 10, QFont(), "#ffffff")
+    label.resize(50, 20)
+    label._check_scroll_needed()
+    assert not label._timer.isActive()
+    label.show()
+    assert label._timer.isActive()
+    label.hide()
+    assert not label._timer.isActive()
+    label.deleteLater()
+
+
+def test_progress_strip_describes_itself_to_screen_readers(qapp):
+    strip = _ProgressStrip()
+    assert strip.accessibleName() == "Song progress"
+    strip.set_duration(200_000)
+    strip.set_position(50_000)
+    assert strip.accessibleDescription() == "0:50 elapsed, 2:30 remaining"
+    strip.reset()
+    assert strip.accessibleDescription() == ""
+
+
+def test_countdown_keeps_its_text_while_the_position_is_unknown(view):
+    view._countdown_lbl.setText("♪  in 9s")
+    view._next_lyric_ms = 20_000
+    view._last_position_ms = -1
+    view._update_countdown()
+    assert view._countdown_lbl.text() == "♪  in 9s"

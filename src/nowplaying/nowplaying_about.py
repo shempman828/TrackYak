@@ -12,14 +12,10 @@ from src.foundation.logger_config import logger
 
 
 class _AboutPanel(QWidget):
-    """Read-only description/bio prose for the entities tied to the current track.
+    """Read-only description and bio cards for the entities tied to the current track."""
 
-    Surfaces existing text columns only — ``Track.track_description``,
-    ``Album.album_description``, ``Artist.biography``, ``Publisher.description``,
-    ``Genre.description``, ``Mood.mood_description`` — one card per non-blank
-    value, in a plain (non-animated) scroll area. Order is fixed:
-    Track, Album, Artist(s), Label(s), Genre(s), Mood(s).
-    """
+    # One card per non-blank description, in fixed order:
+    # Track, Album, Artist(s), Label(s), Genre(s), Mood(s).
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,8 +70,7 @@ class _AboutPanel(QWidget):
     # ── internals ─────────────────────────────────────────────────────────
 
     def _collect(self, track) -> list[tuple[str, str, str]]:
-        """Ordered ``(kind, name, body)`` for every related entity carrying a
-        non-blank description."""
+        """Ordered ``(kind, name, body)`` for every related entity with a non-blank description."""
         out: list[tuple[str, str, str]] = []
 
         def _add(kind: str, name, text) -> None:
@@ -86,20 +81,14 @@ class _AboutPanel(QWidget):
 
         album = getattr(track, "album", None)
         if album is not None:
-            _add(
-                "ALBUM",
-                getattr(album, "album_name", None),
-                getattr(album, "album_description", None),
-            )
+            _add("ALBUM", getattr(album, "album_name", None), getattr(album, "album_description", None))
 
         for artist in self._ordered_artists(track):
             _add("ARTIST", getattr(artist, "artist_name", None), getattr(artist, "biography", None))
 
         if album is not None:
             for pub in getattr(album, "publishers", None) or []:
-                _add(
-                    "LABEL", getattr(pub, "publisher_name", None), getattr(pub, "description", None)
-                )
+                _add("LABEL", getattr(pub, "publisher_name", None), getattr(pub, "description", None))
 
         for genre in getattr(track, "genres", None) or []:
             _add("GENRE", getattr(genre, "genre_name", None), getattr(genre, "description", None))
@@ -111,14 +100,13 @@ class _AboutPanel(QWidget):
 
     @staticmethod
     def _ordered_artists(track) -> list:
-        """Credited artists, primary first, de-duped by ``artist_id`` (falling
-        back to object identity for transient/unsaved rows)."""
+        """Credited artists, primary first, de-duplicated by ``artist_id``."""
         seen: set = set()
         ordered: list = []
         primary = list(getattr(track, "primary_artists", None) or [])
         for artist in (*primary, *(getattr(track, "artists", None) or [])):
             key = getattr(artist, "artist_id", None)
-            if key is None:
+            if key is None:  # transient/unsaved row: fall back to object identity
                 key = id(artist)
             if key in seen:
                 continue
@@ -127,6 +115,7 @@ class _AboutPanel(QWidget):
         return ordered
 
     def _show_placeholder(self, text: str) -> None:
+        """Show one centred placeholder line instead of cards."""
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setWordWrap(True)
@@ -135,6 +124,7 @@ class _AboutPanel(QWidget):
 
     @staticmethod
     def _make_card(kind: str, name: str, body: str) -> QWidget:
+        """One card: name heading, kind label, selectable body text."""
         card = QWidget()
         card.setProperty("npAboutCard", True)
         lay = QVBoxLayout(card)

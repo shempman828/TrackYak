@@ -1,16 +1,9 @@
-"""LyricSyncDialog — manual tap-to-sync tool launched from NowPlayingView.
-
-Lets a user re-time a track's lyrics line-by-line: Return stamps the line
-currently shown with the player's position (minus a reaction-time offset),
-Backspace undoes the last stamp, Escape/Cancel discards the session, and
-Save writes the result back to ``Track.lyrics`` once every line has a
-stamp. See docs/specs/manual_lyric_sync.md.
-"""
+"""Manual tap-to-sync dialog for lyrics (see docs/specs/manual_lyric_sync.md)."""
 
 import contextlib
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSpinBox, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QVBoxLayout
 
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
@@ -22,11 +15,9 @@ _PREVIEW_ROWS = 3
 
 
 class LyricSyncDialog(QDialog):
-    """Tap-to-sync tool for one track's lyric lines.
+    """Tap-to-sync tool that stamps each of one track's lyric lines with the player position."""
 
-    ``lines`` is the track's plain lyric text (already stripped of any
-    existing timestamps by the caller) — one entry per lyric line, in order.
-    """
+    # ``lines`` is plain text, one entry per lyric line; the caller strips any old timestamps.
 
     saved = Signal()
 
@@ -42,11 +33,13 @@ class LyricSyncDialog(QDialog):
 
         self._build_ui()
         self._player.state_changed.connect(self._on_state_changed)
+        self._player_connected = True
         self._refresh()
 
     # ── UI ───────────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        """Build the progress line, line preview, transport row, and buttons."""
         layout = QVBoxLayout(self)
 
         self._progress_lbl = QLabel()
@@ -100,16 +93,30 @@ class LyricSyncDialog(QDialog):
         btn_row.addWidget(self._save_btn)
         layout.addLayout(btn_row)
 
+        hint = QLabel("Enter: stamp line  ·  Backspace: undo  ·  Esc: cancel")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setProperty("npRole", "syncHint")
+        layout.addWidget(hint)
+
+        # An autoDefault button eats Enter (it clicks itself), so Enter could
+        # never reach keyPressEvent's tap while a button has focus.
+        for btn in (self._play_btn, self._undo_btn, self._cancel_btn, self._save_btn):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+
     # ── display ──────────────────────────────────────────────────────────
 
     def _on_state_changed(self, state: str):
+        """Show pause while playing, play otherwise."""
         self._play_btn.setText("⏸" if state == "playing" else "▶")
 
     def _on_reaction_changed(self, value: int):
+        """Persist the reaction-time offset."""
         app_config.set_manual_sync_reaction_ms(value)
         app_config.save()
 
     def _refresh(self):
+        """Show the current line, the preview, and the button states."""
         total = len(self._lines)
         self._progress_lbl.setText(f"Line {min(self._idx + 1, total)} of {total}")
         self._current_lbl.show_line(self._lines[self._idx] if self._idx < total else "")
@@ -126,6 +133,7 @@ class LyricSyncDialog(QDialog):
     # ── tap engine ───────────────────────────────────────────────────────
 
     def _tap(self):
+        """Stamp the current line with the player position minus the reaction offset."""
         if self._idx >= len(self._lines):
             return
         raw_ms = self._player.position
@@ -138,6 +146,7 @@ class LyricSyncDialog(QDialog):
         self._refresh()
 
     def _undo(self):
+        """Remove the last stamp."""
         if self._idx == 0:
             return
         self._idx -= 1
@@ -145,13 +154,14 @@ class LyricSyncDialog(QDialog):
         self._refresh()
 
     def _save(self):
+        """Write the stamped lines to the track as LRC and close."""
         if any(s is None for s in self._stamps):
             return
         lrc_text = build_lrc(list(zip(self._stamps, self._lines, strict=True)))
-        if not self._controller.update.update_entities(
-            "Track", [self._track.track_id], lyrics=lrc_text
-        ):
+        if not self._controller.update.update_entities("Track", [self._track.track_id], lyrics=lrc_text):
             logger.error("LyricSyncDialog: failed to save synced lyrics")
+            # Keep the dialog open so the taps are not lost; the user can retry.
+            QMessageBox.warning(self, "Sync Lyrics", "The synced lyrics could not be saved. Try again, or cancel to discard.")
             return
         self._track.lyrics = lrc_text
         self.saved.emit()
@@ -160,6 +170,7 @@ class LyricSyncDialog(QDialog):
     # ── keys ─────────────────────────────────────────────────────────────
 
     def keyPressEvent(self, event):
+        """Enter stamps, Backspace undoes, Esc cancels."""
         key = event.key()
         if key in (Qt.Key_Return, Qt.Key_Enter):
             self._tap()
@@ -170,7 +181,20 @@ class LyricSyncDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
+    def done(self, result: int):
+        """Disconnect from the player on accept/reject, which never run closeEvent."""
+        self._disconnect_player()
+        super().done(result)
+
     def closeEvent(self, event):
+        """Disconnect from the player when the window closes (also covers a never-shown dialog)."""
+        self._disconnect_player()
+        super().closeEvent(event)
+
+    def _disconnect_player(self):
+        """Stop listening to the player; safe to call more than once."""
+        if not self._player_connected:
+            return
+        self._player_connected = False
         with contextlib.suppress(RuntimeError, TypeError):
             self._player.state_changed.disconnect(self._on_state_changed)
-        super().closeEvent(event)

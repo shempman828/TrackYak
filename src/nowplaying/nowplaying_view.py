@@ -1,4 +1,4 @@
-"""NowPlayingView module — Cinematic redesign."""
+"""NowPlayingView: the cinematic now-playing page."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,7 +26,8 @@ from src.nowplaying.nowplaying_about import _AboutPanel
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
 from src.nowplaying.nowplaying_marquee import MarqueeLabel
-from src.nowplaying.nowplaying_progress import _ProgressStrip
+from src.nowplaying.nowplaying_progress import _ProgressStrip, format_ms
+from src.nowplaying.nowplaying_title import _AdaptiveTitle
 from src.player.core.track_display_formatter import format_classical_title
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -48,131 +49,14 @@ _ART_SHADOW_PAD = 24
 
 @dataclass
 class _TabSpec:
-    """One entry in NowPlayingView's tab registry.
-
-    ``_switch_tab`` / ``updateUI`` / ``clearUI`` iterate ``self._tabs`` instead
-    of branching on page constants. List order is the stack/page index.
-
-    - ``on_show(track)`` runs when the tab becomes visible and, for the visible
-      tab, on every ``updateUI``; called with ``None`` from ``clearUI``.
-    - ``on_hide()`` runs when another tab is selected.
-    """
+    """One entry in NowPlayingView's tab registry; list order is the stack page index."""
 
     key: str
     label: str
     widget: QWidget
     button: QPushButton | None = None
-    on_show: Callable[[object], None] | None = None
-    on_hide: Callable[[], None] | None = None
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Title line
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _AdaptiveTitle(QWidget):
-    """Track-title line that word-wraps like a normal label and only falls back
-    to a horizontally-panning :class:`MarqueeLabel` when the wrapped title would
-    need more than ``_MAX_LINES`` lines.
-
-    ``set_text`` is the single update path. The choice is re-evaluated on every
-    resize because the column width drives the wrapped line count; the first
-    evaluation is retried briefly until real geometry is available (same
-    deferred-geometry problem ``MarqueeLabel`` solves with a singleShot).
-    """
-
-    _MAX_LINES = 3
-    _MAX_RETRIES = 10
-
-    def __init__(self, text: str, font: QFont, color: str, parent=None):
-        super().__init__(parent)
-        self._font = font
-        self._text = text
-        self._retries = 0
-        self.setProperty("bgTransparent", True)
-
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        self._wrap = QLabel(text)
-        self._wrap.setFont(font)
-        self._wrap.setWordWrap(True)
-        self._wrap.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self._wrap.setStyleSheet(f"color: {color}; background: transparent;")
-        self._wrap.setProperty("bgTransparent", True)
-        lay.addWidget(self._wrap)
-
-        # Off-screen twin used only to measure wrapped height. ``_wrap`` itself
-        # can't be measured: ``_apply_layout`` pins it with ``setFixedHeight``
-        # and ``QLabel.heightForWidth`` clamps to the widget's max height, so
-        # measuring ``_wrap`` just reads back the previous title's pinned height
-        # and the title could only ever grow, never shrink.
-        self._probe = QLabel()
-        self._probe.setFont(font)
-        self._probe.setWordWrap(True)
-        self._probe.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self._probe.hide()
-
-        self._marquee = MarqueeLabel(text, font, color)
-        self._marquee.setFixedHeight(QFontMetrics(font).height())
-        self._marquee.hide()
-        lay.addWidget(self._marquee)
-
-        self._apply_layout()
-
-    # ── public API ────────────────────────────────────────────────────────
-    def set_text(self, text: str):
-        self._text = text
-        self._retries = 0
-        self._apply_layout()
-
-    # ── internals ─────────────────────────────────────────────────────────
-    def _avail_width(self) -> int:
-        w = self.contentsRect().width()
-        if w <= 0:
-            w = self._wrap.contentsRect().width()
-        return w
-
-    def _line_count(self, text: str, width: int) -> int:
-        if width <= 0:
-            return 1
-        # Measure with a QLabel configured exactly like the one that paints the
-        # title. Its QTextLayout-based word-wrap can pick a different break point
-        # than QFontMetrics.boundingRect's predictor, and whenever the predictor
-        # came out one line pessimistic ``_apply_layout`` reserved a blank
-        # trailing row. ``heightForWidth`` is the real render path, so it cannot
-        # disagree with what gets drawn -- but it has to be read off an
-        # unconstrained label (see ``self._probe``), never off ``_wrap`` which
-        # ``_apply_layout`` pins with ``setFixedHeight``.
-        self._probe.setText(text)
-        h = self._probe.heightForWidth(width)
-        if h <= 0:
-            return 1
-        return max(1, round(h / QFontMetrics(self._font).lineSpacing()))
-
-    def _apply_layout(self):
-        width = self._avail_width()
-        if width <= 0 and self._retries < self._MAX_RETRIES:
-            self._retries += 1
-            QTimer.singleShot(50, self._apply_layout)
-            return
-
-        lines = self._line_count(self._text, width)
-        if lines > self._MAX_LINES:
-            self._wrap.hide()
-            self._marquee.show()
-            self._marquee.set_text(self._text)
-        else:
-            self._marquee.hide()
-            self._wrap.setText(self._text)
-            self._wrap.setFixedHeight(lines * QFontMetrics(self._font).lineSpacing())
-            self._wrap.show()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_layout()
+    on_show: Callable[[object], None] | None = None  # tab shown (track, or None from clearUI)
+    on_hide: Callable[[], None] | None = None  # another tab selected
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -181,14 +65,9 @@ class _AdaptiveTitle(QWidget):
 
 
 class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
-    """Cinematic now-playing view with blurred backdrop and rich metadata.
+    """Cinematic now-playing view: art, metadata, chips, and the lyrics/credits/about tabs."""
 
-    Lyrics/karaoke sync lives in NowPlayingLyricsMixin (nowplaying_lyrics.py).
-    Album-art/backdrop slideshow lives in NowPlayingArtMixin
-    (nowplaying_art_slideshow.py). This class owns UI construction, cinema
-    mode, chips, and the public updateUI/clearUI entry points, and composes
-    the other two.
-    """
+    # Lyrics sync lives in NowPlayingLyricsMixin, the art slideshow in NowPlayingArtMixin.
 
     _TITLE_FONT = QFont("Georgia", 28, QFont.Bold)
     _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
@@ -235,6 +114,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         # Cinema mode state
         self._cinema_mode = False
+        self._pre_cinema_queue_visible = False  # queue dock state to restore on exit
 
         # Auto-cycle mode state — rotates the right-hand tab stack on a timer.
         self._auto_cycle = False
@@ -253,6 +133,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         # Background art-cache warming (avoids blocking the UI thread on a
         # cold cache / audio-file decode - see _load_art_from_track)
         self._art_worker: ArtCacheWorker | None = None
+        self._retired_art_workers: set[ArtCacheWorker] = set()  # cancelled, still running
         self._art_generation = 0
 
         self._initUI()
@@ -278,6 +159,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
     @property
     def cinema_mode(self) -> bool:
+        """True while cinema (immersive) mode is on."""
         return self._cinema_mode
 
     def _setup_cinema_shortcut(self):
@@ -287,8 +169,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._cinema_shortcut.activated.connect(self.toggle_cinema_mode)
 
     def toggle_cinema_mode(self):
-        """Hide/show player dock, navigation dock, and menu bar; the song
-        progress strip shows only while cinema mode is on."""
+        """Toggle cinema mode: hide or restore the menu bar and docks; show the progress strip only in it."""
         self._cinema_mode = not self._cinema_mode
         self._art_column.set_progress_visible(self._cinema_mode)
         try:
@@ -315,7 +196,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                     if dock:
                         dock.setVisible(True)
                 if hasattr(main_win, "set_queue_visible"):
-                    main_win.set_queue_visible(getattr(self, "_pre_cinema_queue_visible", False))
+                    main_win.set_queue_visible(self._pre_cinema_queue_visible)
         except RuntimeError as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
 
@@ -323,6 +204,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
     @property
     def auto_cycle(self) -> bool:
+        """True while the tab stack rotates on a timer."""
         return self._auto_cycle
 
     def _setup_auto_cycle_shortcut(self):
@@ -332,11 +214,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._auto_cycle_shortcut.activated.connect(self.toggle_auto_cycle)
 
     def toggle_auto_cycle(self):
-        """Start/stop rotating the right-hand tab stack on a timer.
-
-        Turning it off leaves the current tab in place — it only stops the
-        rotation, it doesn't snap back.
-        """
+        """Start or stop rotating the tab stack; stopping leaves the current tab in place."""
         self._auto_cycle = not self._auto_cycle
         if self._auto_cycle:
             self._auto_cycle_timer.start()
@@ -345,11 +223,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         logger.info(f"NowPlayingView auto-cycle: {'on' if self._auto_cycle else 'off'}")
 
     def _advance_auto_cycle(self):
-        """Switch to the next enabled tab, wrapping past the last one.
-
-        No-op when fewer than two tabs are enabled (e.g. only CREDITS on an
-        instrumental track), so the view doesn't thrash a single pane.
-        """
+        """Switch to the next enabled tab, wrapping; no-op with fewer than two enabled tabs."""
         count = len(self._tabs)
         start = self._stack.currentIndex()
         for step in range(1, count + 1):
@@ -364,8 +238,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
     @staticmethod
     def _apply_text_shadow(widget, blur=14, y_offset=2, alpha=215):
-        """Dark drop shadow so title/artist/album text stays legible when the
-        blurred backdrop art itself contains text (e.g. busy cover art)."""
+        """Dark drop shadow that keeps text legible over a busy backdrop."""
         effect = QGraphicsDropShadowEffect(widget)
         effect.setBlurRadius(blur)
         effect.setOffset(0, y_offset)
@@ -373,6 +246,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         widget.setGraphicsEffect(effect)
 
     def _initUI(self):
+        """Build the art column, metadata, chips, tab bar, and tab pages."""
         self.setMinimumSize(760, 480)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setProperty("bgTransparent", True)
@@ -429,14 +303,14 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         right_layout.addSpacing(10)
 
-        # Chips
-        self._chip_duration = _Chip("⏱", "—")
-        self._chip_bpm = _Chip("♩", "—")
-        self._chip_key = _Chip("key", "—")
-        self._chip_timesig = _Chip("𝄴", "—")
-        self._chip_rec_year = _Chip("📅", "—")
-        self._chip_plays = _Chip("▶", "—")
-        self._chip_genres = _Chip("🎵", "—")
+        # Chips (shown in this order); the tooltip names the glyph for mouse and screen-reader users.
+        self._chip_duration = _Chip("⏱", "—", tooltip="Duration")
+        self._chip_bpm = _Chip("♩", "—", tooltip="Tempo")
+        self._chip_key = _Chip("key", "—", tooltip="Key")
+        self._chip_timesig = _Chip("𝄴", "—", tooltip="Time signature")
+        self._chip_rec_year = _Chip("📅", "—", tooltip="Recorded")
+        self._chip_plays = _Chip("▶", "—", tooltip="Play count")
+        self._chip_genres = _Chip("🎵", "—", tooltip="Genres")
 
         self._chip_row = _ScrollingChipRow()
         right_layout.addWidget(self._chip_row)
@@ -518,8 +392,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         root.addWidget(right_widget, 58)
 
     def _build_lyrics_toolbar(self) -> QWidget:
-        """Quiet row under the lyrics: follow toggle, sync-offset stepper,
-        manual sync. It lives on the LYRICS page, so it only shows there."""
+        """Build the row under the lyrics: follow toggle, sync-offset stepper, manual sync."""
         self._lyrics_toolbar = QWidget()
         self._lyrics_toolbar.setProperty("bgTransparent", True)
         self._lyrics_toolbar.setVisible(False)
@@ -563,8 +436,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         return self._lyrics_toolbar
 
     def _make_toggle(self, text: str, tooltip: str, slot) -> QPushButton:
-        """Small [npToggle] pill button. Height is pinned so the toolbar row
-        is stable; width follows the size hint (glyph + QSS padding)."""
+        """Small [npToggle] pill button with a pinned height so the toolbar row stays stable."""
         btn = QPushButton(text)
         btn.setFixedHeight(24)
         btn.setCursor(Qt.PointingHandCursor)
@@ -582,6 +454,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         set_style_property(button, "active", active)
 
     def _switch_tab(self, page: int):
+        """Show tab ``page`` (unless its button is disabled) and run its on_show / the others' on_hide."""
         spec = self._tabs[page]
         # A disabled tab button (e.g. LYRICS for instrumental tracks) can't be
         # shown, even by an internal or late request.
@@ -598,12 +471,28 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     # ── resize ────────────────────────────────────────────────────────────
 
     def resizeEvent(self, event):
+        """Keep the backdrop filling the view."""
         super().resizeEvent(event)
         self._backdrop.setGeometry(0, 0, self.width(), self.height())
+
+    def hideEvent(self, event):
+        """Pause the art slideshow and auto-cycle while another view is shown."""
+        super().hideEvent(event)
+        self._art_slide_timer.stop()
+        self._auto_cycle_timer.stop()
+
+    def showEvent(self, event):
+        """Resume the art slideshow and auto-cycle."""
+        super().showEvent(event)
+        if len(self._art_images) > 1 and not self._art_slide_timer.isActive():
+            self._art_slide_timer.start()
+        if self._auto_cycle and not self._auto_cycle_timer.isActive():
+            self._auto_cycle_timer.start()
 
     # ── public API ────────────────────────────────────────────────────────
 
     def updateUI(self, track):
+        """Show ``track`` (or clear the view for None)."""
         try:
             self._close_sync_dialog()
 
@@ -625,18 +514,14 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 # Fallback: first artist in artists proxy
                 artists = getattr(track, "artists", None) or []
                 artist_str = getattr(artists[0], "artist_name", "") if artists else ""
-            self._artist_marquee.set_text(artist_str or "—")
+            self._artist_marquee.set_text(censor_text(artist_str) or "—")
 
             self._album_lbl.setText(self._album_line(getattr(track, "album", None)))
 
             self._update_chips(track)
+            # Always switches to LYRICS or CREDITS, which runs that tab's
+            # on_show; hidden tabs reload when next shown.
             self._update_lyrics(track)
-
-            # Refresh whichever tab is currently visible (lyrics refreshes via
-            # _update_lyrics above and has no on_show).
-            visible = self._tabs[self._stack.currentIndex()]
-            if visible.on_show:
-                visible.on_show(track)
 
             self._load_art_from_track(track)
 
@@ -656,6 +541,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             self.clearUI()
 
     def clearUI(self):
+        """Show the empty "No Track Playing" state."""
         self._close_sync_dialog()
         self._cancel_art_worker()
         self.track = None
@@ -664,9 +550,10 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._album_lbl.setText("—")
         self._progress.reset()
         self._tab_lyrics.setEnabled(True)
-        self._set_lyrics_mode_none()
-        for spec in self._tabs:
-            if spec.on_show:
+        self._set_lyrics_mode_none()  # switches to CREDITS, which clears it via on_show
+        current = self._stack.currentIndex()
+        for idx, spec in enumerate(self._tabs):
+            if spec.on_show and idx != current:
                 spec.on_show(None)
         self._chip_row.set_chips([])
         if self.default_art_path and Path(self.default_art_path).exists():
@@ -676,8 +563,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
     @staticmethod
     def _album_line(album) -> str:
-        """``"Album · Subtitle · Year"``, skipping the parts the album lacks;
-        ``"—"`` with no album."""
+        """``"Album · Subtitle · Year"`` without the parts the album lacks; ``"—"`` with no album."""
         if album is None:
             return "—"
         parts = [censor_text(getattr(album, "album_name", "") or "—")]
@@ -697,6 +583,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     # ── chips ─────────────────────────────────────────────────────────────
 
     def _update_chips(self, track):
+        """Show a chip for each metadata field ``track`` has."""
         visible: list[_Chip] = []
 
         def _maybe(chip: _Chip, val):
@@ -706,8 +593,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 visible.append(chip)
 
         def _safe(chip: _Chip, fn):
-            """Run fn() to get a formatted string; silently skip this chip on any error.
-            This means one missing/broken field never prevents others from showing."""
+            """Add the chip with fn()'s value; skip it if fn() fails, so one bad field never hides the rest."""
             try:
                 val = fn()
                 _maybe(chip, val)
@@ -715,14 +601,15 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 # Intentional broad boundary catch: fn is one of many
                 # per-chip closures below with different failure modes
                 # (float()/string parsing, attribute access) -- one broken
-                # field must not prevent the other chips from showing (see
-                # docstring).
+                # field must not prevent the other chips from showing.
                 logger.debug(f"_update_chips: skipping chip due to error: {exc}", exc_info=True)
 
         # ── Basic metadata ─────────────────────────────────────────────────
+        _safe(self._chip_duration, lambda: format_ms(float(track.duration) * 1000) if getattr(track, "duration", None) else None)
         _safe(self._chip_bpm, lambda: f"{float(track.bpm):.0f} BPM" if getattr(track, "bpm", None) is not None else None)
         _safe(self._chip_key, lambda: f"{track.key} {(getattr(track, 'mode', '') or '')}".strip() if getattr(track, "key", None) else None)
         _safe(self._chip_timesig, lambda: str(track.primary_time_signature) if getattr(track, "primary_time_signature", None) is not None else None)
+        _safe(self._chip_rec_year, lambda: str(int(track.recorded_year)) if getattr(track, "recorded_year", None) else None)
 
         # ── User & library data ────────────────────────────────────────────
         _safe(self._chip_plays, lambda: f"{int(track.play_count)} plays" if getattr(track, "play_count", None) is not None else None)

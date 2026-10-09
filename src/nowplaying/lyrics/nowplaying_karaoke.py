@@ -35,6 +35,7 @@ class _KaraokeLine(QLabel):
     lineOpacity = Property(float, _get_opacity, _set_opacity)
 
     def show_line(self, text: str):
+        """Show ``text`` with a short fade-in."""
         self.setText(text)
         if self._anim:
             self._anim.stop()
@@ -47,6 +48,7 @@ class _KaraokeLine(QLabel):
         self._anim.start()
 
     def clear_line(self):
+        """Clear the text immediately."""
         if self._anim:
             self._anim.stop()
         self.setText("")

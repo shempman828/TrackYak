@@ -12,7 +12,8 @@ from PySide6.QtCore import QObject, Signal
 import pytest
 
 from src.nowplaying import nowplaying_view as npv
-from src.nowplaying.nowplaying_view import NowPlayingView, _AdaptiveTitle
+from src.nowplaying.nowplaying_title import _AdaptiveTitle
+from src.nowplaying.nowplaying_view import NowPlayingView
 
 
 class _FakeMediaPlayer(QObject):

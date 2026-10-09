@@ -7,24 +7,24 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QWidget
 
 
 class _Chip(QLabel):
-    """Pill-shaped metadata chip."""
+    """Pill-shaped metadata chip: an icon glyph plus a value."""
 
-    def __init__(self, icon_str: str, value: str, parent=None):
+    def __init__(self, icon_str: str, value: str, parent=None, tooltip: str = ""):
         super().__init__(parent)
         self._icon = icon_str
+        self._tooltip = tooltip
         self.setProperty("npChip", True)
+        self.setToolTip(tooltip)
         self.set_value(value)
 
     def set_value(self, value: str):
+        """Show ``value`` after the icon; screen readers get the tooltip name plus the value."""
         self.setText(f"{self._icon}  {value}" if self._icon else value)
+        self.setAccessibleName(f"{self._tooltip}: {value}" if self._tooltip else value)
 
 
 class _ScrollingChipRow(QScrollArea):
-    """Horizontally scrolling row of chips, no scrollbar visible.
-
-    When chip content is wider than the visible area, the row slowly pans
-    left to the end and then pans back — so nothing is ever clipped.
-    """
+    """Row of chips with no scrollbar that pans back and forth when the chips overflow."""
 
     # How often we nudge the scroll position (ms)
     _PAN_INTERVAL_MS = 30
@@ -63,47 +63,69 @@ class _ScrollingChipRow(QScrollArea):
     # ── chip management ────────────────────────────────────────────────────
 
     def set_chips(self, chips: list[_Chip]):
-        """Show only the chips in *chips*; hide the rest.
-
-        We deliberately do NOT reparent or destroy chip widgets —
-        reparenting (setParent(None)) deletes them from Qt's perspective
-        which causes chips to go missing on the next track change.
-        Instead we just show/hide each chip in-place.
-        """
-        # Collect every widget currently in the layout
+        """Show exactly ``chips``, in that order, and hide every other chip."""
+        # Show/hide in place, never setParent(None): that deletes the chip on
+        # the Qt side and it goes missing on the next track change.
         all_widgets: list[QWidget] = []
         for i in range(self._row.count()):
             item = self._row.itemAt(i)
             if item and item.widget():
                 all_widgets.append(item.widget())
 
-        # Figure out which chips need to be added (not yet in the layout)
-        existing = set(all_widgets)
-        for chip in chips:
-            if chip not in existing:
-                # Insert before the stretch spacer (last item), if present
-                self._row.insertWidget(self._row.count(), chip)
+        # removeWidget keeps the parent, so re-inserting puts each chip at its
+        # given position no matter which track first showed it.
+        for i, chip in enumerate(chips):
+            if chip in all_widgets:
+                self._row.removeWidget(chip)
+            else:
                 all_widgets.append(chip)
+            self._row.insertWidget(i, chip)
 
-        # Show chips that are in the visible set; hide everything else
         visible_set = set(chips)
         for w in all_widgets:
             w.setVisible(w in visible_set)
 
         self._inner.adjustSize()
 
-        # Reset pan to the left and (re)start the pan timer
-        sb = self.horizontalScrollBar()
-        sb.setValue(0)
+        # Reset pan to the left
+        self.horizontalScrollBar().setValue(0)
         self._pan_direction = 1
         self._pan_pausing = False
         self._pause_timer.stop()
+        self._update_pan()
 
-        # Only pan if content is actually wider than the viewport
-        if self._inner.sizeHint().width() > self.viewport().width():
-            self._pan_timer.start()
-        else:
-            self._pan_timer.stop()
+    def _overflows(self) -> bool:
+        """True when the chips are wider than the visible area."""
+        return self._inner.sizeHint().width() > self.viewport().width()
+
+    def _update_pan(self):
+        """Pan only while the chips overflow and the row is on screen."""
+        if self.isVisible() and self._overflows():
+            if not self._pan_timer.isActive():
+                self._pan_timer.start()
+            return
+        self._pan_timer.stop()
+        self._pause_timer.stop()
+        self._pan_pausing = False
+        if not self._overflows():
+            self.horizontalScrollBar().setValue(0)
+
+    def resizeEvent(self, event):
+        """Re-check the overflow: a narrower row may now need to pan, a wider one may not."""
+        super().resizeEvent(event)
+        self._update_pan()
+
+    def showEvent(self, event):
+        """Resume panning when the row shows again."""
+        super().showEvent(event)
+        self._update_pan()
+
+    def hideEvent(self, event):
+        """Stop panning while the row is not on screen."""
+        super().hideEvent(event)
+        self._pan_timer.stop()
+        self._pause_timer.stop()
+        self._pan_pausing = False
 
     # ── pan animation ──────────────────────────────────────────────────────
 
@@ -131,4 +153,5 @@ class _ScrollingChipRow(QScrollArea):
         self._pause_timer.start(self._PAN_PAUSE_MS)
 
     def _end_pause(self):
+        """Continue panning after an end pause."""
         self._pan_pausing = False
