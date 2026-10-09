@@ -101,3 +101,21 @@ def test_apply_navigation_state_keeps_current_view_when_still_visible(qapp, monk
     GUI.apply_navigation_state(host, ["Tracks", "Albums", "Artists"], ["Artists"])
 
     assert host.stacked_widget.currentIndex() == host.view_registry["Albums"]
+
+
+def test_apply_navigation_state_drops_unknown_view_names(qapp, monkeypatch):
+    host = _NavHost(["Tracks", "Albums"])
+    saved = {}
+    monkeypatch.setattr(app_config, "get_nav_item_order", lambda: [])
+    monkeypatch.setattr(app_config, "get_nav_hidden_items", lambda: [])
+    monkeypatch.setattr(app_config, "set_nav_item_order", lambda v: saved.__setitem__("order", v))
+    monkeypatch.setattr(app_config, "set_nav_hidden_items", lambda v: saved.__setitem__("hidden", v))
+    GUI._load_navigation_state(host)
+    GUI._populate_navigation(host)
+    host.stacked_widget.setCurrentIndex(host.view_registry["Albums"])
+
+    GUI.apply_navigation_state(host, ["Ghost", "Albums", "Tracks"], ["Albums", "Ghost"])
+
+    assert saved["order"] == ["Albums", "Tracks"]
+    assert saved["hidden"] == ["Albums"]
+    assert host.stacked_widget.currentIndex() == host.view_registry["Tracks"]

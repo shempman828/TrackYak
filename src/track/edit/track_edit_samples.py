@@ -206,6 +206,8 @@ class _AddSampleBar(QWidget):
 
 
 class SamplesTab(_BaseTab):
+    saves_immediately = True  # add/remove write to the DB at once
+
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()

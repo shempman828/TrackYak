@@ -15,8 +15,21 @@ def test_check_python_version_flags_old_interpreter(monkeypatch):
     error = ic.check_python_version()
 
     assert error is not None
-    assert "3.10" in error
+    assert "3.11" in error
     assert "3.8.0" in error
+
+
+def test_check_python_version_flags_3_10_because_code_needs_datetime_utc(monkeypatch):
+    monkeypatch.setattr(ic.sys, "version_info", (3, 10, 12, "final", 0))
+
+    assert ic.check_python_version() is not None
+
+
+def test_requirement_names_skip_environment_marker_lines(tmp_path):
+    req = tmp_path / "requirements.txt"
+    req.write_text("PySide6>=6.5\npywin32; sys_platform == 'win32'\n# comment\n-r other.txt\n", encoding="utf-8")
+
+    assert list(ic._iter_requirement_names(req)) == ["PySide6"]
 
 
 def test_check_required_packages_reports_missing_distribution(monkeypatch):

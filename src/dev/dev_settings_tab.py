@@ -109,7 +109,8 @@ def patch() -> None:
             if dev_tab is not None:
                 # Before the wrapped body so its own config.save() persists it.
                 dev_tab.apply()
-            original_apply(self)
+            # Pass the success flag through: ConfigDialog's OK closes only when Apply succeeded.
+            return original_apply(self)
 
         ConfigDialog._apply_settings = _apply_settings
 

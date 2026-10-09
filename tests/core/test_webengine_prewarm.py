@@ -19,9 +19,10 @@ shown.
 
 import inspect
 
-import run
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow
+
+import run
 
 
 def test_prewarm_webengine_parents_probe_into_window(qapp):

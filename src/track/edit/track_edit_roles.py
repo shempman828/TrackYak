@@ -304,6 +304,7 @@ class RolesTab(_BaseTab):
     # layout) give this tab priority for leftover space too, instead of
     # only the table inside it -- see _sync_table_stretch.
     overflow_changed = Signal(bool)
+    saves_immediately = True  # add/remove write to the DB at once
 
     def __init__(self, tracks: list, controller, parent=None, on_convert_to_album=None):
         super().__init__(tracks, controller, parent)

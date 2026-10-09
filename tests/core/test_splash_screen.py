@@ -1,5 +1,5 @@
-import pytest
 from PySide6.QtCore import QAbstractAnimation
+import pytest
 
 from src.core.splash_screen import StartupSplash
 
@@ -58,3 +58,12 @@ def test_update_status_stores_message_and_progress(splash):
 
     assert splash._message == "Loading..."
     assert splash._progress == 42
+
+
+def test_update_status_clamps_progress_to_0_100(splash):
+    splash.update_status("Loading", 150)
+    assert splash._progress == 100
+    splash.update_status("Loading", -5)
+    assert splash._progress == 0
+    splash.update_status("Loading", None)
+    assert splash._progress is None

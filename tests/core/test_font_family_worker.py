@@ -12,18 +12,8 @@ from PySide6.QtGui import QFontDatabase
 from src.core.font_family_worker import FontFamilyWorker
 
 
-def test_compute_canonical_font_families_collapses_named_instance_aliases(
-    qapp, monkeypatch
-):
-    fake_families = [
-        "Test Sans",
-        "Test Sans Thin",
-        "Test Sans Condensed SemiBold",
-        "Test Sans Arabic",
-        "Test Sans Arabic Cond Blk",
-        "Test Serif",
-        "Test Serif Black",
-    ]
+def test_compute_canonical_font_families_collapses_named_instance_aliases(qapp, monkeypatch):
+    fake_families = ["Test Sans", "Test Sans Thin", "Test Sans Condensed SemiBold", "Test Sans Arabic", "Test Sans Arabic Cond Blk", "Test Serif", "Test Serif Black"]
     fake_styles = {
         "Test Sans": ["Regular", "Bold", "Thin", "Condensed SemiBold"],
         "Test Sans Thin": ["Regular", "Italic"],
@@ -48,39 +38,18 @@ def test_compute_canonical_font_families_collapses_named_instance_aliases(
         ]
     )
 
-    monkeypatch.setattr(
-        QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families))
-    )
-    monkeypatch.setattr(
-        QFontDatabase,
-        "styles",
-        staticmethod(lambda family: list(fake_styles[family])),
-    )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(
-            args=a, returncode=0, stdout=fake_fc_list, stderr=""
-        ),
-    )
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families)))
+    monkeypatch.setattr(QFontDatabase, "styles", staticmethod(lambda family: list(fake_styles[family])))
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=a, returncode=0, stdout=fake_fc_list, stderr=""))
 
     canonical = FontFamilyWorker()._compute_canonical_font_families()
 
-    assert canonical == {
-        "Test Sans",
-        "Test Sans Arabic",
-        "Test Serif",
-        "Test Serif Black",
-    }
+    assert canonical == {"Test Sans", "Test Sans Arabic", "Test Serif", "Test Serif Black"}
 
 
-def test_compute_canonical_font_families_falls_back_when_fc_list_missing(
-    qapp, monkeypatch
-):
+def test_compute_canonical_font_families_falls_back_when_fc_list_missing(qapp, monkeypatch):
     fake_families = ["Test Sans", "Test Sans Thin"]
-    monkeypatch.setattr(
-        QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families))
-    )
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families)))
 
     def raise_missing(*a, **k):
         raise FileNotFoundError("fc-list not found")

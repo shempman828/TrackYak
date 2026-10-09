@@ -27,7 +27,7 @@ class IdentificationTab(FieldFormTab):
             "overwrites fields you've already filled in."
         )
         self.lookup_button.clicked.connect(self._lookup_musicbrainz)
-        self.layout().addRow(self.lookup_button)
+        self.add_action_widget(self.lookup_button)
 
     def _lookup_musicbrainz(self):
         live_name = (

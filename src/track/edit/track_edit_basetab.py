@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
 
@@ -15,6 +16,15 @@ class _BaseTab(QWidget):
       collect_changes()     — return {field_name: new_value} for scalar fields
                               (relationship tabs return {} — they write directly)
     """
+
+    # Emitted whenever the user edits a scalar field (see _mark_dirty), so the
+    # dialog can refresh its unsaved-change count and per-tab dirty markers.
+    changed = Signal()
+
+    # True for relationship tabs (genres, roles, places, …) whose add/remove
+    # actions write to the DB at once instead of waiting for Save. The dialog
+    # shows a notice on these tabs so the two save models aren't confused.
+    saves_immediately = False
 
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(parent)
@@ -46,8 +56,15 @@ class _BaseTab(QWidget):
         override in tabs that own background threads or other resources
         that must be stopped before the tab is destroyed."""
 
+    def pending_changes(self) -> set[str]:
+        """Names of the fields this tab would write on Save. Cheap and free
+        of side effects (unlike collect_changes) -- called on every edit to
+        keep the dialog's unsaved-change count current."""
+        return set(self._dirty)
+
     def _mark_dirty(self, field_name: str) -> None:
         self._dirty.add(field_name)
+        self.changed.emit()
 
     def _has_changed(self, field_name: str, new_value) -> bool:
         """Return True if new_value differs meaningfully from the original."""

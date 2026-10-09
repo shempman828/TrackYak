@@ -3,14 +3,13 @@
 from pathlib import Path
 import traceback
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QStackedWidget, QTreeWidgetItem, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-# ── Views are imported here for type-checking but NOT instantiated until
-#    the user navigates to them.  Adding a new view only requires adding
-#    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
+# Views are imported here but built only on first navigation; to add a view,
+# add one entry to self._view_factories in _create_views().
 from src.album.view.album_view import AlbumView
 from src.artist.view.artist_view import ArtistView
 from src.award.award_view import AwardView
@@ -24,7 +23,6 @@ from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager
 from src.genre.genre_view import GenreView
-from src.importing.import_dialog import ImportDialog
 from src.influences.influences_view import InfluencesView
 from src.mood.mood_view import MoodView
 from src.nowplaying.nowplaying_view import NowPlayingView
@@ -37,8 +35,16 @@ from src.role.role_view import RoleView
 from src.sync.sync_view import SyncView
 from src.track.view.track_view import TrackView
 
+# View classes whose load_data() takes the full entity list, and the entity each one needs.
+_LOAD_DATA_ENTITIES = ((TrackView, "Track"), (AlbumView, "Album"), (ArtistView, "Artist"), (GenreView, "Genre"), (PlaylistView, "Playlist"))
+
+# Offset from the available screen edges that the window must stay inside.
+_SCREEN_SAFE_MARGIN = 100
+
 
 class GUI(QMainWindow, MenuBar):
+    """TrackYak main window: lazy views in a stacked widget, plus navigation, player and queue docks."""
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -51,13 +57,12 @@ class GUI(QMainWindow, MenuBar):
 
         self.setObjectName("MainWindow")
         self.view_registry = {}
-        self.importer = ImportDialog(controller)
-        self.import_worker = None
 
         self.mediaplayer.track_changed.connect(self.update_now_playing_view)
         self.mediaplayer.error_occurred.connect(lambda msg: StatusManager.show_message(msg, 6000))
-        self._init_ui()
+        # The status overlay must exist before _init_ui so startup errors can be shown on it.
         self._init_status_system()
+        self._init_ui()
 
     # =========================================================================
     #  Properties
@@ -65,6 +70,7 @@ class GUI(QMainWindow, MenuBar):
 
     @property
     def nav_tree(self):
+        """Return the navigation tree, or None if the navigation dock was not built."""
         if hasattr(self, "navigation_dock"):
             return self.navigation_dock.nav_tree
         return None
@@ -76,7 +82,6 @@ class GUI(QMainWindow, MenuBar):
     def _init_ui(self):
         """Menu creation, views, player, and navigation."""
         self.setWindowTitle("TrackYak")
-        self.setObjectName("MainWindow")
         self._setup_main_window()
         self._init_menu_bar()
 
@@ -85,26 +90,20 @@ class GUI(QMainWindow, MenuBar):
             self._create_player()
             QTimer.singleShot(0, self._create_queue_dock)
             QTimer.singleShot(120, self.restore_layout)
-            self._populate_navigation()
         except Exception:
             # Intentional broad boundary catch: startup wires up several
             # unrelated subsystems (nav dock, audio player, timers) and a
             # failure in any one of them must not prevent the main window
             # from opening at all — log and keep going with a degraded UI.
-            logger.exception("Error creating player")
-            self.statusBar().showMessage("Failed to initialize player", 5000)
+            logger.exception("Error creating navigation or player docks")
+            StatusManager.show_message("Failed to initialize player", 5000)
 
         self._create_views()
         self._add_navigation_menu_actions()
 
     def _init_status_system(self):
-        """
-        Initialize the status manager and its floating status overlay.
-
-        The status widget is parented directly to the main window and is
-        never added to a layout, so it floats above whatever view is
-        showing and never reserves layout space -- even while visible.
-        """
+        """Replace the QMainWindow status bar with the floating StatusBarWidget toast."""
+        # The toast is parented to the window but never laid out, so it takes no layout space.
         self.setStatusBar(None)
         self.status_bar_widget = StatusBarWidget(self)
 
@@ -117,25 +116,13 @@ class GUI(QMainWindow, MenuBar):
     # =========================================================================
 
     def _create_views(self):
-        """
-        Set up the stacked widget and register view factories.
-
-        Nothing is instantiated here except TrackView (the default landing
-        view) and NowPlayingView (already created in __init__).  Every other
-        view is represented by a zero-argument lambda that will be called the
-        first time the user navigates to it.
-
-        To add a new view, add one line to _view_factories below.
-        """
+        """Set up the stacked widget with a placeholder per view and build only the default Tracks view."""
         self.stacked_widget = QStackedWidget()
 
-        # ── Eager views (created immediately) ────────────────────────────────
-        # TrackView is the default view shown on startup, so we build it now.
+        # TrackView is the default landing view, so it is built now; NowPlayingView was built in __init__.
         self._track_view_instance = TrackView(self.controller, self.mediaplayer)
 
-        # ── Factory registry ──────────────────────────────────────────────────
-        # Each value is a callable that returns a fresh widget.
-        # The callable is invoked at most once per session.
+        # Each factory is called at most once per session, on first navigation.
         self._view_factories = {
             "Tracks": lambda: self._track_view_instance,
             "Now Playing": lambda: self.now_playing,
@@ -156,35 +143,25 @@ class GUI(QMainWindow, MenuBar):
 
         self._load_navigation_state()
 
-        # ── Cached instances (populated on first navigation) ──────────────────
-        # Pre-populate the two eager views so they're ready immediately.
+        # Built widgets, filled in by _ensure_view_built on first navigation.
         self._view_cache = {}
 
-        # ── view_registry maps name → stacked-widget index ───────────────────
-        # We add placeholder slots for every view so the stacked widget has
-        # the right count and the nav tree can be populated immediately.
-        # The placeholder is swapped out for the real widget on first visit.
+        # view_registry maps name -> stacked-widget index. Every view gets a cheap placeholder
+        # slot now, so the nav tree can be filled at once; the slot is swapped on first visit.
         self.view_registry = {}
         for view_name in self._view_factories:
-            placeholder = QWidget()  # tiny, empty, costs nothing
-            index = self.stacked_widget.addWidget(placeholder)
+            index = self.stacked_widget.addWidget(QWidget())
             self.view_registry[view_name] = index
 
         self.setCentralWidget(self.stacked_widget)
 
-        # Navigate to the default view (Tracks) immediately so the user
-        # sees something useful on startup.
         self._ensure_view_built("Tracks")
         self.stacked_widget.setCurrentIndex(self.view_registry["Tracks"])
 
-        if hasattr(self, "nav_tree"):
-            self._populate_navigation()
+        self._populate_navigation()
 
     def _ensure_view_built(self, view_name: str):
-        """
-        Build and cache the real widget for view_name if it hasn't been yet.
-        Replaces the placeholder in the stacked widget with the real widget.
-        """
+        """Build view_name on first use and swap it in for its placeholder."""
         if view_name in self._view_cache:
             return  # Already built
 
@@ -218,13 +195,8 @@ class GUI(QMainWindow, MenuBar):
     # =========================================================================
 
     def _load_navigation_state(self):
-        """Load the persisted nav item order/hidden set into
-        self._nav_order / self._nav_hidden, falling back to factory
-        insertion order and nothing hidden. Any view missing from the
-        persisted order (e.g. added in a later release) is appended at the
-        end, visible by default. "Tracks" can never be hidden -- it's the
-        eagerly-built default landing view.
-        """
+        """Load the persisted nav order and hidden set; "Tracks" is never hidden."""
+        # Views missing from the saved order (e.g. added in a later release) are appended, visible.
         all_views = list(self._view_factories)
         order = [name for name in app_config.get_nav_item_order() if name in all_views]
         order += [name for name in all_views if name not in order]
@@ -246,17 +218,15 @@ class GUI(QMainWindow, MenuBar):
                 QTreeWidgetItem(self.nav_tree, [view_name])
 
     def apply_navigation_state(self, order, hidden):
-        """Persist a new nav item order/hidden set from
-        NavigationCustomizationDialog and rebuild the nav tree to match. If
-        the view currently on screen just became hidden, switch to the
-        first remaining visible entry (falls back to "Tracks").
-        """
-        hidden = set(hidden)
+        """Persist a new nav order/hidden set, rebuild the tree, and leave a view that just became hidden."""
+        known = set(self.view_registry)
+        order = [name for name in order if name in known]
+        hidden = {name for name in hidden if name in known}
         hidden.discard("Tracks")
 
         current_view = next((name for name, index in self.view_registry.items() if index == self.stacked_widget.currentIndex()), None)
 
-        self._nav_order = list(order)
+        self._nav_order = order
         self._nav_hidden = hidden
         app_config.set_nav_item_order(self._nav_order)
         app_config.set_nav_hidden_items(list(self._nav_hidden))
@@ -320,33 +290,29 @@ class GUI(QMainWindow, MenuBar):
         try:
             logger.info("Refreshing all views...")
 
-            all_tracks = self.controller.get.get_all_entities("Track")
-            all_albums = self.controller.get.get_all_entities("Album")
-            all_artists = self.controller.get.get_all_entities("Artist")
-            all_genres = self.controller.get.get_all_entities("Genre")
-            all_playlists = self.controller.get.get_all_entities("Playlist")
+            # Each entity list is queried at most once, and only if a built view needs it.
+            entity_cache = {}
 
-            # Only refresh views that have actually been built
-            for _view_name, widget in self._view_cache.items():
+            def entities(name):
+                """Return the cached full list of entity `name`."""
+                if name not in entity_cache:
+                    entity_cache[name] = self.controller.get.get_all_entities(name)
+                return entity_cache[name]
+
+            for widget in self._view_cache.values():
                 if hasattr(widget, "load_data"):
-                    if isinstance(widget, TrackView):
-                        widget.load_data(all_tracks)
-                    elif isinstance(widget, AlbumView):
-                        widget.load_data(all_albums)
-                    elif isinstance(widget, ArtistView):
-                        widget.load_data(all_artists)
-                    elif isinstance(widget, GenreView):
-                        widget.load_data(all_genres)
-                    elif isinstance(widget, PlaylistView):
-                        widget.load_data(all_playlists)
+                    entity_name = next((name for cls, name in _LOAD_DATA_ENTITIES if isinstance(widget, cls)), None)
+                    if entity_name is not None:
+                        widget.load_data(entities(entity_name))
                 else:
                     for method in ("refresh", "update_data"):
                         if hasattr(widget, method):
                             getattr(widget, method)()
                             break
 
-            if hasattr(self, "queue_widget") and self.queue_widget and hasattr(self.queue_widget, "refresh_queue"):
-                self.queue_widget.refresh_queue()
+            queue_widget = getattr(self, "queue_widget", None)
+            if queue_widget is not None and hasattr(queue_widget, "refresh_queue"):
+                queue_widget.refresh_queue()
 
             logger.info("All built views refreshed successfully")
         except (SQLAlchemyError, RuntimeError) as e:
@@ -357,6 +323,7 @@ class GUI(QMainWindow, MenuBar):
     # =========================================================================
 
     def update_now_playing_view(self, file_path: Path):
+        """Show the database track for file_path in NowPlayingView, or clear it if not found."""
         try:
             logger.info(f"Updating now playing view for: {file_path}")
             track = self.controller.get.get_entity_object("Track", track_file_path=str(file_path))
@@ -391,6 +358,7 @@ class GUI(QMainWindow, MenuBar):
         logger.info("Player dock created")
 
     def _ensure_player_dock_visible(self):
+        """Show the player dock on track change unless Now Playing is in cinema mode."""
         if getattr(self.now_playing, "cinema_mode", False):
             return
         if hasattr(self, "player_dock") and not self.player_dock.isVisible():
@@ -418,11 +386,8 @@ class GUI(QMainWindow, MenuBar):
         logger.info("Queue dock created and hidden by default")
 
     def set_queue_visible(self, visible: bool):
-        """Single source of truth for showing/hiding the queue dock.
-
-        Only touches visibility -- never re-adds the dock to an area, so a
-        user-dragged or floated placement survives repeated toggles.
-        """
+        """Show or hide the queue dock; the single source of truth for its visibility."""
+        # Only touches visibility, never re-adds the dock, so a dragged or floated placement survives.
         if not hasattr(self, "queue_dock"):
             return
         nav_dock = getattr(self, "navigation_dock", None)
@@ -440,6 +405,7 @@ class GUI(QMainWindow, MenuBar):
             self.toggle_queue_action.setChecked(visible)
 
     def _on_queue_track_double_clicked(self, file_path):
+        """Load and play the double-clicked queue track."""
         if self.mediaplayer.load_track(file_path):
             self.mediaplayer.play()
 
@@ -448,10 +414,9 @@ class GUI(QMainWindow, MenuBar):
     # =========================================================================
 
     def _setup_main_window(self):
-        size = app_config.get_window_size()
-        pos = app_config.get_window_position()
-        self.resize(size)
-        self.move(pos)
+        """Apply the saved window size, position and maximized state, then the theme."""
+        self.resize(app_config.get_window_size())
+        self.move(app_config.get_window_position())
         self.setContentsMargins(10, 10, 10, 10)
         if app_config.is_window_maximized():
             QTimer.singleShot(0, lambda: self.setWindowState(self.windowState() | Qt.WindowMaximized))
@@ -459,12 +424,11 @@ class GUI(QMainWindow, MenuBar):
         self._load_theme()
 
     def _load_theme(self):
+        """Apply the theme through DisplaySettings, or load the theme QSS directly as a fallback."""
         display_settings = getattr(QApplication.instance(), "display_settings", None)
         if display_settings is not None:
-            # DisplaySettings.apply_all() is the scale-aware theme loader --
-            # falling through to the raw QApplication.setStyleSheet() path
-            # below instead would silently drop the UI-scale slider's
-            # effect every time this runs (it used to, on every startup).
+            # DisplaySettings.apply_all() is the scale-aware loader; the raw
+            # setStyleSheet() path below would drop the UI-scale setting.
             display_settings.apply_all()
             return
 
@@ -489,33 +453,44 @@ class GUI(QMainWindow, MenuBar):
             QApplication.instance().setStyleSheet("")
 
     def _add_navigation_menu_actions(self):
+        """Add the Toggle Navigation action to the View menu."""
+        nav_dock = getattr(self, "navigation_dock", None)
+        if nav_dock is None:
+            return
         toggle_nav_action = QAction("Toggle Navigation", self)
         toggle_nav_action.setShortcut(QKeySequence("Ctrl+Shift+N"))
-        toggle_nav_action.triggered.connect(self.navigation_dock.toggle_navigation)
+        toggle_nav_action.triggered.connect(nav_dock.toggle_navigation)
         toggle_nav_action.setIcon(QIcon(icon("toggle_navigation.svg")))
         self.view_menu.addAction(toggle_nav_action)
 
     def restore_layout(self):
         """Restore saved QMainWindow state including floating docks."""
+        nav_dock = getattr(self, "navigation_dock", None)
         window_state = app_config.get_window_state()
         if window_state and not window_state.isEmpty():
             try:
                 self.restoreState(window_state)
                 logger.debug("Window state restored successfully")
-                QTimer.singleShot(40, self.navigation_dock.ensure_proper_navigation_size)
+                if nav_dock is not None:
+                    QTimer.singleShot(40, nav_dock.ensure_proper_navigation_size)
+                return
             except RuntimeError as e:
                 logger.warning(f"Failed to restore window state: {e}")
-                QTimer.singleShot(40, self.navigation_dock.size_navigation_to_content)
-        else:
-            QTimer.singleShot(40, self.navigation_dock.size_navigation_to_content)
+        if nav_dock is not None:
+            QTimer.singleShot(40, nav_dock.size_navigation_to_content)
 
     def ensure_window_in_screen(self):
+        """Move the window back inside the safe area of the screen it is on."""
+        # A maximized or full-screen window is placed by the window manager; moving it would unmaximize it.
+        if self.isMaximized() or self.isFullScreen():
+            return
         try:
-            screen = QApplication.primaryScreen()
-            screen_geometry = screen.availableGeometry()
             window_geometry = self.geometry()
-            safe_margin = 100
-            safe_rect = screen_geometry.adjusted(safe_margin, safe_margin, -safe_margin, -safe_margin)
+            screen = QApplication.screenAt(window_geometry.center()) or self.screen() or QApplication.primaryScreen()
+            if screen is None:
+                return
+            m = _SCREEN_SAFE_MARGIN
+            safe_rect = screen.availableGeometry().adjusted(m, m, -m, -m)
             if not safe_rect.contains(window_geometry):
                 new_x = max(safe_rect.left(), min(window_geometry.x(), safe_rect.right() - window_geometry.width()))
                 new_y = max(safe_rect.top(), min(window_geometry.y(), safe_rect.bottom() - window_geometry.height()))
@@ -526,15 +501,11 @@ class GUI(QMainWindow, MenuBar):
 
     def _reset_ui_layout(self):
         """Reset window and dock positions using config."""
-        try:
-            default_size = app_config.get_window_size()
-            default_pos = app_config.get_window_position()
-            self.resize(QSize(*default_size) if isinstance(default_size, tuple) else default_size)
-            self.move(QPoint(*default_pos) if isinstance(default_pos, tuple) else default_pos)
-        except (TypeError, RuntimeError):
-            logger.exception("Failed to apply window size/position, using defaults")
-            self.resize(1280, 720)
-            self.move(100, 100)
+        self.resize(app_config.get_window_size())
+        self.move(app_config.get_window_position())
+
+        queue_dock = getattr(self, "queue_dock", None)
+        queue_was_visible = queue_dock is not None and queue_dock.isVisible()
 
         for dock in self.findChildren(QDockWidget):
             dock.setFloating(False)
@@ -543,35 +514,26 @@ class GUI(QMainWindow, MenuBar):
         dock_config = [("navigation_dock", Qt.LeftDockWidgetArea, "expand_navigation"), ("player_dock", Qt.BottomDockWidgetArea, None), ("queue_dock", Qt.RightDockWidgetArea, None)]
         for attr_name, area, expand_method in dock_config:
             dock = getattr(self, attr_name, None)
-            if dock:
-                self.addDockWidget(area, dock)
-                if expand_method and hasattr(dock, expand_method):
-                    getattr(dock, expand_method)()
+            if dock is None:
+                continue
+            self.addDockWidget(area, dock)
+            if expand_method and hasattr(dock, expand_method):
+                getattr(dock, expand_method)()
+            if attr_name != "queue_dock":
                 dock.show()
-                if attr_name == "queue_dock" and not getattr(app_config, "queue_visible", True):
-                    dock.hide()
-                if attr_name == "queue_dock" and hasattr(self, "toggle_queue_action"):
-                    self.toggle_queue_action.setChecked(dock.isVisible())
 
-        if hasattr(self, "_restore_player"):
-            self._restore_player()
+        # The queue keeps the visibility it had before the reset.
+        self.set_queue_visible(queue_was_visible)
 
-    def _restore_player(self):
         if not getattr(self, "player_ui", None):
             self._create_player()
-        player_dock = next((d for d in self.findChildren(QDockWidget) if d.widget() == self.player_ui), None)
-        if player_dock:
-            player_dock.setFloating(False)
-            self.addDockWidget(Qt.BottomDockWidgetArea, player_dock)
-            player_dock.show()
-            if hasattr(app_config, "player_dock_size"):
-                player_dock.resize(QSize(*app_config.player_dock_size))
 
     # =========================================================================
     #  Close
     # =========================================================================
 
     def closeEvent(self, event):
+        """Persist window and queue state, stop background work, and release the player and DB session."""
         app_config.set_window_size(self.size())
         app_config.set_window_position(self.pos())
         app_config.set_window_maximized(self.isMaximized())
@@ -584,8 +546,18 @@ class GUI(QMainWindow, MenuBar):
             logger.error(f"closeEvent: failed to save queue: {exc}")
 
         app_config.save()
+
+        # A running QThread destroyed with the window aborts the process.
+        self._stop_explicit_recalc_worker()
+        # A parentless mini player would otherwise keep the app alive after the main window closes.
+        self._close_miniplayer()
+
         self.mediaplayer.cleanup()
-        if self.player_ui is not None:
-            self.player_ui.cleanup()
-        self.queue_widget.clear()
+        # Docks may be missing if startup failed or the window closed before the queue timer ran.
+        player_ui = getattr(self, "player_ui", None)
+        if player_ui is not None:
+            player_ui.cleanup()
+        queue_widget = getattr(self, "queue_widget", None)
+        if queue_widget is not None:
+            queue_widget.clear()
         self.controller.close_session()

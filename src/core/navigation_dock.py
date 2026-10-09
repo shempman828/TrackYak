@@ -1,5 +1,7 @@
+"""Left dock with the app logo, a collapse toggle and the view navigation tree."""
+
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt
-from PySide6.QtWidgets import QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QTreeWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDockWidget, QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QTreeWidget, QVBoxLayout, QWidget
 
 from src.core.navigation_customization import NavigationCustomizationDialog
 from src.foundation.asset_paths import icon
@@ -7,22 +9,23 @@ from src.foundation.logger_config import logger
 
 
 class NavigationDock(QDockWidget):
-    """navigation dock widget"""
+    """Dock that holds the navigation tree and collapses to a narrow logo strip."""
 
     def __init__(self, gui_instance):
         super().__init__("Navigation", gui_instance)
         self.gui = gui_instance
         self.nav_collapsed = False
-        self.nav_auto_collapse = False
+        self._nav_animation = None
+        self._nav_animation_min = None
         self._init_ui()
 
     @property
     def nav_tree(self):
-        """Provide access to the navigation tree from the GUI"""
+        """Return the navigation tree widget."""
         return self._nav_tree
 
     def _init_ui(self):
-        """Initialize the navigation dock UI"""
+        """Build the header, logo toggle and navigation tree, and dock it on the left."""
         self.setObjectName("NavigationDock")
         self.setTitleBarWidget(QWidget())
 
@@ -88,7 +91,9 @@ class NavigationDock(QDockWidget):
         self._nav_tree = QTreeWidget()
         self._nav_tree.setObjectName("NavTree")
         self._nav_tree.setHeaderHidden(True)
-        self.nav_tree.setFocusPolicy(Qt.NoFocus)  # removes annoying focus styling
+        # Tab focus (not click focus) avoids a focus frame on mouse use but keeps keyboard access.
+        self._nav_tree.setFocusPolicy(Qt.TabFocus)
+        self._nav_tree.installEventFilter(self)
 
         self._nav_tree.itemClicked.connect(self.gui._switch_view)
         self._nav_tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -107,12 +112,7 @@ class NavigationDock(QDockWidget):
         self.setMaximumWidth(400)
         self.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
 
-        # Add to main window
         self.gui.addDockWidget(Qt.LeftDockWidgetArea, self)
-        # Watch the main window's own resize, not this dock's -- a sibling
-        # dock claiming/releasing space resizes us too, which isn't the same
-        # signal as the user actually shrinking the window.
-        self.gui.installEventFilter(self)
 
     def _show_nav_context_menu(self, pos):
         """Right-click menu on the nav tree, offering nav bar customization."""
@@ -122,6 +122,7 @@ class NavigationDock(QDockWidget):
         menu.exec_(self._nav_tree.mapToGlobal(pos))
 
     def _show_navigation_customization_dialog(self):
+        """Open the navigation customization dialog."""
         dialog = NavigationCustomizationDialog(self.gui, self)
         dialog.exec_()
 
@@ -139,20 +140,6 @@ class NavigationDock(QDockWidget):
 
         self.resize(ideal_width, self.height())
 
-    def _set_initial_navigation_size(self):
-        """Set initial navigation size based on screen size.
-        Call this after the main window is shown, not during construction."""
-        screen = QApplication.primaryScreen()
-        screen_width = screen.availableGeometry().width()
-
-        # Auto-collapse on small screens
-        if screen_width < 1366:  # HD ready or smaller
-            self.nav_auto_collapse = True
-            self.collapse_navigation()
-        else:
-            self.nav_auto_collapse = False
-            self.expand_navigation()
-
     def toggle_navigation(self):
         """Toggle between collapsed and expanded navigation states."""
         if not self.isVisible():
@@ -166,7 +153,7 @@ class NavigationDock(QDockWidget):
             self.collapse_navigation()
 
     def collapse_navigation(self):
-        """Collapse the navigation to icon-only mode with animation."""
+        """Collapse the dock to the logo strip with an animation."""
         if self.nav_collapsed:
             return
 
@@ -184,7 +171,7 @@ class NavigationDock(QDockWidget):
         logger.debug("Navigation collapsed")
 
     def expand_navigation(self):
-        """Expand the navigation to show full content with animation."""
+        """Expand the dock to show the navigation tree with an animation."""
         if not self.nav_collapsed:
             return
 
@@ -202,24 +189,12 @@ class NavigationDock(QDockWidget):
         logger.debug("Navigation expanded")
 
     def eventFilter(self, obj, event):
-        """Handle resize events for responsive navigation.
-
-        Bound to the main window's resize event (not this dock's own) so
-        that a sibling dock's visibility change can never be mistaken for
-        the user shrinking the window -- see _set_initial_navigation_size
-        for the matching 1366px "small screen" breakpoint.
-        """
-        if obj is not None and obj == getattr(self, "gui", None) and event.type() == QEvent.Resize:
-            # Auto-collapse/expand based on available width
-            if not self.nav_auto_collapse:
-                return False
-
-            new_width = event.size().width()
-            if new_width < 1366 and not self.nav_collapsed:
-                self.collapse_navigation()
-            elif new_width >= 1416 and self.nav_collapsed:
-                self.expand_navigation()
-
+        """Switch to the current nav item when Enter, Return or Space is pressed in the tree."""
+        if obj is getattr(self, "_nav_tree", None) and event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            item = self._nav_tree.currentItem()
+            if item is not None:
+                self.gui._switch_view(item)
+                return True
         return super().eventFilter(obj, event)
 
     def ensure_proper_navigation_size(self):
@@ -236,7 +211,12 @@ class NavigationDock(QDockWidget):
                 self.resize(200, self.height())
 
     def _animate_navigation_width(self, start_width, end_width, duration=180):
-        """Animate dock width smoothly and ensure it resizes to final width."""
+        """Animate the dock width to end_width, then restore the normal width limits."""
+        # A fast double toggle must not leave two animations fighting over the width.
+        for running in (self._nav_animation, self._nav_animation_min):
+            if running is not None:
+                running.stop()
+
         animation = QPropertyAnimation(self, b"maximumWidth")
         animation.setStartValue(start_width)
         animation.setEndValue(end_width)
@@ -253,6 +233,7 @@ class NavigationDock(QDockWidget):
         # When finished, restore proper min/max constraints rather than
         # pinning both to end_width (which would prevent manual resizing).
         def finalize_size():
+            """Restore the min/max width limits and apply the final width."""
             if self.nav_collapsed:
                 self.setMinimumWidth(60)
                 self.setMaximumWidth(60)

@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.track.view.track_view_filter import LAZY_BATCH_SIZE, SortWorker
+from src.track.view.track_view_toolbar import numeric_alignment
 
 # Track fields whose value comes from a relationship rather than a plain
 # Column. Reading these lazily (`getattr(track, field_name)`) triggers a
@@ -381,6 +382,9 @@ class TrackViewDataMixin:
                 item = QStandardItem(display_value)
                 item.setEditable(False)
                 item.setData(value if isinstance(value, (int, float)) else display_value, Qt.UserRole)
+                alignment = numeric_alignment(field_name, value)
+                if alignment is not None:
+                    item.setData(alignment, Qt.TextAlignmentRole)
                 row_items.append(item)
 
             self.model.appendRow(row_items)
@@ -452,9 +456,8 @@ class TrackViewDataMixin:
                 self._append_next_batch(source)
 
     def _update_status(self):
-        total = len(self._all_tracks)
-        if self._filter_active:
-            visible = len(self._filtered_tracks)
-            self.status_label.setText(f"Showing {self._loaded_count:,} / {visible:,} matches  ({total:,} total)")
-        else:
-            self.status_label.setText(f"Showing {self._loaded_count:,} / {total:,} tracks")
+        """Summary line ("12,345 tracks · 812 h 4 min" / "37 of 12,345
+        tracks · …") plus the matching empty-state message. The lazy-load
+        batch count is an internal detail and isn't shown."""
+        self.status_label.setText(self._summary_text())
+        self._sync_empty_state()

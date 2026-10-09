@@ -790,15 +790,17 @@ decade apart.
 ## Navigation Dock
 
 The list on the left for jumping between views — click any entry to switch
-what's showing in the middle of the window.
+what's showing in the middle of the window. You can also use the keyboard:
+press `Tab` to move focus to the list, use the arrow keys to select an entry,
+and press `Enter` or `Space` to open it.
 
-Click the logo at the top to collapse it down to an icon-only strip when you
-want more screen space, and click it again to bring the labels back. It also
-collapses itself automatically on narrower windows and re-expands once
-there's room again.
+Click the logo at the top to collapse it down to a narrow logo strip when you
+want more screen space, and click it again to bring the list back
+(`Ctrl+Shift+N` does the same).
 
 Right-click the list for a "Customize Navigation…" option to drag entries
-into your own order or hide the ones you don't use. Tracks always stays
+into your own order or hide the ones you don't use. **Show All** and
+**Hide All** check or clear every entry at once. Tracks always stays
 shown, since it's the default view.
 
 ## Player Dock
@@ -881,7 +883,13 @@ Double-click any queued track to jump to it immediately.
   split across tabs. See [Library Statistics](#library-statistics) below for
   what each tab holds.
 - **General Settings** — display, audio device, and general app preferences,
-  all in one dialog. The **Developer** tab holds an "Enable developer mode"
+  all in one dialog. Appearance changes (theme, UI scale, font, menu bar
+  auto-hide, explicit-content options) show immediately as a preview.
+  **OK** keeps them; **Cancel** (or closing the dialog) undoes every
+  Appearance change made since the dialog opened or since you last clicked
+  **Apply**. If saving fails, **OK** shows the error and keeps the dialog
+  open. Loudness normalization controls are available only while the player
+  is running. The **Developer** tab holds an "Enable developer mode"
   toggle that unlocks experimental/diagnostic options (currently the
   "Primary Artist Count" album sort, and "Write file metadata immediately on
   change" — see below); some of what it exposes needs a restart to appear.
@@ -1011,9 +1019,11 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
 - **Full Screen** (`F11`) — toggle full-screen mode.
 - **Mini Player** (`Ctrl+M`) — pop out a small, always-on-top transport
   window, handy for keeping playback controls visible while you work in
-  another app.
+  another app. Press `Ctrl+M` again to close it. It also closes when you
+  close the main window.
 - **Reset Layout** — snap the navigation, queue, and player docks back to
   their default positions if you've dragged something into an awkward spot.
+  The queue stays shown or hidden, as it was before the reset.
 
 ## Help Menu
 

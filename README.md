@@ -25,7 +25,7 @@ If you want a library that lives entirely in the cloud, or a bare-bones player w
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - The native `chromaprint` library, for audio fingerprinting:
   - Debian/Ubuntu: `apt install libchromaprint1`
   - macOS: `brew install chromaprint`

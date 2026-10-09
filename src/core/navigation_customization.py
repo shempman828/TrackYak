@@ -1,9 +1,6 @@
-"""navigation_customization.py — dialog for reordering the nav bar and
-hiding entries the user doesn't want. Structurally a copy of
-ColumnCustomizationDialog (src/track/view/track_columns.py): same drag-to-reorder,
-checkbox-to-hide QListWidget interaction, applied to nav_tree entries instead
-of track columns.
-"""
+"""Dialog to reorder navigation entries and hide the ones the user does not want."""
+
+# Same drag-to-reorder / check-to-show pattern as ColumnCustomizationDialog (src/track/view/track_columns.py).
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout
@@ -28,6 +25,7 @@ class NavigationCustomizationDialog(QDialog):
         self.load_current_state()
 
     def init_ui(self):
+        """Build the instructions, list, bulk buttons and dialog buttons."""
         layout = QVBoxLayout(self)
 
         instructions = QLabel(f'Drag items to reorder the navigation list. Check/uncheck to show/hide entries. "{PINNED_VIEW}" is always shown.')
@@ -41,13 +39,13 @@ class NavigationCustomizationDialog(QDialog):
 
         controls_layout = QHBoxLayout()
 
-        self.select_all_btn = QPushButton("Select All")
-        self.select_all_btn.clicked.connect(self.select_all)
-        controls_layout.addWidget(self.select_all_btn)
+        self.show_all_btn = QPushButton("Show All")
+        self.show_all_btn.clicked.connect(self.show_all)
+        controls_layout.addWidget(self.show_all_btn)
 
-        self.deselect_all_btn = QPushButton("Deselect All")
-        self.deselect_all_btn.clicked.connect(self.deselect_all)
-        controls_layout.addWidget(self.deselect_all_btn)
+        self.hide_all_btn = QPushButton("Hide All")
+        self.hide_all_btn.clicked.connect(self.hide_all)
+        controls_layout.addWidget(self.hide_all_btn)
 
         self.reset_btn = QPushButton("Reset to Default")
         self.reset_btn.clicked.connect(self.reset_to_default)
@@ -62,6 +60,7 @@ class NavigationCustomizationDialog(QDialog):
         layout.addWidget(button_box)
 
     def _make_item(self, view_name, checked):
+        """Return a checkable list item for view_name; the pinned view is always checked."""
         item = QListWidgetItem(view_name)
         item.setData(Qt.UserRole, view_name)
         item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
@@ -86,15 +85,15 @@ class NavigationCustomizationDialog(QDialog):
             if view_name not in order:
                 self.item_list.addItem(self._make_item(view_name, True))
 
-    def select_all(self):
-        """Select all nav entries."""
+    def show_all(self):
+        """Check every nav entry so it is shown."""
         for i in range(self.item_list.count()):
             item = self.item_list.item(i)
             if item.flags() & Qt.ItemIsUserCheckable:
                 item.setCheckState(Qt.Checked)
 
-    def deselect_all(self):
-        """Deselect all nav entries (the pinned view stays checked)."""
+    def hide_all(self):
+        """Uncheck every nav entry except the pinned view."""
         for i in range(self.item_list.count()):
             item = self.item_list.item(i)
             if item.flags() & Qt.ItemIsUserCheckable:

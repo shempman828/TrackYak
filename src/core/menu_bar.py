@@ -1,3 +1,5 @@
+"""Main-window menu bar mixin: menus, auto-hide behavior and the dialogs the menus open."""
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -6,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.analysis.analysis_dialog import AudioAnalysisDialog
 from src.common.dialogs.alias_management_dialog import AliasManagementDialog
+from src.core.startup_dialog import LICENSE_FILE
 from src.foundation.asset_paths import ASSETS_DIR, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
@@ -24,8 +27,12 @@ from src.player.equalizer.equalizer_dialog import EqualizerDialog
 from src.player.ui.player_mini import MiniPlayerWindow
 from src.statistics.statistics_dialog import MusicStatsDialog
 
+_MENU_BAR_TRIGGER_SLACK = 5  # px below the menu bar that still counts as "near the top"
+
 
 class MenuBar:
+    """Mixin for GUI that builds the menu bar and owns the menu actions' dialogs."""
+
     def add_action(self, menu, text, icon_name=None, slot=None, shortcut=None, *, tooltip=None, checkable=False, checked=False, shortcut_context=None):
         """Build a QAction, wire it up, and append it to `menu` in one call."""
         action = QAction(text, self)
@@ -57,7 +64,6 @@ class MenuBar:
 
         file_menu.addSeparator()
 
-        # General Settings — opens the full ConfigDialog
         self.add_action(file_menu, "General Settings", "settings.svg", self.show_general_settings_dialog)
 
         file_menu.addSeparator()
@@ -119,7 +125,7 @@ class MenuBar:
         help_menu = menu_bar.addMenu("Help")
 
         self.add_action(help_menu, "About", slot=self.show_about_dialog)
-        self.add_action(help_menu, "Support this Project")
+        self.add_action(help_menu, "Support this Project")  # placeholder: no URL yet, see bugs.md
 
         wikipedia_url = "https://wikimediafoundation.org/give/?rdfrom=%2F%2Fdonate.wikimedia.org%2Fw%2Findex.php%3Ftitle%3DWays_to_Give%26redirect%3Dno#ways-to-give"
         self.add_action(help_menu, "Support Wikipedia", slot=lambda: QDesktopServices.openUrl(QUrl(wikipedia_url)))
@@ -148,10 +154,6 @@ class MenuBar:
         # Apply the saved auto-hide preference on startup
         self._apply_menu_bar_auto_hide(self._get_display_settings_auto_hide())
 
-    # ------------------------------------------------------------------
-    # Auto-hide helpers
-    # ------------------------------------------------------------------
-
     def _icon_exists(self, name: str) -> bool:
         """Safely check if an icon file exists before loading it."""
         try:
@@ -159,6 +161,10 @@ class MenuBar:
         except (OSError, TypeError) as e:
             logger.debug(f"Icon existence check failed for {name}: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Auto-hide helpers
+    # ------------------------------------------------------------------
 
     def _get_display_settings_auto_hide(self) -> bool:
         """Read the current auto-hide preference from wherever DisplaySettings lives."""
@@ -175,19 +181,11 @@ class MenuBar:
         return None
 
     def _apply_menu_bar_auto_hide(self, enabled: bool):
-        """
-        Turn auto-hide on or off.
-        When ON:  the menu bar is hidden and a polling timer watches the
-                  global cursor position so we know when it's near the top
-                  of the window, including the area where the hidden menu
-                  bar used to be.
-        When OFF: the menu bar is always visible (normal behaviour).
-        """
+        """Turn menu bar auto-hide on (hide the bar and poll the cursor) or off (always show it)."""
         menu_bar = self.menuBar()
 
         if enabled:
-            # Record the height now while the bar is still visible so we have
-            # a reliable value to use when the bar is hidden.
+            # Record the height while the bar is still visible; sizeHint() is 0 once it's hidden.
             h = menu_bar.sizeHint().height()
             if h > 0:
                 self._menu_bar_known_height = h
@@ -195,25 +193,29 @@ class MenuBar:
             menu_bar.hide()
             self._menu_bar_poll_timer.start()
         else:
-            # Stop both timers and make sure the bar is visible
             self._menu_bar_hide_timer.stop()
             self._menu_bar_poll_timer.stop()
             menu_bar.show()
 
+    def _cursor_in_menu_bar_region(self) -> bool:
+        """Return True if the cursor is over the top strip where the menu bar sits."""
+        # Use the stored height — sizeHint() returns 0 when the bar is hidden.
+        trigger_height = self._menu_bar_known_height + _MENU_BAR_TRIGGER_SLACK
+        local_pos = self.mapFromGlobal(QCursor.pos())
+        return 0 <= local_pos.x() <= self.width() and 0 <= local_pos.y() <= trigger_height
+
     def _hide_menu_bar_if_mouse_gone(self):
-        """Called by the timer — hides the bar only if auto-hide is still on."""
-        if self._get_display_settings_auto_hide():
-            self.menuBar().hide()
+        """Hide the bar after the grace period, unless auto-hide is off, a menu is open, or the cursor came back."""
+        if not self._get_display_settings_auto_hide():
+            return
+        menu_bar = self.menuBar()
+        if menu_bar.activeAction() is not None or self._cursor_in_menu_bar_region():
+            return
+        menu_bar.hide()
 
     def _check_mouse_for_menu_bar(self):
-        """
-        Polls the global cursor position for menu bar auto-show on hover.
-
-        Polling avoids relying on QEvent.MouseMove, which Qt only delivers to
-        a widget when that widget has mouse tracking enabled (or a mouse
-        button is held) — most widgets in this window don't opt into that,
-        so an event-based approach misses most cursor movement.
-        """
+        """Show the auto-hidden menu bar while the cursor is near the top of the window."""
+        # Polling (not QEvent.MouseMove) because most widgets here don't enable mouse tracking.
         if not self._get_display_settings_auto_hide():
             return
 
@@ -224,22 +226,33 @@ class MenuBar:
             return
 
         menu_bar = self.menuBar()
-        # Use the stored height — sizeHint() returns 0 when the bar is hidden.
-        trigger_height = self._menu_bar_known_height + 5
-
-        local_pos = self.mapFromGlobal(QCursor.pos())
-        x, y = local_pos.x(), local_pos.y()
-        inside_top_region = 0 <= x <= self.width() and 0 <= y <= trigger_height
-
-        if inside_top_region:
-            # Mouse is near the top — show the bar and cancel any pending hide.
+        if self._cursor_in_menu_bar_region():
             self._menu_bar_hide_timer.stop()
             if not menu_bar.isVisible():
                 menu_bar.show()
-        else:
-            # Mouse moved away — start the grace-period timer.
-            if menu_bar.isVisible() and not menu_bar.activeAction() and not self._menu_bar_hide_timer.isActive():
-                self._menu_bar_hide_timer.start()
+        elif menu_bar.isVisible() and not menu_bar.activeAction() and not self._menu_bar_hide_timer.isActive():
+            self._menu_bar_hide_timer.start()
+
+    # ------------------------------------------------------------------
+    # Dialog helpers
+    # ------------------------------------------------------------------
+
+    def _show_singleton_dialog(self, attr: str, factory):
+        """Create the dialog stored at self.<attr> on first use (or after Qt deleted it), then show and focus it."""
+        dialog = getattr(self, attr, None)
+        if dialog is not None:
+            try:
+                dialog.isVisible()
+            except RuntimeError:
+                logger.debug(f"{attr} was deleted; recreating")
+                dialog = None
+        if dialog is None:
+            dialog = factory()
+            setattr(self, attr, dialog)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
 
     # ------------------------------------------------------------------
     # Audio settings
@@ -247,23 +260,14 @@ class MenuBar:
 
     def show_equalizer_dialog(self):
         """Show the equalizer configuration dialog."""
-        if not hasattr(self, "equalizer_dialog"):
-            self.equalizer_dialog = EqualizerDialog(self.controller.mediaplayer.equalizer, app_config, self)
-        self.equalizer_dialog.show()
-        self.equalizer_dialog.raise_()
-        self.equalizer_dialog.activateWindow()
+        self._show_singleton_dialog("equalizer_dialog", lambda: EqualizerDialog(self.controller.mediaplayer.equalizer, app_config, self))
 
     # ------------------------------------------------------------------
     # General Settings
     # ------------------------------------------------------------------
 
     def show_general_settings_dialog(self):
-        """Open the General Settings (ConfigDialog) window.
-
-        Also covers what used to be the separate Display Settings and
-        Manage Audio Settings dialogs, so both a DisplaySettings instance
-        and the live player are resolved and handed in when available.
-        """
+        """Open the modal General Settings dialog with the live DisplaySettings and player."""
         from src.core.config_dialog import ConfigDialog
 
         display_settings = self._resolve_display_settings()
@@ -290,23 +294,16 @@ class MenuBar:
     # ------------------------------------------------------------------
 
     def show_statistics_dialog(self):
-        if not hasattr(self, "statistics_dialog"):
-            self.statistics_dialog = MusicStatsDialog(self.controller, self)
-        self.statistics_dialog.show()
-        self.statistics_dialog.raise_()
-        self.statistics_dialog.activateWindow()
+        """Show the library statistics dialog."""
+        self._show_singleton_dialog("statistics_dialog", lambda: MusicStatsDialog(self.controller, self))
 
     def show_alias_management_dialog(self):
-        if not hasattr(self, "alias_management_dialog"):
-            self.alias_management_dialog = AliasManagementDialog(self.controller, self)
-        self.alias_management_dialog.show()
-        self.alias_management_dialog.raise_()
-        self.alias_management_dialog.activateWindow()
+        """Show the alias management dialog."""
+        self._show_singleton_dialog("alias_management_dialog", lambda: AliasManagementDialog(self.controller, self))
 
     def show_explicit_recalc(self):
-        """Backfill is_explicit for every track that has lyrics but has
-        never had it determined (NULL) -- never overwrites a manual or
-        previously-computed value. See ExplicitRecalcWorker."""
+        """Start a background backfill of is_explicit for tracks with lyrics and no value yet."""
+        # Only NULL values are filled; manual or earlier values are never overwritten (see ExplicitRecalcWorker).
         if getattr(self, "_explicit_recalc_worker", None) is not None:
             return
         show_status_message(self, "Recalculating explicit flags…", duration=0)
@@ -316,47 +313,44 @@ class MenuBar:
         self._explicit_recalc_worker.start()
 
     def _on_explicit_recalc_finished(self, scanned: int, flagged: int):
+        """Report the recalculation result and release the worker."""
         show_status_message(self, f"Explicit flags recalculated: {scanned} track(s) scanned, {flagged} flagged explicit")
-        self._explicit_recalc_worker.wait()
+        self._stop_explicit_recalc_worker()
+
+    def _on_explicit_recalc_error(self, message: str):
+        """Report a recalculation failure and release the worker."""
+        show_status_message(self, f"Explicit flag recalculation failed: {message}")
+        self._stop_explicit_recalc_worker()
+
+    def _stop_explicit_recalc_worker(self):
+        """Cancel and join the explicit-flag worker, if one exists."""
+        worker = getattr(self, "_explicit_recalc_worker", None)
+        if worker is None:
+            return
+        worker.request_cancel()
+        worker.wait()
         self._explicit_recalc_worker = None
 
     def show_mood_autotag_dialog(self):
-        if not hasattr(self, "mood_autotag_dialog"):
-            self.mood_autotag_dialog = MoodAutoTagDialog(self.controller, self)
-        self.mood_autotag_dialog.show()
-        self.mood_autotag_dialog.raise_()
-        self.mood_autotag_dialog.activateWindow()
+        """Show the mood auto-tagging dialog."""
+        self._show_singleton_dialog("mood_autotag_dialog", lambda: MoodAutoTagDialog(self.controller, self))
 
     def show_place_song_about_review_dialog(self):
-        if not hasattr(self, "place_song_about_review_dialog"):
-            self.place_song_about_review_dialog = PlaceSongAboutReviewDialog(self.controller, self)
-        self.place_song_about_review_dialog.refresh()
-        self.place_song_about_review_dialog.show()
-        self.place_song_about_review_dialog.raise_()
-        self.place_song_about_review_dialog.activateWindow()
+        """Refresh and show the song-about places review dialog."""
+        self._show_singleton_dialog("place_song_about_review_dialog", lambda: PlaceSongAboutReviewDialog(self.controller, self)).refresh()
 
     def show_artwork_consistency_dialog(self):
-        if not hasattr(self, "artwork_consistency_dialog"):
-            self.artwork_consistency_dialog = ArtworkConsistencyDialog(self.controller, self)
-        self.artwork_consistency_dialog.show()
-        self.artwork_consistency_dialog.raise_()
-        self.artwork_consistency_dialog.activateWindow()
-
-    def _on_explicit_recalc_error(self, message: str):
-        show_status_message(self, f"Explicit flag recalculation failed: {message}")
-        self._explicit_recalc_worker.wait()
-        self._explicit_recalc_worker = None
+        """Show the artwork conflicts dialog."""
+        self._show_singleton_dialog("artwork_consistency_dialog", lambda: ArtworkConsistencyDialog(self.controller, self))
 
     def show_duplicate_finder(self):
         """Open the Duplicate Track Finder dialog."""
-        if not hasattr(self, "duplicate_finder_dialog"):
-            self.duplicate_finder_dialog = DuplicateFinderDialog(self.controller, self)
-        self.duplicate_finder_dialog.show()
-        self.duplicate_finder_dialog.raise_()
-        self.duplicate_finder_dialog.activateWindow()
+        self._show_singleton_dialog("duplicate_finder_dialog", lambda: DuplicateFinderDialog(self.controller, self))
 
     def show_about_dialog(self):
-        description = """TrackYak is a powerful application for tracking and managing your music library."""
+        """Show the About box with version and a link to the license file."""
+        description = "TrackYak is a powerful application for tracking and managing your music library."
+        license_url = QUrl.fromLocalFile(str(LICENSE_FILE)).toString()
 
         about_box = QMessageBox(self)
         about_box.setWindowTitle("About TrackYak")
@@ -368,10 +362,10 @@ class MenuBar:
             f"<p><b>Developed by Baby Yak Studios</b></p>"
             f"<hr>"
             f"<h3>Description:</h3>"
-            f"<p>{description.replace(chr(10), '<br>')}</p>"
+            f"<p>{description}</p>"
             f"<hr>"
             f"<h3>License:</h3>"
-            f"<p><a href='file:///{Path('license.md').resolve()}'>View Full License Text</a></p>"
+            f"<p><a href='{license_url}'>View Full License Text</a></p>"
         )
         about_box.setTextInteractionFlags(Qt.TextBrowserInteraction)
         about_box.setStandardButtons(QMessageBox.Ok)
@@ -383,32 +377,24 @@ class MenuBar:
         self.set_queue_visible(checked)
 
     def show_audio_properties(self):
-        dialog = AudioAnalysisDialog(self.controller)
-        dialog.exec_()
-        return dialog
+        """Open the modal audio file analysis dialog."""
+        AudioAnalysisDialog(self.controller, parent=self).exec_()
 
     def show_import_dialog(self):
         """Display the ImportDialog when the 'Import Directory' action is triggered."""
-        if not hasattr(self, "import_dialog"):
-            self.import_dialog = ImportDialog(self.controller)
-
-        try:
-            self.import_dialog.isVisible()
-        except RuntimeError:
-            logger.debug("Import dialog was deleted; recreating")
-            self.import_dialog = ImportDialog(self.controller)
-
-        self.import_dialog.raise_()
-        self.import_dialog.activateWindow()
-        self.import_dialog.show()
+        self._show_singleton_dialog("import_dialog", lambda: ImportDialog(self.controller))
 
     def show_organize_files(self):
         """Show the Organize Files dialog when the Tools action is triggered."""
-        if not hasattr(self, "organize_files_dialog"):
-            self.organize_files_dialog = OrganizeFilesDialog(self.controller)
-            self.organize_files_dialog.library_modified.connect(self._refresh_all_views)
 
-        self.organize_files_dialog.show()
+        def build():
+            dialog = OrganizeFilesDialog(self.controller)
+            # Parent it to the main window but keep it a separate top-level window.
+            dialog.setParent(self, dialog.windowFlags())
+            dialog.library_modified.connect(self._refresh_all_views)
+            return dialog
+
+        self._show_singleton_dialog("organize_files_dialog", build)
 
     def show_metadata_writer(self):
         """Open the metadata write dialog when the 'Write Metadata' action is triggered."""
@@ -424,15 +410,25 @@ class MenuBar:
         QApplication.processEvents()
         self.repaint()
 
+    def _close_miniplayer(self) -> bool:
+        """Close the mini player; return True if it was open and visible."""
+        mini = getattr(self, "_mini_player", None)
+        if mini is None:
+            return False
+        was_visible = False
+        try:
+            was_visible = mini.isVisible()
+            mini.close()
+            mini.deleteLater()
+        except RuntimeError:
+            logger.debug("Mini player window was already deleted")
+        self._mini_player = None
+        return was_visible
+
     def open_miniplayer(self):
-        """Show or hide the mini-player window as an independent window."""
-        if hasattr(self, "_mini_player") and self._mini_player:
-            try:
-                self._mini_player.close()
-                self._mini_player.deleteLater()
-            except RuntimeError:
-                logger.debug("Mini player window was already deleted")
-            self._mini_player = None
+        """Toggle the mini player: close it if it is showing, else open it as an independent window."""
+        if self._close_miniplayer():
+            return
 
         logger.debug("Opening mini player window")
         self._mini_player = MiniPlayerWindow(self.controller)
@@ -450,4 +446,5 @@ class MenuBar:
         self._mini_player.raise_()
 
     def show_missing_tracks(self):
+        """Scan for tracks whose files are missing and show them."""
         self._missing_tracks = MissingTracks(self.controller, parent=self)

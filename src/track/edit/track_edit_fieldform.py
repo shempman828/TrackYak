@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# FieldFormTab — auto-builds a QFormLayout from TRACK_FIELDS for one category
+# FieldFormTab — auto-builds titled field cards from TRACK_FIELDS for one category
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -7,24 +7,10 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDoubleSpinBox,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QSpinBox,
-    QTextEdit,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSizePolicy, QSpinBox, QTextEdit, QVBoxLayout, QWidget
 
-from src.common.widgets.nullable_numeric_field import (
-    create_nullable_float_field,
-    create_nullable_int_field,
-    nullable_field_value,
-    set_nullable_field_value,
-)
+from src.common.widgets.detail_card import DetailCard
+from src.common.widgets.nullable_numeric_field import create_nullable_float_field, create_nullable_int_field, nullable_field_value, set_nullable_field_value
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.logger_config import logger
 from src.track.edit.track_edit_basetab import _BaseTab
@@ -32,6 +18,10 @@ from src.track.edit.track_edit_basetab import _BaseTab
 # ---------------------------------------------------------------------------
 # Helpers shared by all tabs
 # ---------------------------------------------------------------------------
+
+
+# Numbers are short; a full-width field for one would read as a text box.
+_NUMBER_FIELD_WIDTH = 160
 
 
 def _make_widget_for_field(field_name: str, field_config, on_change_cb):
@@ -42,14 +32,17 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
     if field_config.type is bool:
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
+        # A multi-track "Mixed values" box starts partially checked (see
+        # _show_mixed); the first click resolves it to a plain two-state box.
+        w.checkStateChanged.connect(lambda state, cb=w: cb.setTristate(False) if cb.isTristate() and state != Qt.PartiallyChecked else None)
     elif field_config.type is int:
         # Every int field on Track is nullable in the DB, so we always give
         # the user a way to clear it back to NULL rather than being stuck
         # with whatever number is left in a plain QSpinBox.
         w = create_nullable_int_field(
-            min_val=(int(field_config.min) if field_config.min is not None else -2_147_483_648),
-            max_val=(int(field_config.max) if field_config.max is not None else 2_147_483_647),
+            min_val=(int(field_config.min) if field_config.min is not None else -2_147_483_648), max_val=(int(field_config.max) if field_config.max is not None else 2_147_483_647)
         )
+        w.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     elif field_config.type is float:
         w = create_nullable_float_field(
@@ -57,6 +50,7 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
             max_val=field_config.max if field_config.max is not None else 1e9,
             decimals=field_config.decimals if field_config.decimals is not None else 4,
         )
+        w.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     elif field_config.longtext:
         w = QTextEdit()
@@ -158,16 +152,40 @@ def _format_readonly(value, field_config, field_name: str = "") -> str:
     return text
 
 
+_MIXED_PLACEHOLDER = "Mixed values"
+
+
+def _show_mixed(widget, mixed: bool) -> None:
+    """Mark a multi-track field whose tracks disagree, so it reads as
+    "the tracks differ" rather than "the value is empty". Line and text
+    edits swap in a placeholder; checkboxes show the partial state."""
+    if isinstance(widget, (QLineEdit, QTextEdit)):
+        base = widget.property("basePlaceholder")
+        if base is None:
+            base = widget.placeholderText()
+            widget.setProperty("basePlaceholder", base)
+        widget.setPlaceholderText(_MIXED_PLACEHOLDER if mixed else base)
+    elif isinstance(widget, QCheckBox) and mixed:
+        widget.blockSignals(True)
+        widget.setTristate(True)
+        widget.setCheckState(Qt.PartiallyChecked)
+        widget.blockSignals(False)
+
+
 class FieldFormTab(_BaseTab):
     """
     Generic tab that renders all TRACK_FIELDS belonging to `category`.
     Editable fields → appropriate input widget.
-    Read-only fields → styled QLabel.
+    Read-only fields → value label, styled as a key/value pair.
+
+    Fields are laid out in titled DetailCards: one per FieldSpec.section, or
+    — for categories without sections — one card for the editable fields
+    and one for the read-only ones.
     """
 
     # Fields sharing one form row instead of getting their own — keeps
-    # short, closely-related fields (e.g. a Year/Month/Day trio) from
-    # wasting vertical space. Keyed by the first field in the group.
+    # short, closely-related fields from wasting vertical space. Keyed by
+    # the first field in the group.
     _ROW_GROUPS: ClassVar[dict[str, list[str]]] = {
         "track_number": ["absolute_track_number"],
         "recorded_year": ["recorded_month", "recorded_day"],
@@ -182,6 +200,21 @@ class FieldFormTab(_BaseTab):
         "date_added": ["last_listened_date", "play_count"],
     }
 
+    # Year/Month/Day groups, drawn as one framed date chip (the same
+    # DateChipGroup control the album editor uses) instead of a plain row.
+    _DATE_GROUPS: ClassVar[frozenset[str]] = frozenset({"recorded_year", "release_year", "composed_year"})
+
+    # Card titles for categories whose fields carry no FieldSpec.section.
+    _EDITABLE_CARD_TITLES: ClassVar[dict[str, str]] = {
+        "Basic": "Title & Numbering",
+        "Date": "Dates",
+        "Alias": "Alternate Titles",
+        "Classical": "Work & Movement",
+        "Identification": "Identifiers",
+        "Lyrics": "Lyrics",
+    }
+    _READONLY_CARD_TITLES: ClassVar[dict[str, str]] = {"Basic": "Album & Artist", "Date": "Release (from album)", "Identification": "AcoustID", "Advanced": "Audio Analysis"}
+
     def __init__(self, category: str, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self.category = category
@@ -190,84 +223,156 @@ class FieldFormTab(_BaseTab):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QFormLayout(self)
-        layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("FieldFormScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        body.setProperty("bgTransparent", True)
+        self._body_layout = QVBoxLayout(body)
+        self._body_layout.setContentsMargins(0, 0, 6, 0)
+        self._body_layout.setSpacing(12)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
         fields = {name: cfg for name, cfg in TRACK_FIELDS.items() if cfg.category == self.category}
 
-        if self.is_multi:
-            note = QLabel("⚠  Changes will apply to all selected tracks.")
-            note.setProperty("textRole", "note")
-            layout.addRow(note)
+        # Card key -> (title, form). Cards appear in first-field order.
+        cards: dict[str, tuple[DetailCard, QFormLayout]] = {}
+
+        def form_for(cfg) -> QFormLayout:
+            if cfg.section:
+                key, title = cfg.section, cfg.section
+            elif cfg.editable:
+                key, title = "__editable__", self._EDITABLE_CARD_TITLES.get(self.category, self.category)
+            else:
+                key, title = "__readonly__", self._READONLY_CARD_TITLES.get(self.category, "Details")
+            if key not in cards:
+                card = DetailCard(title)
+                form = QFormLayout()
+                form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+                form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                form.setHorizontalSpacing(14)
+                form.setVerticalSpacing(8)
+                card.body.addLayout(form)
+                cards[key] = (card, form)
+            return cards[key][1]
 
         skip = set()
-        current_section = None
         for field_name, cfg in fields.items():
             if field_name in skip:
                 continue
 
-            if cfg.section and cfg.section != current_section:
-                current_section = cfg.section
-                layout.addRow(self._make_section_header(current_section))
-
             partner_names = [n for n in self._ROW_GROUPS.get(field_name, []) if n in fields]
             if partner_names:
                 skip.update(partner_names)
-                rows = [
-                    row
-                    for row in (
-                        self._make_row_field(field_name, cfg),
-                        *(self._make_row_field(name, fields[name]) for name in partner_names),
-                    )
-                    if row is not None
-                ]
+                rows = [row for row in (self._make_row_field(field_name, cfg), *(self._make_row_field(name, fields[name]) for name in partner_names)) if row is not None]
                 if not rows:
                     continue
+                form = form_for(cfg)
+                if field_name in self._DATE_GROUPS:
+                    form.addRow(self._make_field_label(cfg.friendly.removesuffix(" Year") or field_name, cfg.tooltip), self._make_date_chip(rows))
+                    continue
                 if len(rows) == 1:
-                    layout.addRow(*rows[0])
+                    form.addRow(*rows[0])
                     continue
                 first_label, first_widget = rows[0]
                 container = QWidget()
+                container.setProperty("bgTransparent", True)
                 hbox = QHBoxLayout(container)
                 hbox.setContentsMargins(0, 0, 0, 0)
+                hbox.setSpacing(10)
+                # Values sharing a row keep their natural width.
+                for _lbl, w in rows:
+                    if isinstance(w, QLabel):
+                        w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
                 hbox.addWidget(first_widget)
                 for lbl, w in rows[1:]:
+                    hbox.addSpacing(6)
                     hbox.addWidget(lbl)
                     hbox.addWidget(w)
                 hbox.addStretch()
-                layout.addRow(first_label, container)
+                form.addRow(first_label, container)
                 continue
 
             row = self._make_row_field(field_name, cfg)
             if row is not None:
-                layout.addRow(*row)
+                form_for(cfg).addRow(*row)
+
+        # Editable cards first, read-only details after them.
+        ordered = sorted(cards.items(), key=lambda kv: kv[0] == "__readonly__")
+        for _key, (card, form) in ordered:
+            if form.rowCount():
+                self._body_layout.addWidget(card)
+            else:
+                card.deleteLater()
+
+        # Tab-specific action buttons (see add_action_widget) sit under the cards.
+        self._actions_row = QHBoxLayout()
+        self._actions_row.setSpacing(8)
+        self._actions_row.addStretch()
+        self._body_layout.addLayout(self._actions_row)
+        self._body_layout.addStretch()
+
+    def add_action_widget(self, widget: QWidget) -> None:
+        """Add a tab-specific action (e.g. a MusicBrainz lookup button) to
+        the row under the field cards."""
+        self._actions_row.insertWidget(self._actions_row.count() - 1, widget)
 
     @staticmethod
-    def _make_section_header(text: str) -> QLabel:
-        """A bold sub-heading row that splits a tab's fields into groups
-        (e.g. Properties' "File Info" vs "Musical Properties")."""
-        header = QLabel(text)
-        font = header.font()
-        font.setBold(True)
-        font.setPointSize(font.pointSize() + 1)
-        header.setFont(font)
-        header.setObjectName("SectionHeader")
-        return header
+    def _make_field_label(text: str, tooltip: str | None = None) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setProperty("textRole", "fieldLabel")
+        if tooltip:
+            lbl.setToolTip(tooltip)
+        return lbl
+
+    @staticmethod
+    def _make_date_chip(rows: list) -> QWidget:
+        """Year/Month/Day parts as one framed chip, each part captioned
+        with the last word of its own label ("Year", "Month", "Day")."""
+        holder = QWidget()
+        holder.setProperty("bgTransparent", True)
+        holder_row = QHBoxLayout(holder)
+        holder_row.setContentsMargins(0, 0, 0, 0)
+
+        chip = QFrame()
+        chip.setObjectName("DateChipGroup")
+        chip_row = QHBoxLayout(chip)
+        chip_row.setContentsMargins(10, 6, 10, 6)
+        chip_row.setSpacing(12)
+        for lbl, w in rows:
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            caption = QLabel(lbl.text().split()[-1] if lbl.text() else "")
+            caption.setProperty("textRole", "muted")
+            col.addWidget(caption)
+            if isinstance(w, QLineEdit):
+                w.setFixedWidth(80)
+            col.addWidget(w)
+            chip_row.addLayout(col)
+            lbl.deleteLater()
+        holder_row.addWidget(chip)
+        holder_row.addStretch()
+        return holder
 
     def _make_row_field(self, field_name: str, cfg):
         """Build the (label, value_widget) pair for one field, or return
         None if the field should be omitted (e.g. non-multiple in multi-track
         edit mode)."""
-        label_text = cfg.friendly or field_name
-        lbl = QLabel(f"{label_text}:")
-        if cfg.tooltip:
-            lbl.setToolTip(cfg.tooltip)
+        lbl = self._make_field_label(cfg.friendly or field_name, cfg.tooltip)
 
         if not cfg.editable:
             # Read-only display label
             val_lbl = QLabel("—")
             val_lbl.setWordWrap(True)
-            val_lbl.setProperty("textRole", "note")
+            # Expanding, so ExpandingFieldsGrow gives long values (file
+            # paths) the full row to wrap in instead of their narrow hint.
+            val_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            val_lbl.setProperty("textRole", "value")
             val_lbl.setFocusPolicy(Qt.NoFocus)
             val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self._labels[field_name] = val_lbl
@@ -296,13 +401,21 @@ class FieldFormTab(_BaseTab):
 
     def _populate(self, tracks: list, skip_dirty: bool) -> None:
         if self.is_multi:
-            # Show value only when all tracks agree; blank otherwise
+            # Show the value only when all tracks agree; otherwise leave the
+            # field blank and flag it "Mixed values".
             for field_name, w in self._widgets.items():
                 if skip_dirty and field_name in self._dirty:
                     continue
                 values = [getattr(t, field_name, None) for t in tracks]
                 unique = {str(v) for v in values}
                 _write_widget(w, values[0] if len(unique) == 1 else None)
+                _show_mixed(w, len(unique) > 1)
+            for field_name, lbl in self._labels.items():
+                values = [getattr(t, field_name, None) for t in tracks]
+                if len({str(v) for v in values}) == 1:
+                    lbl.setText(_format_readonly(values[0], TRACK_FIELDS.get(field_name), field_name))
+                else:
+                    lbl.setText(_MIXED_PLACEHOLDER)
         else:
             for field_name, w in self._widgets.items():
                 if skip_dirty and field_name in self._dirty:
@@ -310,9 +423,7 @@ class FieldFormTab(_BaseTab):
                 _write_widget(w, getattr(self.track, field_name, None))
             for field_name, lbl in self._labels.items():
                 cfg = TRACK_FIELDS.get(field_name)
-                lbl.setText(
-                    _format_readonly(getattr(self.track, field_name, None), cfg, field_name)
-                )
+                lbl.setText(_format_readonly(getattr(self.track, field_name, None), cfg, field_name))
 
     def set_if_empty(self, values: dict[str, Any]) -> None:
         """Fill fields from a MusicBrainz enrichment dict, but only where
@@ -372,11 +483,23 @@ class FieldFormTab(_BaseTab):
                 values[field_name] = val
         for field_name, lbl in self._labels.items():
             text = lbl.text()
-            if text and text != "—":
+            if text and text not in ("—", _MIXED_PLACEHOLDER):
                 values[field_name] = text
         return values
 
+    def pending_changes(self) -> set[str]:
+        return set(self._gather_changes())
+
     def collect_changes(self) -> dict[str, Any]:
+        changes = self._gather_changes()
+        if changes:
+            logger.debug(f"Collected {len(changes)} field change(s) in '{self.category}' tab: {list(changes.keys())}")
+        return changes
+
+    def _gather_changes(self) -> dict[str, Any]:
+        """Dirty fields whose value really differs (every dirty field in
+        multi-track mode). No logging -- also backs pending_changes(),
+        which runs on every keystroke."""
         changes = {}
         for field_name in self._dirty:
             w = self._widgets.get(field_name)
@@ -389,9 +512,4 @@ class FieldFormTab(_BaseTab):
             new_val = _coerce(raw, cfg)
             if self.is_multi or self._has_changed(field_name, new_val):
                 changes[field_name] = new_val
-        if changes:
-            logger.debug(
-                f"Collected {len(changes)} field change(s) in '{self.category}' tab: "
-                f"{list(changes.keys())}"
-            )
         return changes

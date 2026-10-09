@@ -45,6 +45,8 @@ _ART_SIZE = 96
 
 
 class AlbumsTab(_BaseTab):
+    saves_immediately = True  # add/remove write to the DB at once
+
     def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__(tracks, controller, parent)
         self._dialog = dialog

@@ -9,12 +9,19 @@ class TrackViewSearchMixin:
 
     def _on_search_text_changed(self, text: str):
         """
-        Search only runs on Enter (see _build_toolbar's returnPressed wiring).
-        The exception is clearing the field, which restores the full list
-        immediately rather than leaving a stale filtered view on screen.
+        Live search with a short pause: each keystroke restarts the host's
+        `_search_timer` (see TrackViewToolbarMixin._build_toolbar), so the
+        filter runs once typing stops. Enter filters at once. Clearing the
+        field restores the full list immediately rather than leaving a
+        stale filtered view on screen.
         """
+        timer = getattr(self, "_search_timer", None)
         if not text.strip():
+            if timer is not None:
+                timer.stop()
             self._apply_search_filter()
+        elif timer is not None:
+            timer.start()
 
     def _apply_search_filter(self):
         """Kicks off a background worker to filter tracks without blocking the UI."""

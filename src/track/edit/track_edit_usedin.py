@@ -39,6 +39,8 @@ class UsedInTab(_BaseTab):
     once (each track gets its own TrackUsage row).
     """
 
+    saves_immediately = True  # add/remove write to the DB at once
+
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()

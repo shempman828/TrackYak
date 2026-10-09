@@ -92,6 +92,20 @@ def test_accept_changes_applies_state_to_main_window(qapp):
     assert host.applied == {"order": ["Tracks", "Albums", "Artists"], "hidden": ["Artists"]}
 
 
+def test_hide_all_and_show_all_toggle_every_row_except_pinned(qapp):
+    host = _NavHost(["Tracks", "Albums", "Artists"])
+    dialog = NavigationCustomizationDialog(host)
+    assert dialog.hide_all_btn.text() == "Hide All"
+    assert dialog.show_all_btn.text() == "Show All"
+
+    dialog.hide_all_btn.click()
+    assert dialog.get_selected_state()["hidden"] == ["Albums", "Artists"]
+    assert _row(dialog, PINNED_VIEW).checkState() == Qt.Checked
+
+    dialog.show_all_btn.click()
+    assert dialog.get_selected_state()["hidden"] == []
+
+
 def test_nav_tree_context_menu_offers_customize_navigation(qapp, monkeypatch):
     captured_menus = []
     monkeypatch.setattr(QMenu, "exec_", lambda self, *a, **k: captured_menus.append(self))

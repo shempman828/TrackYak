@@ -74,7 +74,8 @@ def test_config_dialog_developer_tab_load_and_apply(qapp, monkeypatch, dev_confi
 
         # toggle + apply writes it back through dev_mode
         dialog.dev_tab.enable_check.setChecked(True)
-        dialog._apply_settings()
+        # The wrapper must return the success flag, or ConfigDialog's OK never closes.
+        assert dialog._apply_settings() is True
         assert dev_mode.is_enabled(dev_config) is True
 
         # a fresh dialog now loads the new value

@@ -18,7 +18,7 @@ import src.track.edit.track_edit_classical as tec
 from src.track.edit.track_edit_classical import ClassicalTab
 
 _TITLE = "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio"
-_CLASSICAL_ROW = 7  # sidebar index of the Classical tab
+_CLASSICAL_ROW = 8  # nav index of the Classical tab
 
 
 @pytest.fixture

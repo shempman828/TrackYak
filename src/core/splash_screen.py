@@ -63,6 +63,7 @@ class StartupSplash(QWidget):
 
     # --- Animations ---
     def _setup_animations(self) -> None:
+        """Create the entrance fade/scale and the exit fade animations."""
         self.fade_animation = QPropertyAnimation(self, b"opacity")
         self.fade_animation.setDuration(600)
         self.fade_animation.setStartValue(0.0)
@@ -83,16 +84,20 @@ class StartupSplash(QWidget):
         self.exit_animation.finished.connect(self.close)
 
     def _animate_entrance(self) -> None:
+        """Start the entrance fade and scale."""
         self.fade_animation.start()
         self.scale_animation.start()
 
     def _animate_exit(self) -> None:
+        """Fade out, then close the splash."""
         self.exit_animation.start()
 
     def get_scale(self) -> float:
+        """Return the content scale factor."""
         return self._scale
 
     def set_scale(self, value: float) -> None:
+        """Set the content scale factor and repaint."""
         self._scale = value
         self.update()  # Triggers paintEvent only — window position does not move
 
@@ -100,9 +105,11 @@ class StartupSplash(QWidget):
 
     # --- Opacity property (required for fade animations) ---
     def get_opacity(self) -> float:
+        """Return the window opacity."""
         return self._opacity
 
     def set_opacity(self, value: float) -> None:
+        """Set the window opacity."""
         self._opacity = value
         self.setWindowOpacity(value)
 
@@ -117,23 +124,20 @@ class StartupSplash(QWidget):
             self._animate_exit()
 
     def _on_min_duration_elapsed(self) -> None:
+        """Run a finish that was requested before the minimum duration elapsed."""
         self._min_duration_elapsed = True
         if self.finish_requested:
             self._animate_exit()
 
     def update_status(self, message: str, progress: int | None = None) -> None:
-        """Update status message and optional progress."""
+        """Update status message and optional progress (0-100)."""
         self._message = message
-        self._progress = progress
+        self._progress = None if progress is None else max(0, min(100, progress))
         self.update()
 
     # --- Helpers ---
     def _set_initial_position(self) -> None:
-        """Position the window once using the full pixmap size.
-
-        Uses the optical center: slightly above true center (40% down instead
-        of 50%) which feels more balanced to the human eye.
-        """
+        """Position the window once, at the screen's optical center, using the full pixmap size."""
         screen_geom = QApplication.primaryScreen().availableGeometry()
         logical_size = self.pixmap.deviceIndependentSize().toSize()
         w = logical_size.width()
@@ -150,6 +154,7 @@ class StartupSplash(QWidget):
         self.setGeometry(x, y, w, h)
 
     def _load_splash_image(self) -> QPixmap:
+        """Load splash.png scaled to 60% of the screen, or a plain fallback pixmap."""
         screen = QApplication.primaryScreen()
         dpr = screen.devicePixelRatio()
         size = screen.availableSize()
@@ -173,6 +178,7 @@ class StartupSplash(QWidget):
 
     # --- Painting ---
     def paintEvent(self, event) -> None:
+        """Paint the scaled splash image plus the status panel and progress bar."""
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
 
@@ -192,9 +198,7 @@ class StartupSplash(QWidget):
 
         # Draw status area
         if self._message:
-            status_rect = QRect(
-                offset_x, offset_y + int(scaled_h * 2 / 3), scaled_w, int(scaled_h / 3)
-            )
+            status_rect = QRect(offset_x, offset_y + int(scaled_h * 2 / 3), scaled_w, int(scaled_h / 3))
             surface = QColor(_COLOR_SURFACE)
             surface.setAlpha(220)
             painter.fillRect(status_rect, surface)
@@ -210,36 +214,22 @@ class StartupSplash(QWidget):
             title_font.setBold(True)
             painter.setFont(title_font)
             painter.setPen(_COLOR_TEXT)
-            painter.drawText(
-                status_rect.adjusted(0, 10, 0, -40), Qt.AlignCenter, "Baby Yak Studios"
-            )
+            painter.drawText(status_rect.adjusted(0, 10, 0, -40), Qt.AlignCenter, "Baby Yak Studios")
 
             # Message
             message_font = QFont(base_font)
             message_font.setPointSize(12)
             painter.setFont(message_font)
-            painter.drawText(
-                status_rect.adjusted(20, 40, -20, -40),
-                Qt.AlignCenter | Qt.TextWordWrap,
-                self._message,
-            )
+            painter.drawText(status_rect.adjusted(20, 40, -20, -40), Qt.AlignCenter | Qt.TextWordWrap, self._message)
 
             # Progress bar
             if self._progress is not None:
                 bar_height = 12
                 bar_margin_sides = int(status_rect.width() * 0.1)
-                bar_rect = QRect(
-                    status_rect.left() + bar_margin_sides,
-                    status_rect.bottom() - bar_height - 10,
-                    status_rect.width() - bar_margin_sides * 2,
-                    bar_height,
-                )
+                bar_rect = QRect(status_rect.left() + bar_margin_sides, status_rect.bottom() - bar_height - 10, status_rect.width() - bar_margin_sides * 2, bar_height)
                 painter.fillRect(bar_rect, _COLOR_TEXT_DIM)
                 if self._progress > 0:
                     fill_width = max(1, int(bar_rect.width() * self._progress / 100))
-                    painter.fillRect(
-                        bar_rect.adjusted(0, 0, fill_width - bar_rect.width(), 0),
-                        _COLOR_ACCENT_GREEN,
-                    )
+                    painter.fillRect(bar_rect.adjusted(0, 0, fill_width - bar_rect.width(), 0), _COLOR_ACCENT_GREEN)
 
         painter.end()

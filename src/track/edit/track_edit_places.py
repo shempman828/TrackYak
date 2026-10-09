@@ -42,6 +42,8 @@ def _find_or_create_place(controller, name, known_places):
 
 
 class PlacesTab(_BaseTab):
+    saves_immediately = True  # add/remove write to the DB at once
+
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()

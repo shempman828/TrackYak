@@ -1,10 +1,6 @@
-"""
-installation_check.py
+"""Fail-fast environment validation that runs before any third-party import."""
 
-Fail-fast environment validation, run *before* any third-party import
-(PySide6 included) so a broken install prints a clear, actionable message
-instead of a raw ImportError traceback. Deliberately stdlib-only.
-"""
+# Stdlib-only on purpose: a broken install must print a clear message, not an ImportError traceback.
 
 from __future__ import annotations
 
@@ -14,7 +10,7 @@ import re
 import shutil
 import sys
 
-MIN_PYTHON_VERSION = (3, 10)
+MIN_PYTHON_VERSION = (3, 11)  # the code uses datetime.UTC (3.11+)
 
 _REQUIREMENTS_FILE = Path(__file__).resolve().parents[2] / "requirements.txt"
 
@@ -31,10 +27,12 @@ def check_python_version() -> str | None:
 
 
 def _iter_requirement_names(requirements_file: Path):
+    """Yield the distribution name of each unconditional requirement line."""
     with requirements_file.open(encoding="utf-8") as handle:
         for line in handle:
             line = line.split("#", 1)[0].strip()
-            if not line:
+            # Skip blanks, and environment-marker lines that may not apply to this interpreter.
+            if not line or ";" in line:
                 continue
             match = _NAME_PATTERN.match(line)
             if match:
@@ -56,20 +54,15 @@ def check_required_packages() -> list[str]:
 
 
 def check_audio_fingerprint_backend() -> str | None:
-    """Return a warning if neither chromaprint bindings nor fpcalc are usable.
-
-    Non-fatal: fingerprinting/duplicate-matching features degrade gracefully
-    without this, unlike the hard package requirements above.
-    """
+    """Return a warning if neither chromaprint bindings nor fpcalc are usable, else None."""
+    # Non-fatal: fingerprinting and duplicate matching degrade gracefully without a backend.
     try:
         import acoustid
     except ImportError:
         # pyacoustid itself missing is already reported by check_required_packages.
         return None
 
-    has_python_backend = getattr(acoustid, "have_chromaprint", False) and getattr(
-        acoustid, "have_audioread", False
-    )
+    has_python_backend = getattr(acoustid, "have_chromaprint", False) and getattr(acoustid, "have_audioread", False)
     has_fpcalc = shutil.which("fpcalc") is not None
     if not has_python_backend and not has_fpcalc:
         return (
@@ -89,12 +82,7 @@ def verify_installation() -> None:
 
     missing_packages = check_required_packages()
     if missing_packages:
-        print(
-            "FATAL: TrackYak is missing required Python packages:\n  "
-            + "\n  ".join(missing_packages)
-            + "\n\nInstall them with:\n  pip install -r requirements.txt",
-            file=sys.stderr,
-        )
+        print("FATAL: TrackYak is missing required Python packages:\n  " + "\n  ".join(missing_packages) + "\n\nInstall them with:\n  pip install -r requirements.txt", file=sys.stderr)
         sys.exit(1)
 
     fingerprint_warning = check_audio_fingerprint_backend()

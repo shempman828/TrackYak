@@ -183,7 +183,7 @@ QHeaderView::section {
     border-right: 1px solid #1e1f2b;
     border-bottom: 2px solid rgba(133, 153, 234, 0.4);
     font-weight: bold;
-    font-size: 9px;
+    font-size: 11px;
     letter-spacing: 0.06em;
     min-height: 28px;
 }
@@ -2367,4 +2367,191 @@ QPushButton#EqEnableToggle:checked {
     background-color: #8599ea;
     color: #0b0c10;
     border-color: #8599ea;
+}
+
+/* ── TRACK LIST (TrackView, BaseTrackView) ───────────────────────────────────
+   Row-semantics colors are painted by TrackRowDelegate (track_table.py) and
+   read from these Qt properties; hover/selection backgrounds still come from
+   the QTableView::item rules above. */
+TrackTable {
+    qproperty-nowPlayingColor: #8599ea;
+    qproperty-mutedColor: #7a82a8;
+    qproperty-textColor: #b8c0f0;
+    qproperty-hoverColor: #EA8599;
+    qproperty-badgeColor: #EA8599;
+    qproperty-ratingColor: #EAD685;
+}
+
+QLabel#TrackListSummary {
+    color: #555e7a;
+    font-size: 12px;
+}
+
+QPushButton#SearchScopeChip {
+    background-color: rgba(133, 153, 234, 0.14);
+    color: #8599ea;
+    border: 1px solid rgba(133, 153, 234, 0.35);
+    border-radius: 10px;
+    padding: 1px 10px;
+    font-size: 11px;
+}
+
+QPushButton#SearchScopeChip:hover {
+    background-color: rgba(234, 133, 153, 0.12);
+    color: #EA8599;
+    border-color: #EA8599;
+}
+
+QPushButton[toolbarPrimary="true"] {
+    padding: 5px 12px;
+    border-radius: 6px;
+}
+
+QFrame#SelectionBar {
+    background-color: #1a1b26;
+    border: 1px solid rgba(133, 153, 234, 0.35);
+    border-radius: 8px;
+}
+
+QLabel#SelectionBarSummary {
+    color: #b8c0f0;
+    font-weight: bold;
+    background: transparent;
+}
+
+QPushButton[selectionAction="true"] {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background-color: transparent;
+    border-color: rgba(133, 153, 234, 0.3);
+}
+
+QPushButton[selectionAction="true"][danger="true"] {
+    color: #EA8599;
+    border-color: transparent;
+}
+
+QPushButton[selectionAction="true"][danger="true"]:hover {
+    border-color: #EA8599;
+    background-color: rgba(234, 133, 153, 0.12);
+}
+
+QToolButton#SelectionBarClose {
+    color: #555e7a;
+}
+
+QPushButton#EmptyStateAction {
+    background-color: transparent;
+    color: #8599ea;
+    border: 1px solid rgba(133, 153, 234, 0.35);
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+
+QPushButton#EmptyStateAction:hover {
+    color: #EAD685;
+    border-color: #EAD685;
+}
+
+/* ── TRACK EDIT DIALOG ───────────────────────────────────────────────────────── */
+QFrame#TrackEditHeader {
+    background-color: #11121a;
+    border: 1px solid #1e1f2b;
+    border-radius: 10px;
+}
+
+QLabel#TrackEditTitle {
+    font-size: 20px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+QLabel#TrackEditByline {
+    font-size: 13px;
+    color: #7a82a8;
+}
+
+QFrame#TrackEditHeader QLabel#TrackEditCover[coverPlaceholder="true"] {
+    background: #1a1b26;
+    font-size: 28px;
+}
+
+QScrollArea#EditNav,
+QWidget#EditNavContent {
+    background: transparent;
+    border: none;
+}
+
+QLabel#EditNavGroup {
+    color: #555e7a;
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 0.1em;
+    padding: 10px 10px 4px 10px;
+    background: transparent;
+}
+
+QPushButton#EditNavItem,
+QPushButton#EditNavItem:focus {
+    text-align: left;
+    background-color: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    padding: 6px 10px;
+    color: #b8c0f0;
+    font-weight: normal;
+}
+
+QPushButton#EditNavItem:hover {
+    background-color: rgba(234, 133, 153, 0.10);
+    color: #EA8599;
+}
+
+QPushButton#EditNavItem:checked,
+QPushButton#EditNavItem:checked:focus {
+    background-color: rgba(133, 153, 234, 0.14);
+    color: #b8c0f0;
+    border-left: 3px solid #8599ea;
+}
+
+QLabel#EditNavDot {
+    color: #EAD685;
+    font-size: 9px;
+    background: transparent;
+}
+
+QLabel#ImmediateSaveNote {
+    background-color: rgba(234, 214, 133, 0.08);
+    color: #EAD685;
+    border: 1px solid rgba(234, 214, 133, 0.25);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+QFrame#EditFooter {
+    border-top: 1px solid #1e1f2b;
+}
+
+QLabel#EditErrorBanner {
+    background-color: rgba(234, 133, 153, 0.12);
+    color: #EA8599;
+    border: 1px solid rgba(234, 133, 153, 0.4);
+    border-radius: 6px;
+    padding: 5px 10px;
+}
+
+/* Field-form cards (FieldFormTab): labels recede, read-only values read as data. */
+QScrollArea#FieldFormScroll,
+QScrollArea#FieldFormScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+
+QLabel[textRole="fieldLabel"] {
+    color: #7a82a8;
+}
+
+QLabel[textRole="value"] {
+    color: #b8c0f0;
 }

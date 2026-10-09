@@ -54,6 +54,7 @@ class _BaseTrackAssociationTab(_BaseTab):
     assoc_model: str = ""
     placeholder_text: str = ""
     add_button_text: str = "Add"
+    saves_immediately = True
 
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)

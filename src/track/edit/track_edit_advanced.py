@@ -56,6 +56,7 @@ class AdvancedTab(_BaseTab):
         # the dialog (which fires `accepted`, reloading the parent view).
         self._dialog = dialog
         self._inner = FieldFormTab("Advanced", tracks, controller)
+        self._inner.changed.connect(self.changed)
         self._scheduler: BatchAnalysisScheduler | None = None
         self._metadata_writer = MetadataWriter(controller)
 
@@ -127,6 +128,9 @@ class AdvancedTab(_BaseTab):
 
     def collect_changes(self) -> dict:
         return self._inner.collect_changes()
+
+    def pending_changes(self) -> set[str]:
+        return self._inner.pending_changes()
 
     def refresh_values(self, tracks: list) -> None:
         self.tracks = tracks

@@ -1,92 +1,85 @@
 """
-track_view_toolbar.py — toolbar construction and column-search picker for TrackView.
+track_view_toolbar.py — toolbar, column-search scope, empty states, the
+selection bar, and now-playing wiring, shared by TrackView and BaseTrackView.
+
+Hosts provide:
+    self.layout                      their top-level QVBoxLayout
+    self.table / self.model          once built (TrackTable + QStandardItemModel)
+    _add_toolbar_actions(toolbar)    host-specific buttons right of the search
+    _selection_bar_actions()         (play_next, queue, edit, delete) callables
+    _now_playing_source()            the player object, or None
+and may override:
+    _search_debounce_ms              0 = filter on every keystroke
+    _empty_library_text              shown when the list has no tracks at all
 """
 
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton
+from PySide6.QtWidgets import QMenu, QPushButton
 
+from src.charts.ui.chart_table_placeholder import install_empty_placeholder
 from src.foundation.logger_config import logger
+from src.track.view.track_table import RIGHT_ALIGNED_COLUMNS, TrackRowDelegate
+from src.track.view.track_toolbar import SelectionBar, TrackToolbar
 from src.track.view.track_view_filter import SEARCH_ALL
 
 
+def format_length(seconds: float) -> str:
+    """Total length of a track list: '812 h 4 min', '47 min', '0 min'."""
+    minutes = int(seconds // 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:,} h {minutes} min" if hours else f"{minutes} min"
+
+
+def format_clock(seconds: float) -> str:
+    """Length of a selection as a clock: '24:41' or '1:02:09'."""
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 class TrackViewToolbarMixin:
-    """Builds the search bar, column-search picker, and action drop-downs."""
+    """Builds the shared track-list chrome around a host's table."""
+
+    _search_debounce_ms = 0
+    _empty_library_text = "No tracks to show."
+
+    # ── Toolbar ───────────────────────────────────────────────────────────
 
     def _build_toolbar(self):
-        """Build a compact single-row toolbar replacing the old button rows."""
-        toolbar_row = QHBoxLayout()
-        toolbar_row.setSpacing(4)
+        toolbar = TrackToolbar(self)
+        self.toolbar = toolbar
+        # Aliases kept for existing callers (mood_dialog.py reparents
+        # search_bar / status_label; tests read search_bar).
+        self.search_bar = toolbar.search_bar
+        self.search_column_btn = toolbar.search_column_btn
+        self._search_column_menu = toolbar.search_column_menu
+        self.status_label = toolbar.status_label
+        self._search_field_name = SEARCH_ALL
+        self._search_field_label = "All Columns"
 
-        # Search field with built-in clear (✕) button
-        self.search_bar = QLineEdit(self)
-        self.search_bar.setObjectName("searchBarField")
-        self.search_bar.setPlaceholderText("Search tracks…")
-        self.search_bar.setClearButtonEnabled(True)
+        if self._search_debounce_ms:
+            # Live search on a large list: filter once typing pauses; Enter
+            # filters at once.
+            self._search_timer = QTimer(self)
+            self._search_timer.setSingleShot(True)
+            self._search_timer.setInterval(self._search_debounce_ms)
+            self._search_timer.timeout.connect(self._apply_search_filter)
+            self.search_bar.textChanged.connect(self._on_search_text_changed)
+            self.search_bar.returnPressed.connect(self._apply_search_now)
+        else:
+            # Small lists (a mood, a playlist, a duplicate group): filtering
+            # on every keystroke stays cheap.
+            self.search_bar.textChanged.connect(lambda _text=None: self._apply_search_filter())
+        self.search_bar.textChanged.connect(lambda _text=None: self._sync_scope_chip())
+        toolbar.scope_cleared.connect(self._reset_search_scope)
 
-        self.search_bar.returnPressed.connect(self._apply_search_filter)
-        self.search_bar.textChanged.connect(self._on_search_text_changed)
+        self._add_toolbar_actions(toolbar)
+        self.layout.addWidget(toolbar)
 
-        # Column selector for targeted search — shown as a drop-down button with
-        # category submenus (populated after _initialize_columns() via _populate_search_combo).
-        self._search_field_name: str = SEARCH_ALL  # tracks the active field
-
-        self.search_column_btn = QToolButton(self)
-        self.search_column_btn.setObjectName("searchColumnBtn")
-        self.search_column_btn.setText("All Columns \u25be")
-        self.search_column_btn.setToolTip("Choose which column to search")
-        self.search_column_btn.setPopupMode(QToolButton.InstantPopup)
-
-        self._search_column_menu = QMenu(self.search_column_btn)
-        self.search_column_btn.setMenu(self._search_column_menu)
-        # Menu is filled once columns are known — see _populate_search_combo()
-
-        # Fuse the search field and its column-scope picker into a single visual
-        # group (zero spacing, flush borders via QSS) so the picker reads as part
-        # of the search bar, distinct from the unrelated Queue/View buttons.
-        search_group = QHBoxLayout()
-        search_group.setSpacing(0)
-        search_group.addWidget(self.search_bar, stretch=1)
-        search_group.addWidget(self.search_column_btn)
-        toolbar_row.addLayout(search_group, stretch=1)
-        toolbar_row.addSpacing(12)
-
-        # ── "⋮ Queue" drop-down button ────────────────────────────────────
-        queue_btn = QToolButton(self)
-        queue_btn.setText("＋ Queue")
-        queue_btn.setToolTip("Add tracks to the playback queue")
-        queue_btn.setPopupMode(QToolButton.InstantPopup)
-
-        queue_menu = QMenu(queue_btn)
-        queue_menu.addAction("Add Filtered to Queue", self._add_filtered_to_queue)
-        queue_menu.addAction(
-            "Shuffle Filtered to Queue", lambda: self._add_filtered_to_queue(shuffle=True)
-        )
-        queue_menu.addSeparator()
-        queue_menu.addAction("Shuffle Entire Library", self._add_all_to_queue)
-        queue_btn.setMenu(queue_menu)
-
-        # ── "⋮ View" drop-down button ─────────────────────────────────────
-        view_btn = QToolButton(self)
-        view_btn.setText("⚙ View")
-        view_btn.setToolTip("Column visibility, order, and other options")
-        view_btn.setPopupMode(QToolButton.InstantPopup)
-
-        view_menu = QMenu(view_btn)
-        view_menu.addAction("Toggle Columns", self.show_column_menu)
-        view_menu.addAction("Column Order && Visibility", self.show_column_customization)
-        view_menu.addSeparator()
-        view_menu.addAction("Refresh Library", self._force_reload)
-        view_btn.setMenu(view_menu)
-
-        toolbar_row.addWidget(queue_btn)
-        toolbar_row.addWidget(view_btn)
-
-        # Status label sits right-aligned after the buttons
-        self.status_label = QLabel("")
-        self.status_label.setProperty("textRole", "muted")
-        toolbar_row.addWidget(self.status_label)
-
-        self.layout.addLayout(toolbar_row)
+    def _add_toolbar_actions(self, toolbar: TrackToolbar):
+        """Hook: add host-specific action buttons to `toolbar`."""
 
     def _populate_search_combo(self):
         """
@@ -102,7 +95,6 @@ class TrackViewToolbarMixin:
         menu = self._search_column_menu
         menu.clear()
 
-        # "All Columns" sits at the top level
         all_action = QAction("All Columns", menu)
         all_action.setData(SEARCH_ALL)
         all_action.triggered.connect(self._on_search_column_selected)
@@ -130,9 +122,149 @@ class TrackViewToolbarMixin:
         action = self.sender()
         if not action:
             return
-        self._search_field_name = action.data() or SEARCH_ALL
-        label = action.text() if self._search_field_name != SEARCH_ALL else "All Columns"
-        self.search_column_btn.setText(f"{label} \u25be")
-        logger.debug(f"Search column changed to '{label}'")
+        self._set_search_scope(action.data() or SEARCH_ALL, action.text())
+
+    def _set_search_scope(self, field_name: str, label: str):
+        self._search_field_name = field_name
+        self._search_field_label = label if field_name != SEARCH_ALL else "All Columns"
+        self.search_column_btn.setText(f"{self._search_field_label} ▾")
+        logger.debug(f"Search column changed to '{self._search_field_label}'")
+        self._sync_scope_chip()
         # Re-run the search immediately with the new column choice
         self._apply_search_filter()
+
+    def _reset_search_scope(self, *_args):
+        self._set_search_scope(SEARCH_ALL, "All Columns")
+
+    def _sync_scope_chip(self):
+        scoped = self._search_field_name != SEARCH_ALL
+        self.toolbar.set_scope(self._search_field_label if scoped else None, self.search_bar.text().strip())
+
+    def _apply_search_now(self):
+        timer = getattr(self, "_search_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._apply_search_filter()
+
+    # ── Table chrome: delegate, header menu, empty state, selection bar ──
+
+    def _install_table_chrome(self):
+        """Call once the table is built, its columns set up, and the table
+        added to self.layout."""
+        self._row_delegate = TrackRowDelegate(self.table, list(self.columns.keys()))
+        self.table.setItemDelegate(self._row_delegate)
+
+        # Right-click any column header to show/hide columns.
+        header = self.table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(lambda _pos: self.show_column_menu())
+
+        self._empty_placeholder = install_empty_placeholder(self.table, self._empty_library_text)
+        # Offered under a scoped no-match message: widen the search instead
+        # of leaving the user at a dead end.
+        self._empty_action = QPushButton("Search all columns", self.table.viewport())
+        self._empty_action.setObjectName("EmptyStateAction")
+        self._empty_action.setCursor(Qt.PointingHandCursor)
+        self._empty_action.clicked.connect(self._reset_search_scope)
+        self._empty_action.hide()
+        viewport_layout = self.table.viewport().layout()
+        viewport_layout.insertStretch(0)
+        viewport_layout.addWidget(self._empty_action, 0, Qt.AlignHCenter)
+        viewport_layout.addStretch()
+
+        play_next, queue, edit, delete = self._selection_bar_actions()
+        self.selection_bar = SelectionBar(play_next, queue, edit, delete, self.table.clearSelection, self)
+        self.layout.addWidget(self.selection_bar)
+        self._selection_timer = QTimer(self)
+        self._selection_timer.setSingleShot(True)
+        self._selection_timer.setInterval(0)
+        self._selection_timer.timeout.connect(self._update_selection_bar)
+        self.table.selectionModel().selectionChanged.connect(lambda *_: self._selection_timer.start())
+        # setModel/setRowCount(0) don't emit selectionChanged; re-check on reset.
+        self.model.modelReset.connect(lambda: self._selection_timer.start())
+        self.model.rowsRemoved.connect(lambda *_: self._selection_timer.start())
+
+        player = self._now_playing_source()
+        if player is not None and hasattr(player, "track_changed"):
+            player.track_changed.connect(self.table.set_now_playing)
+            current = getattr(player, "current_file", None)
+            if current:
+                self.table.set_now_playing(current)
+
+    def _selection_bar_actions(self):
+        raise NotImplementedError
+
+    def _now_playing_source(self):
+        return None
+
+    def _visible_source(self) -> list:
+        return self._filtered_tracks if self._filter_active else self._all_tracks
+
+    def _update_selection_bar(self):
+        bar = getattr(self, "selection_bar", None)
+        if bar is None:
+            return
+        rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
+        if len(rows) < 2:
+            bar.hide()
+            return
+        source = self._visible_source()
+        seconds = sum(float(getattr(source[r], "duration", 0) or 0) for r in rows if r < len(source))
+        bar.summary.setText(f"{len(rows):,} selected  ·  {format_clock(seconds)}")
+        bar.show()
+
+    def _sync_empty_state(self):
+        placeholder = getattr(self, "_empty_placeholder", None)
+        if placeholder is None:
+            return
+        scoped_no_match = self._filter_active and not self._filtered_tracks and self._search_field_name != SEARCH_ALL
+        self._empty_action.setVisible(scoped_no_match)
+        if not getattr(self, "_tracks_loaded", True):
+            placeholder.setText("Loading library…")
+            placeholder.show()
+            return
+        if self._filter_active:
+            if self._filtered_tracks:
+                placeholder.hide()
+                return
+            text = f"No tracks match “{self.search_bar.text().strip()}”"
+            text += f" in {self._search_field_label}." if scoped_no_match else "."
+            placeholder.setText(text)
+            placeholder.show()
+            return
+        placeholder.setText(self._empty_library_text)
+        placeholder.setVisible(not self._all_tracks)
+
+    # ── Status line ───────────────────────────────────────────────────────
+
+    def _list_length(self, tracks: list) -> float:
+        """Summed duration, cached per (list identity, size) -- _update_status
+        runs after every lazy-load batch."""
+        # Ends' identities guard against a freed list's id being reused.
+        key = (id(tracks), len(tracks), id(tracks[0]) if tracks else None, id(tracks[-1]) if tracks else None)
+        cache = getattr(self, "_length_cache", None)
+        if cache and cache[0] == key:
+            return cache[1]
+        total = sum(float(getattr(t, "duration", 0) or 0) for t in tracks)
+        self._length_cache = (key, total)
+        return total
+
+    def _summary_text(self) -> str:
+        if not getattr(self, "_tracks_loaded", True):
+            return "Loading…"
+        total = len(self._all_tracks)
+        if self._filter_active:
+            shown = self._filtered_tracks
+            text = f"{len(shown):,} of {total:,} tracks"
+        else:
+            shown = self._all_tracks
+            text = f"{total:,} track{'s' if total != 1 else ''}"
+        seconds = self._list_length(shown)
+        return f"{text}  ·  {format_length(seconds)}" if seconds else text
+
+
+def numeric_alignment(field_name: str, value):
+    """Alignment for a cell, or None for the default (left)."""
+    if field_name in RIGHT_ALIGNED_COLUMNS or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+        return Qt.AlignRight | Qt.AlignVCenter
+    return None

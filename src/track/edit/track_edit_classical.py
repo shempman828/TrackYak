@@ -58,7 +58,7 @@ class ClassicalTab(FieldFormTab):
             "overwrites fields you've already filled in."
         )
         self.parse_button.clicked.connect(self._parse_title)
-        self.layout().addRow(self.parse_button)
+        self.add_action_widget(self.parse_button)
 
     # ── action ───────────────────────────────────────────────────────────
 
