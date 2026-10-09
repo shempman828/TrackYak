@@ -1,10 +1,4 @@
-"""
-musicbrainz_artist.py
-
-Artist search and enrichment: name/alias search, full-artist follow-up
-lookup (wikipedia/website links, aliases, birth/death place chains,
-band-membership relations).
-"""
+"""MusicBrainz artist search, identity resolution and full-artist enrichment."""
 
 from __future__ import annotations
 
@@ -14,27 +8,20 @@ from typing import Any
 import musicbrainzngs
 
 from src.foundation.logger_config import logger
-from src.musicbrainz.musicbrainz_core import (
-    MBCandidate,
-    MusicBrainzLookupError,
-    _escape_lucene,
-    _parse_partial_date,
-    configure,
-    resolve_area_chain,
-)
+from src.musicbrainz.musicbrainz_core import MBCandidate, MusicBrainzLookupError, _escape_lucene, _is_blank, _mb_call, _parse_partial_date, resolve_area_chain
 
 
 @dataclass
 class MBAlias:
+    """One alternate name of an artist or release-group."""
+
     name: str
     type: str  # MusicBrainz alias type, e.g. "Legal name", "Artist name"
 
 
 @dataclass
 class MBGroupRelation:
-    """One 'member of band' relation to another MusicBrainz artist. Which
-    side (group vs. member) `mbid`/`name` refers to depends on whether the
-    enriched candidate itself is a group -- see MBArtistRelations.is_group."""
+    """One 'member of band' relation; mbid/name is the group or the member, see MBArtistRelations.is_group."""
 
     mbid: str
     name: str
@@ -46,18 +33,13 @@ class MBGroupRelation:
 
 @dataclass
 class MBArtistRelations:
-    """Relational enrichment data that can't just be dropped into a blank
-    form field the way scalar enrichment is -- each of these needs
-    find-or-skip dedup against existing local data before it's safe to
-    write, so callers should review/confirm before applying."""
+    """Relational artist enrichment that callers must dedup and confirm before they write it."""
 
     is_group: bool = False
     aliases: list[MBAlias] = field(default_factory=list)
     birthplace: str | None = None
     birthplace_mbid: str | None = None
-    # Full containing chain for birthplace/deathplace (immediate area first,
-    # then its parents up to the outermost country) -- see resolve_area_chain
-    # and _resolve_artist_place_chains. Each entry is
+    # Containing area chains, immediate area first; entries are
     # {"mbid", "name", "type", "latitude", "longitude"}.
     birthplace_chain: list[dict[str, Any]] = field(default_factory=list)
     deathplace: str | None = None
@@ -77,18 +59,16 @@ def _parse_year(date_str: str | None) -> int | None:
 
 
 def _life_span_label(life_span: dict) -> str:
+    """Picker label for a life-span, e.g. "[1985-present]" (en dash), or "" without a begin date."""
     begin = life_span.get("begin") or ""
     if not begin:
         return ""
     end = life_span.get("end") or ("present" if life_span.get("ended") == "false" else "")
-    return f"[{begin}–{end}]" if end else f"[{begin}]"
+    return f"[{begin}–{end}]" if end else f"[{begin}]"  # noqa: RUF001 -- en dash is display text
 
 
 def _extract_scalar_enrichment(a: dict[str, Any]) -> dict[str, Any]:
-    """Pull the flat ORM-field-name -> value pairs common to both a search
-    result list-item and a full get_artist_by_id lookup -- same shape
-    either way, so both search_artists() and fetch_artist_by_mbid() (which
-    skips search entirely) populate the same scalar fields."""
+    """ORM-field-name -> value pairs shared by an artist search hit and a full artist lookup."""
     life_span = a.get("life-span") or {}
     enrichment: dict[str, Any] = {"MBID": a["id"]}
 
@@ -107,25 +87,16 @@ def _extract_scalar_enrichment(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def search_artists(name: str, limit: int = 25) -> list[MBCandidate]:
-    configure()
-    try:
-        # Pass the term as an unrestricted query (not `artist=name`) so it's
-        # matched against MusicBrainz's default search field, which covers
-        # name, sort-name, AND alias -- same as a plain musicbrainz.org
-        # search box query. `artist=name` restricts to the name field only
-        # and misses alias-only matches.
-        result = musicbrainzngs.search_artists(_escape_lucene(name), limit=limit)
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
+    """Search artists by name, sort-name and alias; returns [] for a blank name."""
+    if _is_blank(name):
+        return []
+    # Unrestricted query, not `artist=name`: the default field also matches aliases.
+    result = _mb_call(musicbrainzngs.search_artists, _escape_lucene(name), limit=limit)
 
     candidates = []
     for a in result.get("artist-list", []):
+        if not a.get("id"):
+            continue
         life_span = a.get("life-span") or {}
         enrichment = _extract_scalar_enrichment(a)
 
@@ -139,21 +110,12 @@ def search_artists(name: str, limit: int = 25) -> list[MBCandidate]:
         if a.get("disambiguation"):
             label_bits.append(f"— {a['disambiguation']}")
 
-        candidates.append(
-            MBCandidate(id=a["id"], label=" ".join(label_bits), enrichment=enrichment)
-        )
+        candidates.append(MBCandidate(id=a["id"], label=" ".join(label_bits), enrichment=enrichment))
     return candidates
 
 
 def suggest_artist_names(artist_name: str, limit: int = 5) -> list[str]:
-    """Best-effort "did you mean" suggestions for an artist name whose
-    canonical-album search came back with zero matches -- e.g. a
-    misspelling, or a name MusicBrainz files under a related but
-    differently-named entity. Returns display labels (name plus type/
-    disambiguation, same formatting as search_artists), purely for showing
-    the user something actionable instead of a bare empty result.
-    Best-effort: any lookup failure just yields no suggestions rather than
-    surfacing a second error on top of the original empty result."""
+    """Best-effort "did you mean" artist labels for an empty album search; [] on failure."""
     try:
         candidates = search_artists(artist_name, limit=limit)
     except MusicBrainzLookupError:
@@ -161,36 +123,48 @@ def suggest_artist_names(artist_name: str, limit: int = 5) -> list[str]:
     return [c.label for c in candidates]
 
 
+def _resolve_primary_artist_mbids(artist_name: str) -> list[str]:
+    """MBIDs of the top artist hit plus any hit whose name strictly contains the query."""
+    # MB often splits an ensemble credit ("Glenn Miller and His Orchestra") from the solo
+    # entity; the superset rule catches it without unrelated same-named people.
+    if _is_blank(artist_name):
+        return []
+    result = _mb_call(musicbrainzngs.search_artists, _escape_lucene(artist_name), limit=10)
+
+    artists = [a for a in result.get("artist-list", []) if a.get("id")]
+    if not artists:
+        return []
+
+    query = artist_name.strip().lower()
+    mbids = [artists[0]["id"]]
+    for a in artists[1:]:
+        name = (a.get("name") or "").lower()
+        if name != query and query in name:
+            mbids.append(a["id"])
+    return mbids
+
+
+def _resolve_artist_mbid(artist_name: str) -> str | None:
+    """Best-effort alias-aware artist MBID for an `arid:` release filter, or None."""
+    # The `artist:` field misses alias-only names (e.g. "KoЯn" for Korn).
+    try:
+        candidates = search_artists(artist_name, limit=1)
+    except MusicBrainzLookupError:
+        return None
+    return candidates[0].id if candidates else None
+
+
 # Relation "type" strings, per MusicBrainz's url-relationship vocabulary.
 _ARTIST_LINK_RELATIONS = {"wikipedia": "wikipedia_link", "official homepage": "website_link"}
 
 
 def _fetch_full_artist(mbid: str) -> dict[str, Any]:
-    """Raw get_artist_by_id call with every include this module uses.
-    Raises MusicBrainzLookupError on failure -- callers decide whether that
-    should be best-effort (complete_artist_enrichment) or surfaced
-    (fetch_artist_by_mbid)."""
-    configure()
-    try:
-        result = musicbrainzngs.get_artist_by_id(
-            mbid, includes=["url-rels", "aliases", "artist-rels"]
-        )
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
-    return result.get("artist", {})
+    """Full artist lookup with url-rels, aliases and artist-rels; raises MusicBrainzLookupError."""
+    return _mb_call(musicbrainzngs.get_artist_by_id, mbid, includes=["url-rels", "aliases", "artist-rels"]).get("artist", {})
 
 
 def _apply_full_artist(candidate: MBCandidate, artist: dict[str, Any]) -> MBCandidate:
-    """Populate a candidate's scalar enrichment and .relations from a full
-    get_artist_by_id response. Pure parsing, no network -- shared by
-    complete_artist_enrichment (best-effort follow-up after a search pick)
-    and fetch_artist_by_mbid (direct fetch when the MBID is already known)."""
+    """Fill a candidate's enrichment and .relations from a full artist response, without network calls."""
     candidate.enrichment.update(_extract_scalar_enrichment(artist))
 
     for rel in artist.get("url-relation-list", []) or []:
@@ -203,8 +177,7 @@ def _apply_full_artist(candidate: MBCandidate, artist: dict[str, Any]) -> MBCand
     for al in artist.get("alias-list", []) or []:
         alias_name = al.get("alias")
         alias_type = al.get("type") or ""
-        # "Search hint" aliases are typos/misspellings MB indexes for
-        # search matching (e.g. "Jhon Williams") -- not real names.
+        # "Search hint" aliases are typos MB indexes for search (e.g. "Jhon Williams").
         if not alias_name or alias_type == "Search hint":
             continue
         if alias_name.strip().lower() == own_name:
@@ -213,10 +186,6 @@ def _apply_full_artist(candidate: MBCandidate, artist: dict[str, Any]) -> MBCand
 
     begin_area = artist.get("begin-area") or {}
     end_area = artist.get("end-area") or {}
-    birthplace = begin_area.get("name")
-    birthplace_mbid = begin_area.get("id")
-    deathplace = end_area.get("name")
-    deathplace_mbid = end_area.get("id")
 
     artist_type = artist.get("type")
     is_group = bool(artist_type) and artist_type != "Person"
@@ -242,23 +211,17 @@ def _apply_full_artist(candidate: MBCandidate, artist: dict[str, Any]) -> MBCand
     candidate.relations = MBArtistRelations(
         is_group=is_group,
         aliases=aliases,
-        birthplace=birthplace,
-        birthplace_mbid=birthplace_mbid,
-        deathplace=deathplace,
-        deathplace_mbid=deathplace_mbid,
+        birthplace=begin_area.get("name"),
+        birthplace_mbid=begin_area.get("id"),
+        deathplace=end_area.get("name"),
+        deathplace_mbid=end_area.get("id"),
         group_relations=group_relations,
     )
     return candidate
 
 
 def _resolve_artist_place_chains(candidate: MBCandidate) -> None:
-    """Walk the candidate's birth/death areas up to their full containing
-    chain (city -> county -> state -> country, etc) via resolve_area_chain.
-    Separate from _apply_full_artist (which is pure parsing) because this
-    makes network calls -- run once per fetch, after relations are populated,
-    by both complete_artist_enrichment and fetch_artist_by_mbid. Best-effort:
-    a failed chain walk just leaves that place as a bare name, same as
-    before this existed."""
+    """Best-effort fill of the birth/death area chains on a candidate's relations."""
     relations = candidate.relations
     if relations is None:
         return
@@ -276,10 +239,7 @@ def _resolve_artist_place_chains(candidate: MBCandidate) -> None:
 
 
 def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
-    """Follow up a search result with a lookup for wikipedia/website links,
-    aliases, birth/death area (plus its full containing place chain), and
-    band-membership relations -- none of which the search endpoint returns.
-    Best-effort: any failure just leaves the candidate's enrichment as-is."""
+    """Best-effort follow-up lookup for links, aliases, places and band relations after a search pick."""
     try:
         artist = _fetch_full_artist(candidate.id)
     except MusicBrainzLookupError as e:
@@ -291,10 +251,7 @@ def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
 
 
 def fetch_artist_by_mbid(mbid: str) -> MBCandidate:
-    """Fetch full enrichment for an artist already matched to a MusicBrainz
-    ID (the MBID field is already filled in), skipping the name-search
-    step entirely. Raises MusicBrainzLookupError on failure -- unlike
-    complete_artist_enrichment, there's no search result to fall back to."""
+    """Full enrichment for an already-known artist MBID; raises MusicBrainzLookupError."""
     artist = _fetch_full_artist(mbid)
     candidate = MBCandidate(id=mbid, label=artist.get("name") or mbid)
     candidate = _apply_full_artist(candidate, artist)

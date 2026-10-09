@@ -24,13 +24,7 @@ _CAMDEN_COUNTY_ID = "11111111-1111-1111-1111-111111111111"
 
 
 def _area(name, area_type, relations):
-    return {
-        "area": {
-            "name": name,
-            "type": area_type,
-            "area-relation-list": relations,
-        }
-    }
+    return {"area": {"name": name, "type": area_type, "area-relation-list": relations}}
 
 
 def _get_area_by_id(area_mbid, includes=None):
@@ -42,23 +36,11 @@ def _get_area_by_id(area_mbid, includes=None):
                 # The real parent link: North Carolina is entity0 ("the
                 # part"), so MusicBrainz tags this "backward" when queried
                 # from North Carolina's own page.
-                {
-                    "type": "part of",
-                    "direction": "backward",
-                    "area": {"id": _US_ID, "name": "United States", "type": "Country"},
-                },
+                {"type": "part of", "direction": "backward", "area": {"id": _US_ID, "name": "United States", "type": "Country"}},
                 # A decoy: a contained county surfaced as a "forward" link
                 # (NC is entity1/container here). Must NOT be treated as a
                 # parent -- that's exactly bug #246.
-                {
-                    "type": "part of",
-                    "direction": "forward",
-                    "area": {
-                        "id": _CAMDEN_COUNTY_ID,
-                        "name": "Camden County",
-                        "type": "County",
-                    },
-                },
+                {"type": "part of", "direction": "forward", "area": {"id": _CAMDEN_COUNTY_ID, "name": "Camden County", "type": "County"}},
             ],
         )
     if area_mbid == _US_ID:
@@ -72,17 +54,50 @@ class TestResolveAreaChain:
             chain = mc.resolve_area_chain(_NC_ID, {})
 
         names = [node["name"] for node in chain]
-        assert names == ["North Carolina", "United States"], (
-            "expected North Carolina -> United States, got a chain that "
-            f"walked into a child area instead: {names}"
-        )
+        assert names == ["North Carolina", "United States"], f"expected North Carolina -> United States, got a chain that walked into a child area instead: {names}"
 
     def test_caches_by_area_mbid(self):
         cache: dict = {}
-        with patch.object(
-            mc.musicbrainzngs, "get_area_by_id", side_effect=_get_area_by_id
-        ) as get_by_id:
+        with patch.object(mc.musicbrainzngs, "get_area_by_id", side_effect=_get_area_by_id) as get_by_id:
             mc.resolve_area_chain(_NC_ID, cache)
             mc.resolve_area_chain(_NC_ID, cache)
 
         assert get_by_id.call_count == 2  # NC, then US -- not repeated on 2nd call
+
+
+# ---- Finalize: query building, conversion and error-wrapping helpers ----------
+def test_and_query_skips_blank_field_values():
+    assert mc._and_query("release", "Abbey Road", {"artist": "", "arid": None, "x": "  "}) == "release:(abbey road)"
+
+
+def test_and_query_ands_non_blank_fields():
+    assert mc._and_query("release", "OK", {"arid": "abc"}) == "release:(ok) AND arid:(abc)"
+
+
+def test_to_int_returns_default_for_bad_values():
+    assert mc._to_int("7") == 7
+    assert mc._to_int("A1", 0) == 0
+    assert mc._to_int(None) is None
+    assert mc._to_int(object(), -1) == -1
+
+
+def test_mb_call_wraps_any_exception():
+    def _boom():
+        raise ValueError("bad xml")
+
+    with patch.object(mc, "configure"):
+        try:
+            mc._mb_call(_boom)
+        except mc.MusicBrainzLookupError as e:
+            assert "bad xml" in str(e)
+        else:
+            raise AssertionError("expected MusicBrainzLookupError")
+
+
+def test_canonical_rank_parts_orders_official_then_date_then_country():
+    official_late = {"status": "Official", "date": "1999", "country": "US"}
+    official_early_gb = {"status": "Official", "date": "1990-05", "country": "GB"}
+    official_early_xw = {"status": "Official", "date": "1990-05", "country": "XW"}
+    bootleg_earliest = {"status": "Bootleg", "date": "1980"}
+    ordered = sorted([official_late, bootleg_earliest, official_early_gb, official_early_xw], key=mc._canonical_rank_parts)
+    assert ordered == [official_early_xw, official_early_gb, official_late, bootleg_earliest]

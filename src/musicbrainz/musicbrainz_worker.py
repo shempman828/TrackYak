@@ -1,10 +1,4 @@
-"""
-musicbrainz_worker.py
-
-Runs a single MusicBrainz client call (search or a follow-up "complete"
-lookup) off the UI thread, matching the CancellableWorker pattern already
-used for artist fuzzy-matching, art caching, etc.
-"""
+"""Background QThread that runs one MusicBrainz client call off the UI thread."""
 
 from collections.abc import Callable
 from typing import Any
@@ -16,57 +10,33 @@ from src.foundation.logger_config import logger
 
 
 class MusicBrainzWorker(CancellableWorker):
-    """
-    Generic background runner for one MusicBrainz client call.
+    """Run one zero-arg callable and report its result, error, progress or status."""
 
-    Wraps a zero-arg callable (a search_* or complete_*_enrichment function
-    pre-bound with its arguments via functools.partial or a lambda) so the
-    same worker class serves every entity type and both the search step and
-    the post-selection enrichment step.
+    # `_call` may be reassigned before start() when it must reference this worker's own
+    # progress.emit / status.emit as callbacks (see MusicBrainzImportDialog).
 
-    Signals:
-        finished(result) - whatever the callable returned
-        error(message)
-        progress(current, total) - emitted by calls that accept a
-            `progress_callback` kwarg (e.g. fetch_release_detail resolving
-            recording-location area chains); not every call reports this.
-        status(message) - a short human-readable description of the step
-            currently in flight (e.g. "Resolving work 3 of 12…"), for calls
-            that accept a `status_callback` kwarg; lets a fetch with many
-            sub-steps show what it's doing before its total is even known.
-
-    `call` may be a placeholder (e.g. `lambda: None`) at construction time
-    and reassigned via `worker._call = ...` before `start()` if it needs to
-    reference `worker.progress.emit`/`worker.status.emit` as its own
-    progress/status callbacks.
-    """
-
-    finished = Signal(object)
+    finished = Signal(object)  # whatever the callable returned
     error = Signal(str)
-    progress = Signal(int, int)
-    status = Signal(str)
+    progress = Signal(int, int)  # (current, total), only from calls that report it
+    status = Signal(str)  # short description of the step in flight
 
     def __init__(self, call: Callable[[], Any], parent=None):
         super().__init__(parent)
         self._call = call
 
     def run(self):
+        """Run the call and emit finished or error, unless cancelled."""
         try:
             result = self._call()
         except Exception as e:
-            # Intentional broad boundary catch: this is a QThread's run()
-            # body wrapping an arbitrary zero-arg callable (see class
-            # docstring — not guaranteed to be a musicbrainz_client function
-            # that only raises MusicBrainzLookupError) and must not let an
-            # exception kill the thread silently — report it to the UI
-            # via the error signal instead.
+            # Deliberately broad: the callable is arbitrary, and an exception must not
+            # kill the thread silently.
             logger.error(f"MusicBrainzWorker call failed: {e}", exc_info=True)
-            self.error.emit(str(e))
+            if not self.is_cancelled:
+                self.error.emit(str(e))
             return
         finally:
-            # `_call` frequently includes a controller.get.* lookup (e.g.
-            # checking for an existing local match) before deciding whether
-            # to write anything -- see CancellableWorker's docstring.
+            # `_call` often reads the DB (controller.get.*) before it decides to write.
             self._release_db_session()
         if not self.is_cancelled:
             self.finished.emit(result)

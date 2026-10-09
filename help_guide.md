@@ -282,6 +282,16 @@ flaky, individual lookups are retried once and then skipped rather than
 stalling the whole import — you'll get everything that came back plus a note
 listing what was missed, and re-running the lookup later picks up the gaps.
 
+If a MusicBrainz search or import fails outright (for example, a network
+timeout), the dialog shows a **Retry** button so you can try again without
+closing it, and the import dialog's Cancel button changes to **Close**.
+While extra details for a picked match are loading, **Skip** stays clickable
+so you can abandon a slow lookup. If those extra details fail, the dialog
+keeps the exact pressing you picked in the "Pressing" list. A blank search
+term now returns "no matches" straight away instead of an error, and release
+searches look up missing dates for at most 25 releases, so a common album
+title no longer makes the search take minutes.
+
 The Genres and Track Credits tabs show what's common to *every* track on the
 album, and editing them there applies the change to all of the album's
 tracks. The Publishers & Places tab works the same way for places: below the

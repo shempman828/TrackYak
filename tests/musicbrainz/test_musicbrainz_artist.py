@@ -11,9 +11,7 @@ from src.musicbrainz.musicbrainz_artist import _extract_scalar_enrichment
 
 # AC3 -- MB enrichment parse ------------------------------------------------
 def test_sort_name_is_parsed_from_mb_payload():
-    enrichment = _extract_scalar_enrichment(
-        {"id": "mbid-1", "name": "The Beatles", "sort-name": "Beatles, The"}
-    )
+    enrichment = _extract_scalar_enrichment({"id": "mbid-1", "name": "The Beatles", "sort-name": "Beatles, The"})
     assert enrichment["sort_name"] == "Beatles, The"
 
 
@@ -25,3 +23,25 @@ def test_missing_sort_name_key_yields_no_entry():
 def test_blank_sort_name_yields_no_entry():
     enrichment = _extract_scalar_enrichment({"id": "mbid-3", "name": "x", "sort-name": ""})
     assert "sort_name" not in enrichment
+
+
+# ---- Finalize: blank input never reaches the network ---------------------------
+def test_blank_artist_search_returns_empty_without_a_call():
+    from unittest.mock import patch
+
+    from src.musicbrainz import musicbrainz_artist as ma
+
+    with patch.object(ma.musicbrainzngs, "search_artists") as search:
+        assert ma.search_artists("   ") == []
+        assert ma._resolve_primary_artist_mbids("") == []
+    search.assert_not_called()
+
+
+def test_primary_artist_resolution_skips_hits_without_id():
+    from unittest.mock import patch
+
+    from src.musicbrainz import musicbrainz_artist as ma
+
+    hits = {"artist-list": [{"name": "No Id"}, {"id": "a1", "name": "Glenn Miller"}, {"id": "a2", "name": "Glenn Miller Orchestra"}]}
+    with patch.object(ma.musicbrainzngs, "search_artists", return_value=hits):
+        assert ma._resolve_primary_artist_mbids("Glenn Miller") == ["a1", "a2"]

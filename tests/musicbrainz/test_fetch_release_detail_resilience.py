@@ -39,18 +39,13 @@ def _core_release():
             "barcode": "5099902895",
             "text-representation": {"language": "eng"},
             "release-group": {"id": _RG_ID, "primary-type": "Album"},
-            "label-info-list": [
-                {"catalog-number": "CAT-1", "label": {"id": _LABEL, "name": "Testophone"}}
-            ],
+            "label-info-list": [{"catalog-number": "CAT-1", "label": {"id": _LABEL, "name": "Testophone"}}],
             "medium-list": [
                 {
                     "position": "1",
                     "format": "CD",
                     "track-count": 2,
-                    "track-list": [
-                        {"number": "1", "position": "1", "recording": {"id": _REC1, "title": "One"}},
-                        {"number": "2", "position": "2", "recording": {"id": _REC2, "title": "Two"}},
-                    ],
+                    "track-list": [{"number": "1", "position": "1", "recording": {"id": _REC1, "title": "One"}}, {"number": "2", "position": "2", "recording": {"id": _REC2, "title": "Two"}}],
                 }
             ],
         }
@@ -68,24 +63,8 @@ def _rel_release():
                 {
                     "position": "1",
                     "track-list": [
-                        {
-                            "number": "1",
-                            "position": "1",
-                            "recording": {
-                                "id": _REC1,
-                                "title": "One",
-                                "work-relation-list": work_rel,
-                            },
-                        },
-                        {
-                            "number": "2",
-                            "position": "2",
-                            "recording": {
-                                "id": _REC2,
-                                "title": "Two",
-                                "work-relation-list": work_rel,
-                            },
-                        },
+                        {"number": "1", "position": "1", "recording": {"id": _REC1, "title": "One", "work-relation-list": work_rel}},
+                        {"number": "2", "position": "2", "recording": {"id": _REC2, "title": "Two", "work-relation-list": work_rel}},
                     ],
                 }
             ],
@@ -95,15 +74,7 @@ def _rel_release():
 
 def _work_resp(work_mbid, includes=None):
     assert work_mbid == _WORK
-    return {
-        "work": {
-            "id": _WORK,
-            "title": "The Work",
-            "artist-relation-list": [
-                {"type": "composer", "artist": {"id": _COMPOSER, "name": "A Composer"}}
-            ],
-        }
-    }
+    return {"work": {"id": _WORK, "title": "The Work", "artist-relation-list": [{"type": "composer", "artist": {"id": _COMPOSER, "name": "A Composer"}}]}}
 
 
 def _label_resp(label_mbid, includes=None):
@@ -220,9 +191,7 @@ def test_work_shared_by_two_tracks_is_recorded_once_when_it_keeps_failing():
     dispatch = _ReleaseDispatcher()
     with (
         patch.object(mc.musicbrainzngs, "get_release_by_id", side_effect=dispatch),
-        patch.object(
-            mc.musicbrainzngs, "get_work_by_id", side_effect=RuntimeError("down")
-        ) as get_work,
+        patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=RuntimeError("down")) as get_work,
         patch.object(mc.musicbrainzngs, "get_label_by_id", side_effect=_label_resp),
     ):
         detail = mc.fetch_release_detail(_REL_ID, retry_pause=0)
@@ -230,9 +199,7 @@ def test_work_shared_by_two_tracks_is_recorded_once_when_it_keeps_failing():
     # Both tracks perform the same work -> one lookup in pass 1, one retry.
     # Not once per referencing track, and not recorded twice.
     assert get_work.call_count == 2
-    assert [d for d in detail.partial_failures if "work" in d] == [
-        f"writing credits for work {_WORK}"
-    ]
+    assert [d for d in detail.partial_failures if "work" in d] == [f"writing credits for work {_WORK}"]
     assert all(t.credits == [] for t in detail.tracks)
 
 
@@ -245,12 +212,7 @@ def test_status_and_progress_callbacks_report_each_step():
         patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=_work_resp),
         patch.object(mc.musicbrainzngs, "get_label_by_id", side_effect=_label_resp),
     ):
-        mc.fetch_release_detail(
-            _REL_ID,
-            progress_callback=lambda c, t: progress.append((c, t)),
-            status_callback=statuses.append,
-            retry_pause=0,
-        )
+        mc.fetch_release_detail(_REL_ID, progress_callback=lambda c, t: progress.append((c, t)), status_callback=statuses.append, retry_pause=0)
 
     joined = " | ".join(statuses)
     assert "Fetching release data" in joined

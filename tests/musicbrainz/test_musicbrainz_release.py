@@ -14,7 +14,7 @@ Covers:
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_release as mc
+from src.musicbrainz import musicbrainz_credits as mcred, musicbrainz_release as mc
 
 
 # ---- test_musicbrainz_release__self_base.py ----------------------------------
@@ -652,32 +652,32 @@ def _rel(type_, attributes=None):
 
 class TestPerformerRoleName:
     def test_plain_instrument_no_qualifier(self):
-        assert mc._relation_role_names(_rel("instrument", ["trumpet"])) == ["Trumpet"]
+        assert mcred._relation_role_names(_rel("instrument", ["trumpet"])) == ["Trumpet"]
 
     def test_qualifier_before_instrument_is_dropped(self):
         # The real-world case: qualifier ("additional") sits at index 0,
         # ahead of the actual instrument value. The qualifier is discarded
         # entirely, not kept as a prefix.
         rel = _rel("instrument", ["additional", "trumpet"])
-        assert mc._relation_role_names(rel) == ["Trumpet"]
+        assert mcred._relation_role_names(rel) == ["Trumpet"]
 
     def test_guest_qualifier_is_dropped(self):
         rel = _rel("instrument", ["guest", "guitar"])
-        assert mc._relation_role_names(rel) == ["Guitar"]
+        assert mcred._relation_role_names(rel) == ["Guitar"]
 
     def test_solo_qualifier_is_dropped(self):
         rel = _rel("instrument", ["solo", "violin"])
-        assert mc._relation_role_names(rel) == ["Violin"]
+        assert mcred._relation_role_names(rel) == ["Violin"]
 
     def test_qualifier_with_no_instrument_value_falls_back_to_type_name(self):
         rel = _rel("instrument", ["additional"])
-        assert mc._relation_role_names(rel) == ["Instrument"]
+        assert mcred._relation_role_names(rel) == ["Instrument"]
 
     def test_vocal_relation_unaffected(self):
-        assert mc._relation_role_names(_rel("vocal", ["lead vocals"])) == ["Lead Vocals"]
+        assert mcred._relation_role_names(_rel("vocal", ["lead vocals"])) == ["Lead Vocals"]
 
     def test_no_attributes_falls_back_to_type_name(self):
-        assert mc._relation_role_names(_rel("performing orchestra")) == ["Performing Orchestra"]
+        assert mcred._relation_role_names(_rel("performing orchestra")) == ["Performing Orchestra"]
 
 
 class TestMultiValuePerformerRelationSplits:
@@ -690,11 +690,11 @@ class TestMultiValuePerformerRelationSplits:
 
     def test_multiple_instrument_values_yield_separate_names(self):
         rel = _rel("instrument", ["piano", "organ"])
-        assert mc._relation_role_names(rel) == ["Piano", "Organ"]
+        assert mcred._relation_role_names(rel) == ["Piano", "Organ"]
 
     def test_qualifier_is_dropped_from_every_split_value(self):
         rel = _rel("instrument", ["additional", "viola", "violin"])
-        assert mc._relation_role_names(rel) == ["Viola", "Violin"]
+        assert mcred._relation_role_names(rel) == ["Viola", "Violin"]
 
 
 class TestProductionRoleNameUnaffected:
@@ -704,13 +704,13 @@ class TestProductionRoleNameUnaffected:
     these still return exactly one name."""
 
     def test_modifier_still_prefixes_type(self):
-        assert mc._relation_role_names(_rel("engineer", ["assistant"])) == ["Assistant Engineer"]
+        assert mcred._relation_role_names(_rel("engineer", ["assistant"])) == ["Assistant Engineer"]
 
     def test_sound_with_additional_modifier(self):
-        assert mc._relation_role_names(_rel("sound", ["additional"])) == ["Additional Sound Engineer"]
+        assert mcred._relation_role_names(_rel("sound", ["additional"])) == ["Additional Sound Engineer"]
 
     def test_no_modifier_falls_back_to_type_name(self):
-        assert mc._relation_role_names(_rel("producer")) == ["Producer"]
+        assert mcred._relation_role_names(_rel("producer")) == ["Producer"]
 
     def test_sound_with_no_modifier_reports_sound_engineer(self):
         # Bug #326: "sound" is the one production relation type whose own
@@ -718,17 +718,17 @@ class TestProductionRoleNameUnaffected:
         # the compound "sound engineer", unlike "mastering"/"mix"/etc. which
         # are single words. Naive rel_type.title() silently dropped
         # "Engineer" from every plain sound-engineer credit.
-        assert mc._relation_role_names(_rel("sound")) == ["Sound Engineer"]
+        assert mcred._relation_role_names(_rel("sound")) == ["Sound Engineer"]
 
     def test_mix_with_no_modifier_reports_mixer(self):
         # Same root cause as #326: MB's "mix" relation type credits as
         # "Mixer", not "Mix" -- confirmed live on Nirvana's Nevermind, where
         # Andy Wallace's mix relation has an empty attribute-list. Naive
         # rel_type.title() produced "Mix", not a real credit noun.
-        assert mc._relation_role_names(_rel("mix")) == ["Mixer"]
+        assert mcred._relation_role_names(_rel("mix")) == ["Mixer"]
 
     def test_mix_with_modifier_prefixes_mixer_not_mix(self):
-        assert mc._relation_role_names(_rel("mix", ["assistant"])) == ["Assistant Mixer"]
+        assert mcred._relation_role_names(_rel("mix", ["assistant"])) == ["Assistant Mixer"]
 
     def test_recording_with_no_modifier_reports_recording_engineer(self):
         # "recording" was entirely missing from the credit-type whitelist
@@ -736,27 +736,27 @@ class TestProductionRoleNameUnaffected:
         # the sound/mix display-name fixes. Confirmed live on Nirvana's
         # Nevermind ("Something in the Way" credits James Johnson, Jeff
         # Sheehan, and Butch Vig via a plain "recording" relation).
-        assert mc._relation_role_names(_rel("recording")) == ["Recording Engineer"]
+        assert mcred._relation_role_names(_rel("recording")) == ["Recording Engineer"]
 
     def test_recording_with_modifier_prefixes_recording_engineer(self):
-        assert mc._relation_role_names(_rel("recording", ["assistant"])) == ["Assistant Recording Engineer"]
+        assert mcred._relation_role_names(_rel("recording", ["assistant"])) == ["Assistant Recording Engineer"]
 
 
 class TestCreditRelationTypesIncludesPreviouslyDropped:
     def test_performing_orchestra_is_a_credit_type(self):
-        assert "performing orchestra" in mc._CREDIT_RELATION_TYPES
+        assert "performing orchestra" in mcred._CREDIT_RELATION_TYPES
 
     def test_sound_is_a_credit_type(self):
-        assert "sound" in mc._CREDIT_RELATION_TYPES
+        assert "sound" in mcred._CREDIT_RELATION_TYPES
 
     def test_recording_is_a_credit_type(self):
-        assert "recording" in mc._CREDIT_RELATION_TYPES
+        assert "recording" in mcred._CREDIT_RELATION_TYPES
 
 
 class TestParseArtistCreditsIntegration:
     def test_qualifier_ordering_does_not_drop_instrument_credit(self):
         recording = {"artist-relation-list": [{"type": "instrument", "attribute-list": ["additional", "trumpet"], "artist": {"id": "artist-1", "name": "Bill Armstrong"}}]}
-        credits = mc._parse_artist_credits(recording)
+        credits = mcred._parse_artist_credits(recording)
         assert len(credits) == 1
         assert credits[0].role_name == "Trumpet"
         assert credits[0].artist_name == "Bill Armstrong"
@@ -768,13 +768,13 @@ class TestParseArtistCreditsIntegration:
                 {"type": "sound", "attribute-list": ["additional"], "artist": {"id": "artist-3", "name": "Gary Lyons"}},
             ]
         }
-        credits = mc._parse_artist_credits(recording)
+        credits = mcred._parse_artist_credits(recording)
         roles = {c.artist_name: c.role_name for c in credits}
         assert roles == {"MGM Studio Orchestra": "Performing Orchestra", "Gary Lyons": "Additional Sound Engineer"}
 
     def test_multi_instrument_relation_yields_two_separate_credits(self):
         recording = {"artist-relation-list": [{"type": "instrument", "attribute-list": ["viola", "violin"], "artist": {"id": "artist-4", "name": "Multi Instrumentalist"}}]}
-        credits = mc._parse_artist_credits(recording)
+        credits = mcred._parse_artist_credits(recording)
         assert len(credits) == 2
         role_names = {c.role_name for c in credits}
         assert role_names == {"Viola", "Violin"}
@@ -830,3 +830,45 @@ class TestFetchReleaseDetailMediaFormat:
         with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
             detail = mc.fetch_release_detail(_MF_RELEASE_ID)
         assert detail.media_format is None
+
+
+# ---- Finalize: backfill limits, blank input, bad numeric data -----------------
+class TestFinalizeSearchEdgeCases:
+    def test_missing_medium_list_alone_does_not_trigger_a_lookup(self):
+        r = _release_base(_CD_ID, date="1993-10-26")
+        with patch.object(mc.musicbrainzngs, "get_release_by_id") as get_by_id:
+            assert mc._backfill_release_details(r) is False
+        get_by_id.assert_not_called()
+
+    def test_backfill_lookups_are_capped_per_search(self):
+        many = {"release-list": [_release_base(f"id-{i}") for i in range(mc._MAX_BACKFILL_LOOKUPS + 10)]}
+        detail = {"release": {"date": "1960"}}
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_artist_mbid", return_value=None),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value=many),
+            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=detail) as get_by_id,
+        ):
+            candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster")
+        assert get_by_id.call_count == mc._MAX_BACKFILL_LOOKUPS
+        assert len(candidates) == mc._MAX_BACKFILL_LOOKUPS + 10
+
+    def test_blank_album_name_returns_empty_without_a_call(self):
+        with patch.object(mc.musicbrainzngs, "search_releases") as search:
+            assert mc.search_canonical_releases("   ", "Artist") == []
+        search.assert_not_called()
+
+    def test_non_numeric_track_count_does_not_break_the_label(self):
+        bad = {"release-list": [_release_base(_CD_ID, date="1993", medium_list=[{"format": "CD", "track-count": "?"}])]}
+        with patch.object(mc, "configure"), patch.object(mc, "_resolve_artist_mbid", return_value=None), patch.object(mc.musicbrainzngs, "search_releases", return_value=bad):
+            candidates = mc.search_canonical_releases("King of the Tenors")
+        assert "CD" in candidates[0].label
+        assert "track" not in candidates[0].label
+
+
+def test_non_numeric_medium_position_does_not_abort_the_fetch():
+    core = {"release": {"id": "r1", "medium-list": [{"position": "x", "track-list": [{"position": "?", "number": "1", "recording": {"id": "rec1", "title": "T"}}]}]}}
+    with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=core):
+        detail = mc.fetch_release_detail("r1", retry_pause=0)
+    assert detail.tracks[0].disc_number == 0
+    assert detail.tracks[0].absolute_position is None

@@ -43,14 +43,7 @@ def _release_with_tracks(id_, date, track_titles, recording_ids=None, **kwargs):
     r = _release(id_, date, **kwargs)
     if recording_ids is None:
         recording_ids = [f"rec-{id_}-{i}" for i in range(len(track_titles))]
-    r["medium-list"] = [
-        {
-            "track-list": [
-                {"recording": {"title": t, "id": rid}}
-                for t, rid in zip(track_titles, recording_ids)
-            ]
-        }
-    ]
+    r["medium-list"] = [{"track-list": [{"recording": {"title": t, "id": rid}} for t, rid in zip(track_titles, recording_ids, strict=True)]}]
     return r
 
 
@@ -84,12 +77,7 @@ class TestNoArtistResolvedFallback:
         # earliest release in live testing because the actual earliest
         # recording happened to sort late. Every tied recording must be
         # browsed here -- no order-dependent cutoff.
-        recordings = [
-            _recording("rec-a"),
-            _recording("rec-b"),
-            _recording("rec-c"),
-            _recording("rec-d"),
-        ]
+        recordings = [_recording("rec-a"), _recording("rec-b"), _recording("rec-c"), _recording("rec-d")]
         releases_by_recording = {
             "rec-a": [_release("rel-a", "1995-01-01", group_id="grp-a")],
             "rec-b": [_release("rel-b", "1948-01-01", group_id="grp-b")],
@@ -100,22 +88,17 @@ class TestNoArtistResolvedFallback:
         }
         browsed = []
 
-        def _fake_browse_releases(recording, includes, limit):
+        def _fake_browse_releases(recording, includes, limit, offset=0):
             browsed.append(recording)
             return {"release-list": releases_by_recording[recording]}
 
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "search_recordings",
-            return_value={"recording-list": recordings},
-        ), patch.object(
-            mc.musicbrainzngs, "browse_releases", side_effect=_fake_browse_releases
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[]),
+            patch.object(mc.musicbrainzngs, "search_recordings", return_value={"recording-list": recordings}),
+            patch.object(mc.musicbrainzngs, "browse_releases", side_effect=_fake_browse_releases),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Some Unresolvable Artist"
-            )
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Some Unresolvable Artist")
 
         assert browsed == ["rec-a", "rec-b", "rec-c", "rec-d"]
         assert candidates[0].id == "rel-d", "the true earliest release must still win"
@@ -130,41 +113,27 @@ class TestGroupingAndFiltering:
             _release("uk-single", "1939-08-01", country="GB", group_id="grp-single"),
             _release("au-single", "1939-09-01", country="AU", group_id="grp-single"),
         ]
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={"release-list": releases},
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": releases}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller", recording_mbid="rec-1"
-            )
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller", recording_mbid="rec-1")
 
         assert len(candidates) == 1
         assert candidates[0].id == "uk-single", "earliest pressing in the group should win"
 
     def test_surfaces_both_single_and_later_album_as_separate_candidates(self):
-        releases = [
-            _release("us-single", "1939-08-01", group_id="grp-single", group_type="Single"),
-            _release("reissue-album", "1991-01-01", group_id="grp-album", group_type="Album"),
-        ]
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={"release-list": releases},
+        releases = [_release("us-single", "1939-08-01", group_id="grp-single", group_type="Single"), _release("reissue-album", "1991-01-01", group_id="grp-album", group_type="Album")]
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": releases}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller", recording_mbid="rec-1"
-            )
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller", recording_mbid="rec-1")
 
         ids = [c.id for c in candidates]
-        assert ids == ["us-single", "reissue-album"], (
-            "both types should be returned, sorted earliest-first, so the "
-            f"user can judge which is canonical -- got {ids}"
-        )
+        assert ids == ["us-single", "reissue-album"], f"both types should be returned, sorted earliest-first, so the user can judge which is canonical -- got {ids}"
         assert candidates[0].enrichment["release_type"] == "Single"
         assert candidates[1].enrichment["release_type"] == "Album"
 
@@ -180,16 +149,12 @@ class TestGroupingAndFiltering:
                 artist_name="Various Artists",
             ),
         ]
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={"release-list": releases},
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": releases}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller", recording_mbid="rec-1"
-            )
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller", recording_mbid="rec-1")
 
         ids = [c.id for c in candidates]
         assert ids == ["primary-single"]
@@ -207,14 +172,7 @@ class TestGroupingAndFiltering:
         # they're by the right artist.
         solo_mbid, orchestra_mbid = _ARTIST_MBID, "artist-orchestra"
         solo_releases = [
-            _release_with_tracks(
-                "modern-reissue",
-                "1991-01-01",
-                ["In the Mood"],
-                group_id="grp-modern",
-                artist_mbid=solo_mbid,
-                artist_name="Glenn Miller",
-            ),
+            _release_with_tracks("modern-reissue", "1991-01-01", ["In the Mood"], group_id="grp-modern", artist_mbid=solo_mbid, artist_name="Glenn Miller"),
             _release_with_tracks(
                 "unrelated-solo-album",
                 "1985-01-01",
@@ -233,33 +191,19 @@ class TestGroupingAndFiltering:
                 group_type="Single",
                 artist_mbid=orchestra_mbid,
                 artist_name="Glenn Miller and His Orchestra",
-            ),
+            )
         ]
 
-        with patch.object(mc, "configure"), patch.object(
-            mc,
-            "_resolve_primary_artist_mbids",
-            return_value=[solo_mbid, orchestra_mbid],
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            side_effect=_paged_browse_releases(
-                {solo_mbid: solo_releases, orchestra_mbid: orchestra_releases}
-            ),
-        ) as browse_releases:
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller"
-            )
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[solo_mbid, orchestra_mbid]),
+            patch.object(mc.musicbrainzngs, "browse_releases", side_effect=_paged_browse_releases({solo_mbid: solo_releases, orchestra_mbid: orchestra_releases})) as browse_releases,
+        ):
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller")
 
         ids = [c.id for c in candidates]
-        assert "original-single" in ids, (
-            "the orchestra-credited original release must not be dropped "
-            f"just because it's a different MB artist entity -- got {ids}"
-        )
-        assert "unrelated-solo-album" not in ids, (
-            "a release by the right artist but with no matching-titled "
-            "track must still be excluded"
-        )
+        assert "original-single" in ids, f"the orchestra-credited original release must not be dropped just because it's a different MB artist entity -- got {ids}"
+        assert "unrelated-solo-album" not in ids, "a release by the right artist but with no matching-titled track must still be excluded"
         assert ids == ["original-single", "modern-reissue"]
         # Both identities' catalogs actually got scanned, each via `artist=`
         # (not the old recording-scoped browse).
@@ -272,33 +216,23 @@ class TestGroupingAndFiltering:
         # with a known recording_mbid there's no discography to browse --
         # browse_releases must be called exactly once, scoped to that one
         # recording, not the artist's full catalog.
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={"release-list": [_release("only-one", "1939-08-01")]},
-        ) as browse_releases:
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller", recording_mbid="known-recording-id"
-            )
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": [_release("only-one", "1939-08-01")]}) as browse_releases,
+        ):
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller", recording_mbid="known-recording-id")
 
-        browse_releases.assert_called_once_with(
-            recording="known-recording-id",
-            includes=["release-groups", "artist-credits"],
-            limit=100,
-        )
+        browse_releases.assert_called_once_with(recording="known-recording-id", includes=["release-groups", "artist-credits"], limit=100, offset=0)
         assert len(candidates) == 1
 
     def test_no_releases_returns_empty_list(self):
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs, "browse_releases", return_value={"release-list": []}
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": []}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "In the Mood", "Glenn Miller", recording_mbid="rec-1"
-            )
+            candidates = mc.search_canonical_album_for_recording("In the Mood", "Glenn Miller", recording_mbid="rec-1")
 
         assert candidates == []
 
@@ -312,33 +246,14 @@ class TestDistinctRecordings:
         # final results span more than one recording MBID, each candidate
         # must be tagged so the user isn't left thinking two different
         # performances are just two editions of the same one.
-        original = _release_with_tracks(
-            "original-1946",
-            "1946-01-01",
-            ["Ain't Nobody Here but Us Chickens"],
-            recording_ids=["recording-original"],
-            group_id="grp-original",
-        )
-        rerecording = _release_with_tracks(
-            "rerecording-1956",
-            "1956-01-01",
-            ["Ain't Nobody Here but Us Chickens"],
-            recording_ids=["recording-rerecorded"],
-            group_id="grp-rerecorded",
-        )
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={
-                "release-list": [original, rerecording],
-                "release-count": 2,
-            },
+        original = _release_with_tracks("original-1946", "1946-01-01", ["Ain't Nobody Here but Us Chickens"], recording_ids=["recording-original"], group_id="grp-original")
+        rerecording = _release_with_tracks("rerecording-1956", "1956-01-01", ["Ain't Nobody Here but Us Chickens"], recording_ids=["recording-rerecorded"], group_id="grp-rerecorded")
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": [original, rerecording], "release-count": 2}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "Ain't Nobody Here but Us Chickens", "Louis Jordan"
-            )
+            candidates = mc.search_canonical_album_for_recording("Ain't Nobody Here but Us Chickens", "Louis Jordan")
 
         assert len(candidates) == 2
         assert "Recording 1 of 2" in candidates[0].label
@@ -350,35 +265,14 @@ class TestDistinctRecordings:
         # The same performance reissued as a single and, decades later, on
         # a compilation is NOT a distinct recording -- no "Recording N of
         # M" tag should appear just because it spans two release-groups.
-        single = _release_with_tracks(
-            "single-1946",
-            "1946-01-01",
-            ["Same Song"],
-            recording_ids=["shared-recording"],
-            group_id="grp-single",
-            group_type="Single",
-        )
-        compilation = _release_with_tracks(
-            "compilation-1990",
-            "1990-01-01",
-            ["Same Song"],
-            recording_ids=["shared-recording"],
-            group_id="grp-compilation",
-            group_type="Compilation",
-        )
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={
-                "release-list": [single, compilation],
-                "release-count": 2,
-            },
+        single = _release_with_tracks("single-1946", "1946-01-01", ["Same Song"], recording_ids=["shared-recording"], group_id="grp-single", group_type="Single")
+        compilation = _release_with_tracks("compilation-1990", "1990-01-01", ["Same Song"], recording_ids=["shared-recording"], group_id="grp-compilation", group_type="Compilation")
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": [single, compilation], "release-count": 2}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "Same Song", "Glenn Miller"
-            )
+            candidates = mc.search_canonical_album_for_recording("Same Song", "Glenn Miller")
 
         assert len(candidates) == 2
         assert all("Recording" not in c.label for c in candidates)
@@ -389,22 +283,43 @@ class TestQuoteNormalization:
         # MusicBrainz stores this exact song with a curly apostrophe on most
         # entries and a straight one on others -- a bare exact-string match
         # would silently miss whichever style the query doesn't use.
-        release = _release_with_tracks(
-            "original",
-            "1946-01-01",
-            ["Ain’t Nobody Here but Us Chickens"],
-            group_id="grp-a",
-        )
-        with patch.object(mc, "configure"), patch.object(
-            mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]
-        ), patch.object(
-            mc.musicbrainzngs,
-            "browse_releases",
-            return_value={"release-list": [release], "release-count": 1},
+        release = _release_with_tracks("original", "1946-01-01", ["Ain’t Nobody Here but Us Chickens"], group_id="grp-a")  # noqa: RUF001 -- curly quote is the test input
+        with (
+            patch.object(mc, "configure"),
+            patch.object(mc, "_resolve_primary_artist_mbids", return_value=[_ARTIST_MBID]),
+            patch.object(mc.musicbrainzngs, "browse_releases", return_value={"release-list": [release], "release-count": 1}),
         ):
-            candidates = mc.search_canonical_album_for_recording(
-                "Ain't Nobody Here but Us Chickens", "Louis Jordan"
-            )
+            candidates = mc.search_canonical_album_for_recording("Ain't Nobody Here but Us Chickens", "Louis Jordan")
 
         assert len(candidates) == 1
         assert candidates[0].id == "original"
+
+
+# ---- Finalize: pagination and blank input --------------------------------------
+class TestFinalizeEdgeCases:
+    def test_known_recording_browse_paginates_past_first_page(self):
+        page_one = [_release(f"rel-{i}", "1990-01-01", group_id=f"grp-{i}") for i in range(100)]
+        page_two = [_release("rel-earliest", "1939-08-01", group_id="grp-earliest")]
+        pages = {0: page_one, 100: page_two}
+
+        def _fake_browse(recording, includes, limit, offset):
+            return {"release-list": pages.get(offset, []), "release-count": 101}
+
+        with patch.object(mc, "configure"), patch.object(mc.musicbrainzngs, "browse_releases", side_effect=_fake_browse) as browse:
+            candidates = mc.search_canonical_album_for_recording("In the Mood", None, recording_mbid="rec-x")
+
+        assert browse.call_count == 2
+        assert candidates[0].id == "rel-earliest"
+
+    def test_blank_title_without_recording_mbid_returns_empty(self):
+        with patch.object(mc.musicbrainzngs, "search_recordings") as search, patch.object(mc.musicbrainzngs, "browse_releases") as browse:
+            assert mc.search_canonical_album_for_recording("  ", None) == []
+            assert mc.search_recordings("") == []
+        search.assert_not_called()
+        browse.assert_not_called()
+
+    def test_non_numeric_length_does_not_break_the_label(self):
+        result = {"recording-list": [{"id": "r1", "title": "Song", "length": "n/a"}, {"title": "no id"}]}
+        with patch.object(mc, "configure"), patch.object(mc.musicbrainzngs, "search_recordings", return_value=result):
+            candidates = mc.search_recordings("Song")
+        assert [c.label for c in candidates] == ["Song"]

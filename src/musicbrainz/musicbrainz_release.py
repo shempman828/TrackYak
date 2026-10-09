@@ -1,17 +1,6 @@
-"""
-musicbrainz_release.py
+"""MusicBrainz release (album) search with canonical ranking, and the full per-pressing detail fetch."""
 
-Release (album) search and detail fetch.
-
-Searches the `release` endpoint directly -- not `release-group` -- so a
-single pick carries real per-pressing data (status, language/script,
-catalog number, barcode, credits, recording locations) instead of the
-release-group's abstract aggregate. A release-group can have 100+ member
-releases (regional pressings, reissues, box sets), so search results are
-ranked to put the *canonical* release first: official status, earliest
-date, a fixed country preference, fewest media. The picker dialog still
-shows the ranked list and lets the user override the top pick.
-"""
+# Searches the `release` endpoint, not `release-group`, so a pick carries real per-pressing data.
 
 from __future__ import annotations
 
@@ -24,25 +13,37 @@ from typing import Any
 import musicbrainzngs
 
 from src.foundation.logger_config import logger
-from src.musicbrainz.musicbrainz_artist import MBAlias, search_artists
+from src.musicbrainz.musicbrainz_artist import MBAlias, _resolve_artist_mbid
 from src.musicbrainz.musicbrainz_core import (
     MBCandidate,
     MusicBrainzLookupError,
     _and_query,
-    _escape_lucene,
+    _canonical_rank_parts,
     _ext_score,
+    _is_blank,
+    _mb_call,
     _parse_partial_date,
     _resolve_place_area,
     _to_float,
+    _to_int,
     configure,
     resolve_area_chain,
 )
+from src.musicbrainz.musicbrainz_credits import (
+    MBTrackCredit,
+    _fetch_work_by_id,
+    _parse_artist_credits,
+    _parse_recording_artist_credit,
+    _parse_release_artist_credit,
+    _parse_work_credits,
+    _recording_work_mbids,
+)
+from src.musicbrainz.musicbrainz_label import MBFounderRelation, MBLabelInfo, _fetch_label_by_id, _parse_label
 
-# ISO 639-2/B codes MusicBrainz returns for text-representation.language,
-# mapped to the plain-English names the album_language field already
-# suggests (see ALBUM_LANGUAGE_SUGGESTIONS in base_album_edit.py) -- MB's
-# "zxx" (no linguistic content) and "mul" (multiple languages) map directly
-# onto that list's "Instrumental"/"Multiple" entries.
+# Re-exported: album and publisher code imports these data classes from this module.
+__all__ = ["MBFounderRelation", "MBLabelInfo", "MBReleaseDetail", "MBReleaseTrack", "MBTrackCredit", "fetch_release_detail", "fetch_release_group_aliases", "search_canonical_releases"]
+
+# ISO 639-2/B language codes -> the names album_language suggests (base_album_edit.py).
 _MB_LANGUAGE_NAMES = {
     "eng": "English",
     "fra": "French",
@@ -61,393 +62,89 @@ _MB_LANGUAGE_NAMES = {
     "mul": "Multiple",
 }
 
-# Preferred release country order, best first, used as a canonical-release
-# tie-breaker -- "XW" is MusicBrainz's "Worldwide" pseudo-country.
-_COUNTRY_PREFERENCE = ("XW", "GB", "US")
-
-# Artist-relation types treated as a credit, whether attached to a recording
-# (track credit) or directly to the release (album credit): performer/
-# instrument/vocal relations carry the actual instrument/vocal name in
-# attribute-list (e.g. "piano", "lead vocals"); production relations are
-# credited under the relation type itself when no attribute refines it
-# further. Anything outside this set (e.g. "samples material", "cover art")
-# is not imported as a credit.
-_PERFORMER_RELATION_TYPES = {"performer", "vocal", "instrument", "performing orchestra"}
-_PRODUCTION_RELATION_TYPES = {"producer", "engineer", "mix", "mastering", "arranger", "orchestrator", "conductor", "programming", "remixer", "sound", "recording"}
-_CREDIT_RELATION_TYPES = _PERFORMER_RELATION_TYPES | _PRODUCTION_RELATION_TYPES
-
-# Display name for a production relation type when its attribute-list is
-# empty (or supplies only a qualifier). Defaults to rel_type.title(), but a
-# handful of MB relation types have an internal `type` slug that differs
-# from the noun MB itself uses for the credit -- confirmed against MB's
-# relationship-type docs (reverse link phrase is the credited noun): "sound"
-# credits as "sound engineer" (#326), "mix" credits as "mixer", and
-# "recording" credits as "recording engineer" -- title-casing the type name
-# directly is only safe for the types where the slug and the credited noun
-# happen to match (producer, engineer, mastering, arranger, orchestrator,
-# conductor, programming, remixer).
-_PRODUCTION_RELATION_DISPLAY_NAMES = {"sound": "Sound Engineer", "mix": "Mixer", "recording": "Recording Engineer"}
-
-# Boolean-style qualifier words MB allows on performer/instrument/vocal
-# relations alongside (not instead of) the actual instrument/vocal name --
-# MB's own link-phrase template for these relations is literally
-# "{additional} {guest} {solo} {instrument}", so attribute-list can contain
-# a qualifier *before* the real value, and a single relation can carry more
-# than one instrument/vocal value (e.g. one person credited for both piano
-# and organ). Confirmed against the live API: Eagles' "Hotel California"
-# (release 76df3287-6cda-33eb-8e9e-f5b0f0625372) credits Bill Armstrong's
-# trumpet as attribute-list ["additional", "trumpet"] -- naively taking
-# attribute-list[0] reports his role as "Additional" and drops "trumpet"
-# entirely. These words are discarded outright (not kept as a prefix) --
-# they describe how the studio credit reads on the sleeve, not a distinct
-# role, and keeping them produced noise like "Additional Trumpet" /
-# "Guest Guitar" next to plain "Trumpet" for the same instrument.
-_PERFORMER_ATTRIBUTE_QUALIFIERS = {"additional", "guest", "solo"}
-
 _SIDE_TRACK_NUMBER_RE = re.compile(r"^([A-Za-z])(\d+)$")
 
-# Work-level artist-relation types this feature imports as a writing credit
-# (composer/lyricist/writer/...). Confirmed against the live API
-# (get_work_by_id responses for e.g. Queen's "Bohemian Rhapsody" and several
-# "My Way" works): unlike some recording/release relation types (see
-# _PRODUCTION_RELATION_DISPLAY_NAMES), every one of these title-cases
-# cleanly to its credited noun with no attribute-list involved, e.g.
-# "composer" -> "Composer", "instrument arranger" -> "Instrument Arranger".
-# Deliberately excludes other relation types also seen on works that are not
-# writing credits: "previous attribution" (a superseded historical credit,
-# not the current one) and "dedication" (the work's dedicatee, not a
-# writer).
-_WORK_RELATION_TYPES = {
-    "composer",
-    "lyricist",
-    "writer",
-    "librettist",
-    "arranger",
-    "orchestrator",
-    "translator",
-    "instrument arranger",
-    "vocal arranger",
-    "instrumentator",
-    "revised by",
-    "reconstructed by",
-}
+# Years a candidate may differ from expected_year and still rank as "on-hint". A ranking
+# preference only: a stale hint must never hide the correct release (#366).
+_YEAR_HINT_TOLERANCE = 20
 
+# Maximum direct lookups one search makes to backfill dates the search index omitted;
+# each lookup costs one rate-limited second.
+_MAX_BACKFILL_LOOKUPS = 25
 
-@dataclass
-class MBTrackCredit:
-    artist_mbid: str | None
-    artist_name: str
-    role_name: str
-    # The artist's canonical MB name, distinct from artist_name (the
-    # as-credited/target-credit name, which can be a variant like "H. Arlen"
-    # for canonical "Harold Arlen") when a release prints a different credit
-    # than the artist's registered name. Empty when unavailable.
-    canonical_name: str = ""
+# The release is fetched in two calls: the core set has a roughly fixed size; the
+# recording-relation set balloons on heavily credited releases, so a failure there
+# degrades to "no per-track credits" instead of failing the whole fetch.
+_RELEASE_CORE_INCLUDES = ["artist-credits", "recordings", "media", "labels", "release-groups", "url-rels", "artist-rels"]
+_RELEASE_RECORDING_REL_INCLUDES = ["recordings", "recording-level-rels", "artist-rels", "work-rels", "place-rels"]
+
+# Pause before the single end-of-pass retry of failed follow-up lookups.
+_RETRY_PAUSE_SECONDS = 2.0
 
 
 @dataclass
 class MBReleaseTrack:
+    """One track of a release, with its credits and recording location."""
+
     disc_number: int
     disc_title: str | None
-    track_number: int | None
+    track_number: int | None  # side-relative on vinyl ("B1" -> 1)
     side: str | None
     title: str
     recording_mbid: str
     credits: list[MBTrackCredit] = field(default_factory=list)
     location_place_mbid: str | None = None
-    # Sequential position within the medium's tracklist, spanning both
-    # sides for vinyl (e.g. "B1" on a 7-track-per-side LP is absolute
-    # position 8). Same value as track_number for non-vinyl releases
-    # (no side letter to make them diverge). Local track numbering is
-    # absolute, so matching against local tracks must use this, not the
-    # side-relative track_number.
+    # Position across both vinyl sides ("B1" after 7 A-side tracks -> 8); local tracks
+    # are numbered absolutely, so match on this, not track_number.
     absolute_position: int | None = None
 
 
 @dataclass
-class MBFounderRelation:
-    """One 'founder' artist-relation on a label."""
-
-    mbid: str
-    name: str
-
-
-@dataclass
-class MBLabelInfo:
-    """One label (record company/publisher) attached to a release via its
-    label-info-list, enriched with a follow-up get_label_by_id lookup (see
-    _fetch_label_by_id/_parse_label) for life-span, annotation, headquarters
-    area, and founder relations -- none of which the release response's
-    embedded label stub carries."""
-
-    mbid: str
-    name: str
-    catalog_number: str | None = None
-    disambiguation: str | None = None
-    annotation: str | None = None
-    begin_year: int | None = None
-    begin_month: int | None = None
-    begin_day: int | None = None
-    end_year: int | None = None
-    end_month: int | None = None
-    end_day: int | None = None
-    # Full containing chain for the label's headquarters area (immediate
-    # area first, then its parents up to the outermost country) -- see
-    # resolve_area_chain. Each entry is
-    # {"mbid", "name", "type", "latitude", "longitude"}.
-    area_chain: list[dict[str, Any]] = field(default_factory=list)
-    founders: list[MBFounderRelation] = field(default_factory=list)
-
-
-@dataclass
 class MBReleaseDetail:
+    """Every per-pressing detail fetch_release_detail imports for one release."""
+
     release_group_mbid: str | None
     mbid: str | None = None
     status: str | None = None
-    # The release-group's secondary type (e.g. "Live", "Compilation",
-    # "Soundtrack") if it has one, else its primary type (e.g. "Album",
-    # "Single", "EP") -- a release-group always has exactly one primary
-    # type but zero or more secondary types, and the secondary type is
-    # what users actually mean by "release type" for e.g. a live album
-    # whose primary type is still plain "Album".
+    # Secondary type ("Live", "Compilation") when present, else primary type ("Album").
     release_type: str | None = None
     language: str | None = None
     catalog_number: str | None = None
-    # MusicBrainz country code for this specific release/pressing (e.g. "US",
-    # "GB", "XW" for Worldwide) -- distinct per pressing, unlike the abstract
-    # release-group, which has no single country of its own.
-    release_country: str | None = None
+    release_country: str | None = None  # e.g. "US", "GB", "XW" (Worldwide)
     discogs_master_url: str | None = None
     barcode: str | None = None
     release_year: int | None = None
     release_month: int | None = None
     release_day: int | None = None
-    # Credits attached to the release itself (e.g. an album-wide producer or
-    # "mastered by" relation not tied to any one recording) -- distinct from
-    # each MBReleaseTrack's own per-recording credits.
-    credits: list[MBTrackCredit] = field(default_factory=list)
+    credits: list[MBTrackCredit] = field(default_factory=list)  # release-level credits
     tracks: list[MBReleaseTrack] = field(default_factory=list)
-    # place MBID -> chain from that place up to the outermost area, each
-    # entry {"mbid", "name", "type", "latitude", "longitude"} -- index 0 is
-    # the place itself (e.g. the studio), the rest are its containing areas
-    # in order (district, city, subdivision, country, ...).
+    # place MBID -> [place, containing areas...]; entries are
+    # {"mbid", "name", "type", "latitude", "longitude"}.
     place_chains: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    # Every unique label attached to this release via label-info-list.
     labels: list[MBLabelInfo] = field(default_factory=list)
-    # Physical/digital carrier(s) of this pressing -- the distinct per-medium
-    # `format` strings, sorted and "/"-joined (e.g. "CD", '12" Vinyl',
-    # "CD/DVD-Video"). None when no medium carries a format on MusicBrainz.
-    media_format: str | None = None
-    # Human-readable descriptions of follow-up lookups that failed twice (a
-    # first attempt plus one retry) and were skipped so the rest of the
-    # import could proceed -- e.g. "writing credits for 'Bohemian Rhapsody'".
-    # Empty on a fully successful fetch. The caller surfaces this as a
-    # non-fatal "some details couldn't be fetched, re-import later" notice;
-    # nothing here blocks applying everything that did come back.
+    media_format: str | None = None  # e.g. "CD", "CD/DVD-Video"
+    # Follow-up lookups that failed twice and were skipped; shown as a non-fatal notice.
     partial_failures: list[str] = field(default_factory=list)
 
 
 def _media_format_str(medium_list: list[dict[str, Any]] | None) -> str | None:
-    """The release's carrier as a single display string: every distinct
-    per-medium `format`, sorted and "/"-joined. Returns None when the list is
-    empty or no medium carries a format (MB genuinely leaves it unset for
-    some releases -- don't guess)."""
+    """Every distinct medium format, sorted and "/"-joined, or None when MB has none."""
     formats = sorted({m.get("format") for m in (medium_list or []) if m.get("format")})
     return "/".join(formats) if formats else None
 
 
 def _parse_track_number_side(number: str | None, position: str | None) -> tuple[str | None, int | None]:
-    """MB's per-track `number` is a display string -- for vinyl-style media
-    it's often side+position (e.g. "A1", "B2"); split that into a side
-    letter and an in-side track number. Otherwise fall back to the medium's
-    plain sequential `position`."""
+    """(side, track_number) from a vinyl-style number like "B2", else (None, position)."""
     if number:
         m = _SIDE_TRACK_NUMBER_RE.match(number.strip())
         if m:
             return m.group(1).upper(), int(m.group(2))
-    try:
-        return None, int(position)
-    except (TypeError, ValueError):
-        return None, None
-
-
-def _relation_role_names(rel: dict[str, Any]) -> list[str]:
-    """This artist-relation's Role name(s). For production relations
-    (producer/engineer/mix/...), the attribute is a *modifier* of the
-    type, not a replacement for it -- MB credits like "assistant engineer"
-    or "mastering engineer" are the `engineer` type with an
-    "assistant"/"mastering" attribute, so both must be combined into one
-    name or the type name is silently dropped; a production relation
-    always yields exactly one name. For performer relations
-    (instrument/vocal), the attribute alone is the full role (e.g.
-    "Piano", "Lead Vocals") -- the generic type adds nothing -- and MB can
-    list more than one independent value on the same relation (one person
-    playing viola *and* violin on this recording), which now yields one
-    name per value instead of joining them into a single combined string
-    (see docs/specs/split_and_merge_aliases.md -- that combined-string
-    behavior is what forced role-splitting in the first place)."""
-    rel_type = rel.get("type")
-    attributes = rel.get("attribute-list") or []
-    if rel_type in _PRODUCTION_RELATION_TYPES:
-        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(rel_type, rel_type.title() if rel_type else None)
-        if attributes:
-            return [f"{attributes[0].title()} {base_name}"]
-        return [base_name] if base_name else []
-    # Performer/instrument/vocal: drop qualifier words ("additional"/"guest"/
-    # "solo") from the actual instrument/vocal value(s) rather than assuming
-    # attribute-list[0] is the value -- see _PERFORMER_ATTRIBUTE_QUALIFIERS.
-    values = [a for a in attributes if a.lower() not in _PERFORMER_ATTRIBUTE_QUALIFIERS]
-    if values:
-        return [v.title() for v in values]
-    return [rel_type.title()] if rel_type else []
-
-
-def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
-    """Parse credits from `entity`'s artist-relation-list -- works for both
-    a recording (track credit) and a release (album credit), since MB
-    shapes the relation dicts the same way at either level."""
-    credits = []
-    for rel in entity.get("artist-relation-list", []) or []:
-        if rel.get("type") not in _CREDIT_RELATION_TYPES:
-            continue
-        artist = rel.get("artist") or {}
-        if not artist.get("id"):
-            continue
-        for role_name in _relation_role_names(rel):
-            credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=rel.get("target-credit") or artist.get("name") or "", role_name=role_name, canonical_name=artist.get("name") or ""))
-    return credits
-
-
-def _parse_release_artist_credit(release: dict[str, Any]) -> list[MBTrackCredit]:
-    """Parse the release's `artist-credit` -- the actual "Album Artist"
-    byline (e.g. "Uncle Tupelo"), structurally distinct from
-    `artist-relation-list` (producer/engineer/performer-type credits
-    handled by _parse_artist_credits). musicbrainzngs interleaves each
-    named artist with a bare joinphrase string (e.g. " & ", " feat. ");
-    only the dict entries are real credits."""
-    credits = []
-    for entry in release.get("artist-credit", []) or []:
-        if not isinstance(entry, dict):
-            continue
-        artist = entry.get("artist") or {}
-        if not artist.get("id"):
-            continue
-        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=entry.get("name") or artist.get("name") or "", role_name="Album Artist", canonical_name=artist.get("name") or ""))
-    return credits
-
-
-def _parse_recording_artist_credit(recording: dict[str, Any]) -> list[MBTrackCredit]:
-    """Parse a recording's own `artist-credit` -- the track's "Primary
-    Artist" byline, which is usually the same as the release's Album
-    Artist but can diverge (e.g. a compilation track, or a feature credited
-    at the recording level but not the release level). Same dict shape as
-    _parse_release_artist_credit, just read off the embedded recording
-    instead of the release."""
-    credits = []
-    for entry in recording.get("artist-credit", []) or []:
-        if not isinstance(entry, dict):
-            continue
-        artist = entry.get("artist") or {}
-        if not artist.get("id"):
-            continue
-        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=entry.get("name") or artist.get("name") or "", role_name="Primary Artist", canonical_name=artist.get("name") or ""))
-    return credits
-
-
-def _recording_work_mbids(recording: dict[str, Any]) -> list[str]:
-    """The MBID(s) of the work(s) a recording is a performance of, via its
-    work-relation-list. The embedded work stub here carries only
-    id/title/type/language (confirmed against the live API) -- not the
-    work's own artist-relation-list, where composer/lyricist/writer/...
-    credits actually live -- so each unique work needs its own
-    get_work_by_id follow-up (_fetch_work_by_id) to resolve those, same
-    reasoning as recording locations (_parse_recording_location) and labels
-    (_fetch_label_by_id) needing their own direct lookups."""
-    mbids = []
-    for rel in recording.get("work-relation-list", []) or []:
-        if rel.get("type") != "performance":
-            continue
-        work = rel.get("work") or {}
-        if work.get("id"):
-            mbids.append(work["id"])
-    return mbids
-
-
-def _fetch_work_by_id(work_mbid: str) -> dict[str, Any]:
-    """Raw get_work_by_id call for a work referenced by a recording's
-    work-relation-list -- the release response's embedded work stub is
-    missing the artist-relation-list this feature needs for writing
-    credits, so a direct per-work follow-up lookup is needed (same
-    reasoning as _fetch_label_by_id for release labels). Raises
-    MusicBrainzLookupError on failure; callers treat this as best-effort,
-    same as every other follow-up lookup in this module."""
-    configure()
-    try:
-        result = musicbrainzngs.get_work_by_id(work_mbid, includes=["artist-rels"])
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
-    return result.get("work", {})
-
-
-def _parse_work_credits(work: dict[str, Any]) -> list[MBTrackCredit]:
-    """Parse composer/lyricist/writer/... credits from a work's own
-    artist-relation-list (see _fetch_work_by_id) -- distinct from
-    _parse_artist_credits, which reads the same-shaped relation list off a
-    recording or release instead."""
-    credits = []
-    for rel in work.get("artist-relation-list", []) or []:
-        rel_type = rel.get("type")
-        if rel_type not in _WORK_RELATION_TYPES:
-            continue
-        artist = rel.get("artist") or {}
-        if not artist.get("id"):
-            continue
-        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=rel.get("target-credit") or artist.get("name") or "", role_name=rel_type.title(), canonical_name=artist.get("name") or ""))
-    return credits
-
-
-# MusicBrainz titles inconsistently use curly vs. straight quotes for the
-# same contraction across different entries of the same era/song (e.g.
-# "Ain't" vs "Ain’t") -- normalizing both sides of an exact-title match  # noqa: RUF003
-# avoids silently missing genuine matches (including, in one real case
-# found while building this feature, the actual earliest/canonical release)
-# purely because of which quote character a cataloger happened to type.
-# The curly quote chars below are the whole point of this table, not typos.
-_QUOTE_NORMALIZE = str.maketrans(
-    {"‘": "'", "’": "'", "‚": "'", "‛": "'", "“": '"', "”": '"', "„": '"', "‟": '"'}  # noqa: RUF001
-)
-
-
-def _normalize_title(title: str) -> str:
-    return title.strip().translate(_QUOTE_NORMALIZE).lower()
-
-
-def _matching_track_recording_id(release: dict[str, Any], title_key: str) -> str | None:
-    """The recording MBID of the track on `release` with the exact given
-    title (case/quote-insensitive, not substring -- "In the Mood" must not
-    match "In the Mood for Love", a different song entirely), or None if no
-    track on this release matches."""
-    for medium in release.get("medium-list", []) or []:
-        for track in medium.get("track-list", []) or []:
-            recording = track.get("recording", {})
-            title = recording.get("title") or track.get("title") or ""
-            if _normalize_title(title) == title_key:
-                return recording.get("id")
-    return None
+    return None, _to_int(position)
 
 
 def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | None:
-    """Extract the "recorded at" place relation on a recording, if any, as a
-    flat dict -- id/name/type/coordinates only. MusicBrainz embeds a reduced
-    place stub on this relation that never carries the place's containing
-    area (confirmed against the live API for bug #248), so the area has to
-    be looked up separately via _resolve_place_area."""
+    """The recording's "recorded at" place as a flat dict, or None."""
+    # The embedded place stub never carries its area; see _resolve_place_area (#248).
     for rel in recording.get("place-relation-list", []) or []:
         if rel.get("type") != "recorded at":
             continue
@@ -465,229 +162,71 @@ def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
-def _fetch_label_by_id(label_mbid: str) -> dict[str, Any]:
-    """Raw get_label_by_id call for a release's label-info-list entry --
-    the release response's embedded label is only a stub (name, sort-name,
-    life-span, area, disambiguation), missing the annotation and founder
-    relations this feature also imports, so a direct per-label follow-up
-    lookup is needed (same reasoning as _resolve_place_area for recording
-    locations). Raises MusicBrainzLookupError on failure; callers treat
-    this as best-effort, same as every other follow-up lookup in this
-    module."""
-    configure()
-    try:
-        result = musicbrainzngs.get_label_by_id(label_mbid, includes=["annotation", "artist-rels"])
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
-    return result.get("label", {})
-
-
-def _parse_label(label_mbid: str, catalog_number: str | None, label: dict[str, Any]) -> tuple[MBLabelInfo, str | None]:
-    """Pure parsing of a full get_label_by_id response into
-    (MBLabelInfo, headquarters_area_mbid) -- no network calls (the area
-    mbid is resolved into its full parent chain separately, by the caller,
-    via resolve_area_chain, same split as _apply_full_artist vs.
-    _resolve_artist_place_chains)."""
-    life_span = label.get("life-span") or {}
-    area = label.get("area") or {}
-    annotation = (label.get("annotation") or {}).get("text") or None
-
-    founders = []
-    for rel in label.get("artist-relation-list", []) or []:
-        if rel.get("type") != "founder":
-            continue
-        artist = rel.get("artist") or {}
-        if not artist.get("id") or not artist.get("name"):
-            continue
-        founders.append(MBFounderRelation(mbid=artist["id"], name=artist["name"]))
-
-    begin_parts = _parse_partial_date(life_span.get("begin"), "begin")
-    end_parts = _parse_partial_date(life_span.get("end"), "end")
-
-    return MBLabelInfo(
-        mbid=label_mbid,
-        name=label.get("name") or "",
-        catalog_number=catalog_number,
-        disambiguation=label.get("disambiguation") or None,
-        annotation=annotation,
-        begin_year=begin_parts.get("begin_year"),
-        begin_month=begin_parts.get("begin_month"),
-        begin_day=begin_parts.get("begin_day"),
-        end_year=end_parts.get("end_year"),
-        end_month=end_parts.get("end_month"),
-        end_day=end_parts.get("end_day"),
-        founders=founders,
-    ), area.get("id")
-
-
-def _resolve_primary_artist_mbids(artist_name: str) -> list[str]:
-    """Resolve every MusicBrainz artist MBID plausibly representing the same
-    performer as `artist_name`, not just the single best name match.
-
-    MusicBrainz often models a performer's original-era ensemble credit as a
-    distinct artist entity from a later "solo" umbrella credit used for
-    reissues/compilations -- e.g. "Glenn Miller" (person) vs. "Glenn Miller
-    and His Orchestra" (the actual credit on the original-era releases,
-    explicitly disambiguated on MusicBrainz as "use only for releases Glenn
-    Miller performed with"). Resolving only the solo entity would silently
-    exclude every original-era release credited to the ensemble -- exactly
-    the releases a "canonical first release" search most needs to find.
-
-    Common names collide, though -- a plain "Glenn Miller" artist search
-    also returns several entirely unrelated people who happen to share that
-    exact name (an accordion player, a mastering engineer, a Chilliwack
-    band member...), all tied at nearly the same relevance score. Including
-    every same-named entity would flood the recording search with noise
-    (and multiply API calls) for zero benefit, so only two kinds of hit
-    qualify: MusicBrainz's own top-ranked match for the name (the "main"
-    entity a plain-text search is presumably after), and any other hit
-    whose name is a strict superset containing the query -- e.g. "Glenn
-    Miller and His Orchestra", "Glenn Miller Orchestra" -- which catches the
-    ensemble-credit pattern without matching an unrelated same-named person
-    (their name is identical to the query, not a superset of it).
-    """
-    try:
-        result = musicbrainzngs.search_artists(_escape_lucene(artist_name), limit=10)
-    except Exception as e:
-        raise MusicBrainzLookupError(str(e)) from e
-
-    artists = result.get("artist-list", [])
-    if not artists:
-        return []
-
-    query = artist_name.lower()
-    mbids = [artists[0]["id"]]
-    for a in artists[1:]:
-        name = (a.get("name") or "").lower()
-        if name != query and query in name:
-            mbids.append(a["id"])
-    return mbids
-
-
-def _resolve_artist_mbid(artist_name: str) -> str | None:
-    """Resolve an artist name to a MusicBrainz artist MBID via the
-    alias-aware artist search, so release search can filter by `arid` --
-    exact and unambiguous -- instead of a literal `artist:` name match.
-
-    The `artist:` field only matches an artist's canonical name/sort-name,
-    not their aliases -- so a name that's only on file as an alias (e.g. a
-    stylized band-logo spelling like "KoЯn", credited-in-DB name for Korn)
-    fails to filter anything there, and the release search silently falls
-    back to ranking by date/status alone, letting an unrelated same-titled
-    release from a different artist outrank the real one. search_artists()
-    already does this alias matching correctly (see its own docstring).
-    """
-    try:
-        candidates = search_artists(artist_name, limit=1)
-    except MusicBrainzLookupError:
-        return None
-    return candidates[0].id if candidates else None
-
-
-def _backfill_release_details(r: dict[str, Any]) -> None:
-    """MusicBrainz's search index sometimes omits `date` and `medium-list`
-    for older, sparsely-indexed releases even though a direct lookup of the
-    same release MBID returns them correctly (e.g. a 1953 original 12"
-    pressing indexed without a release-event date). Ranking on a missing
-    date would otherwise treat it as if released in the far future, burying
-    the original pressing behind well-indexed reissues -- so fetch the real
-    values with a direct lookup whenever the search result is missing them."""
-    if r.get("date") and r.get("medium-list"):
-        return
+def _backfill_release_details(r: dict[str, Any]) -> bool:
+    """Fill a search hit's missing date (and medium-list) from a direct lookup; True if a lookup ran."""
+    # The search index omits dates for some old releases, which would rank them last.
+    # A missing medium-list alone only affects the label, so it does not cost a lookup.
+    if r.get("date"):
+        return False
     try:
         detail = musicbrainzngs.get_release_by_id(r["id"], includes=["media"])
-    except Exception:
-        # Best-effort enrichment -- fall back to whatever the search result
-        # already had (possibly still missing) rather than failing the
-        # whole search over one release's lookup.
-        return
+    except Exception as e:
+        logger.debug(f"Release backfill lookup failed for {r.get('id')}: {e}")
+        return True
     release = detail.get("release", {})
-    if not r.get("date"):
-        r["date"] = release.get("date")
+    r["date"] = release.get("date")
     if not r.get("medium-list"):
         r["medium-list"] = release.get("medium-list")
+    return True
 
 
-_YEAR_HINT_TOLERANCE = 20
-# How many years a candidate's date may differ from expected_year (below)
-# and still be ranked as if it were "on-hint". Wide enough to keep alternate
-# pressings/reissues of the *same* record grouped with the expected era --
-# a canonical-release search is expected to compare several pressings spread
-# across a handful of years -- but narrow enough to rank a same-titled,
-# unrelated release-group decades off from the album's known era (e.g. a
-# 1944 recording vs. an unrelated 2008 album that happened to score
-# similarly on the free-text title match, #366) behind it instead of ahead
-# of it. This is a ranking preference, not a filter: a wrong or stale
-# expected_year must never make the correct release invisible, so
-# out-of-window candidates are sorted later, never dropped from the pool
-# (#hint bug: a stale remaster year hard-filtered out the true original
-# release entirely).
+def _release_type_str(release_group: dict[str, Any]) -> str | None:
+    """Picker label type, e.g. "Album (Live, Compilation)"."""
+    primary_type = release_group.get("primary-type") or release_group.get("type")
+    secondary_types = release_group.get("secondary-type-list") or []
+    if primary_type and secondary_types:
+        return f"{primary_type} ({', '.join(secondary_types)})"
+    if primary_type:
+        return primary_type
+    if secondary_types:
+        return ", ".join(secondary_types)
+    return None
 
 
 def search_canonical_releases(album_name: str, artist_name: str | None = None, limit: int = 100, expected_year: int | None = None) -> list[MBCandidate]:
-    """Search MusicBrainz releases (not release-groups) and rank them so the
-    single canonical pressing -- official, earliest, most "worldwide"/
-    default-country -- sorts first. `MBCandidate.id` is a release MBID,
-    ready to pass straight to fetch_release_detail().
-
-    `expected_year`, if given (the album's already-known release year),
-    is used as a ranking preference, never a filter: candidates whose date
-    lands within `_YEAR_HINT_TOLERANCE` years of it sort ahead of ones that
-    don't, but nothing is ever dropped from the pool over it -- a wrong or
-    stale hint should never make the correct release invisible, only rank
-    it later among equally-official candidates."""
+    """Search releases and rank the canonical pressing (official, earliest, preferred country) first."""
+    if _is_blank(album_name):
+        return []
     configure()
     fields: dict[str, Any] = {}
-    if artist_name:
+    if not _is_blank(artist_name):
         artist_mbid = _resolve_artist_mbid(artist_name)
         if artist_mbid:
             fields["arid"] = artist_mbid
         else:
             fields["artist"] = artist_name
-    try:
-        result = musicbrainzngs.search_releases(_and_query("release", album_name, fields), limit=limit)
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
+    result = _mb_call(musicbrainzngs.search_releases, _and_query("release", album_name, fields), limit=limit)
 
-    releases = result.get("release-list", [])
+    releases = [r for r in result.get("release-list", []) if r.get("id")]
     if not releases:
         return []
 
+    # Only rank among releases within 10 points of MB's own top relevance score.
     top_score = max(_ext_score(r) for r in releases)
-    # Keep everything within 10 points of MB's own top relevance score --
-    # the canonical-ranking heuristic below only needs to choose among
-    # releases MB itself considers close matches, not the whole result set.
     candidates_pool = [r for r in releases if top_score - _ext_score(r) <= 10]
 
+    lookups = 0
     for r in candidates_pool:
-        _backfill_release_details(r)
+        if lookups >= _MAX_BACKFILL_LOOKUPS:
+            break
+        if _backfill_release_details(r):
+            lookups += 1
 
     def _rank_key(r: dict[str, Any]):
-        status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
-        year_month_day = _parse_partial_date(r.get("date"), "d")
-        date_key = (year_month_day.get("d_year", 9999), year_month_day.get("d_month", 99), year_month_day.get("d_day", 99))
-        # Preference only, not elimination -- see _YEAR_HINT_TOLERANCE. A
-        # missing expected_year or a missing candidate date both count as
-        # "on-hint" (rank 0) since there's nothing to disagree with.
-        if expected_year is None:
-            hint_rank = 0
-        else:
-            year = year_month_day.get("d_year")
-            hint_rank = 0 if year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE else 1
-        country = r.get("country") or ""
-        country_rank = _COUNTRY_PREFERENCE.index(country) if country in _COUNTRY_PREFERENCE else len(_COUNTRY_PREFERENCE)
+        status_rank, date_key, country_rank = _canonical_rank_parts(r)
+        # A missing expected_year or candidate year counts as on-hint.
+        year = date_key[0] if date_key[0] != 9999 else None
+        hint_rank = 0 if expected_year is None or year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE else 1
         media_count = len(r.get("medium-list", []) or [])
         return (status_rank, hint_rank, date_key, country_rank, media_count)
 
@@ -699,37 +238,15 @@ def search_canonical_releases(album_name: str, artist_name: str | None = None, l
         credit = r.get("artist-credit-phrase")
         if credit:
             label_bits.append(f"by {credit}")
-        status = r.get("status")
-        date = r.get("date")
-        country = r.get("country")
         media_list = r.get("medium-list") or []
-        format_str = _media_format_str(media_list)
+        type_str = _release_type_str(r.get("release-group") or {})
 
-        # Release-group primary type (Album/Single/EP/...) plus any secondary
-        # types (Live/Compilation/Soundtrack/...) in parens, so the picker can
-        # tell apart a 2-track single from a full album that shares its title.
-        release_group = r.get("release-group") or {}
-        primary_type = release_group.get("primary-type") or release_group.get("type")
-        secondary_types = release_group.get("secondary-type-list") or []
-        if primary_type and secondary_types:
-            type_str = f"{primary_type} ({', '.join(secondary_types)})"
-        elif primary_type:
-            type_str = primary_type
-        elif secondary_types:
-            type_str = ", ".join(secondary_types)
-        else:
-            type_str = None
-
-        # Total tracks across every medium -- summing per-medium track-count
-        # works whether the search index supplied `medium-list` directly or
-        # `_backfill_release_details` filled it in from a `media` lookup; fall
-        # back to the flat `medium-track-count` when there's no medium list.
-        track_total = sum(int(m.get("track-count") or 0) for m in media_list)
+        track_total = sum(_to_int(m.get("track-count"), 0) for m in media_list)
         if not track_total:
-            track_total = int(r.get("medium-track-count") or 0)
+            track_total = _to_int(r.get("medium-track-count"), 0)
         track_str = f"{track_total} track{'s' if track_total != 1 else ''}" if track_total else None
 
-        detail_bits = [b for b in (type_str, track_str, status, date, country, format_str) if b]
+        detail_bits = [b for b in (type_str, track_str, r.get("status"), r.get("date"), r.get("country"), _media_format_str(media_list)) if b]
         if detail_bits:
             label_bits.append(f"[{' — '.join(detail_bits)}]")
         if r.get("disambiguation"):
@@ -742,45 +259,13 @@ def search_canonical_releases(album_name: str, artist_name: str | None = None, l
     return candidates
 
 
-# get_release_by_id include sets, split into two calls (see
-# fetch_release_detail). The core set carries release-level scalars, the
-# tracklist skeleton, labels, album credits, media format and the Discogs
-# link -- its size is roughly fixed regardless of how many relations the
-# release carries. The recording-relation set carries only the per-recording
-# relation lists (performers, works, recording locations), which is the part
-# that actually balloons a heavily-credited release's response and, on a
-# slow link, trips the 30->60s socket timeout into musicbrainzngs's blind
-# 8x retry ladder. Isolating it means a failure there degrades to "album
-# imported, no per-track credits" (recorded in detail.partial_failures)
-# instead of aborting the whole fetch.
-_RELEASE_CORE_INCLUDES = ["artist-credits", "recordings", "media", "labels", "release-groups", "url-rels", "artist-rels"]
-_RELEASE_RECORDING_REL_INCLUDES = ["recordings", "recording-level-rels", "artist-rels", "work-rels", "place-rels"]
-
-# Seconds to wait before the single end-of-pass retry of follow-up lookups
-# that failed (see _retry_deferred). One beat is enough for a transient
-# blip to clear; the rate limiter already spaces the actual requests.
-_RETRY_PAUSE_SECONDS = 2.0
-
-
 def _get_release(release_mbid: str, includes: list[str]) -> dict[str, Any]:
-    """One get_release_by_id call, wrapping every musicbrainzngs failure mode
-    into MusicBrainzLookupError (see the boundary-catch note on
-    resolve_area_chain for why the catch is deliberately broad)."""
-    configure()
-    try:
-        result = musicbrainzngs.get_release_by_id(release_mbid, includes=includes)
-    except Exception as e:
-        raise MusicBrainzLookupError(str(e)) from e
-    return result.get("release", {})
+    """One release lookup with the given includes; raises MusicBrainzLookupError."""
+    return _mb_call(musicbrainzngs.get_release_by_id, release_mbid, includes=includes).get("release", {})
 
 
 def _retry_deferred(deferred: list[tuple[str, Callable[[], None]]], status_fn: Callable[[str], None], pause: float) -> list[str]:
-    """Re-run each parked (description, redo) unit once, after a short pause,
-    and return the descriptions of the ones that failed again. `redo`
-    re-issues exactly one MusicBrainz lookup and applies its result, raising
-    MusicBrainzLookupError on failure -- the same best-effort contract as the
-    first attempt. The returned descriptions go into
-    MBReleaseDetail.partial_failures for the caller to surface."""
+    """Retry each parked (description, redo) once after `pause`; return descriptions that failed again."""
     if not deferred:
         return []
     status_fn(f"Retrying {len(deferred)} lookup(s) that failed")
@@ -804,48 +289,10 @@ def fetch_release_detail(
     known_place_mbids: frozenset[str] = frozenset(),
     retry_pause: float = _RETRY_PAUSE_SECONDS,
 ) -> MBReleaseDetail:
-    """Fetch every rich per-pressing detail this feature imports for one
-    release: album-level scalars, album-level credits, Discogs master link,
-    per-track number/side/credits, and recording locations (resolved into a
-    full Place parent chain, cached so a studio shared across many tracks is
-    only walked once).
-
-    The release is fetched in two calls (see _RELEASE_CORE_INCLUDES): a
-    mandatory core call for scalars/tracklist/labels/credits, then an
-    optional call for the per-recording relation lists. If the second call
-    fails twice it's skipped -- the album still imports, just without
-    per-track performer/writer/location credits -- and that's noted in
-    `MBReleaseDetail.partial_failures`. Every other follow-up lookup (per
-    work, per label, per area chain) is likewise best-effort: a failure is
-    collected, retried once at the end of its pass, and if it still fails
-    recorded in `partial_failures` rather than aborting the whole fetch.
-
-    `progress_callback(current, total)`, if given, is called as each
-    follow-up lookup (work / label / recording-location place) completes;
-    `total` is known once the relation call has been parsed. `status_callback
-    (message)`, if given, gets a short human-readable description of the step
-    currently in flight ("Resolving writing credits (3 of 12)", "Retrying 2
-    lookup(s) that failed", ...) -- useful before `total` is known and for
-    steps the counter doesn't cover (the release calls themselves, area
-    hierarchy walks). See MusicBrainzImportDialog in musicbrainz_match_dialog.
-
-    `retry_pause` is the delay before the end-of-pass retry; tests pass 0.
-
-    `known_label_mbids`/`known_place_mbids`, if given (see
-    album_musicbrainz_known_entities.py), are plain sets of MBIDs the local
-    database already has a Publisher/Place row for -- this module has no DB
-    access of its own, it just trusts the caller's sets. A label or
-    recording-location place already on file locally had its full detail
-    (founders, headquarters/area chain) imported the first time it was
-    seen, so the per-label get_label_by_id call and the per-place
-    resolve_area_chain walk are both skipped for a known MBID, using only
-    the cheap stub data already embedded in the release response instead.
-    Everything downstream (resolve_or_create_publisher, resolve_place_chain)
-    already stops at a matched MBID and trusts its existing local data, so
-    this doesn't change what gets written -- only avoids re-fetching data
-    that would just be discarded once the write layer matches on MBID.
-    """
-    configure()
+    """Fetch every per-pressing detail of one release; follow-up failures go to partial_failures."""
+    # known_label_mbids / known_place_mbids: MBIDs the local DB already has rows for
+    # (album_musicbrainz_known_entities.py) -- their label/area lookups are skipped, since
+    # the write layer matches on MBID and keeps its existing data.
 
     def _status(message: str) -> None:
         if status_callback:
@@ -894,22 +341,14 @@ def fetch_release_detail(
         media_format=_media_format_str(release.get("medium-list")),
     )
 
-    # Tracklist skeleton from the core call: number/side/title/recording MBID
-    # and the recording's own artist-credit byline. The per-recording
-    # relation lists (performers, works, recording locations) aren't in this
-    # response -- they come from the relation call below and get merged in by
-    # recording MBID.
+    # Tracklist skeleton; the relation call below merges in per-recording relations by recording MBID.
     tracks_by_recording: dict[str, list[MBReleaseTrack]] = {}
     for medium in release.get("medium-list", []) or []:
-        disc_number = int(medium.get("position") or 0)
+        disc_number = _to_int(medium.get("position"), 0)
         disc_title = medium.get("title")
         for track in medium.get("track-list", []) or []:
             recording = track.get("recording") or {}
             side, track_number = _parse_track_number_side(track.get("number"), track.get("position"))
-            try:
-                absolute_position = int(track.get("position"))
-            except (TypeError, ValueError):
-                absolute_position = None
             mb_track = MBReleaseTrack(
                 disc_number=disc_number,
                 disc_title=disc_title,
@@ -918,17 +357,15 @@ def fetch_release_detail(
                 title=recording.get("title") or track.get("title") or "",
                 recording_mbid=recording.get("id") or "",
                 credits=_parse_recording_artist_credit(recording),
-                absolute_position=absolute_position,
+                absolute_position=_to_int(track.get("position")),
             )
             detail.tracks.append(mb_track)
             rid = recording.get("id")
             if rid:
                 tracks_by_recording.setdefault(rid, []).append(mb_track)
 
-    # --- Optional relation call: per-recording relation lists. One inline
-    # retry (it gates every work lookup, so deferring it to the end would
-    # just reorder the whole rest of the fetch); a second failure downgrades
-    # to a scalar-only import.
+    # --- Optional relation call with one inline retry (it gates every work lookup);
+    # a second failure downgrades to a scalar-only import.
     raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
     track_work_mbids: list[tuple[MBReleaseTrack, list[str]]] = []
     _status("Fetching track relationships")
@@ -966,22 +403,11 @@ def fetch_release_detail(
                     if work_mbids:
                         track_work_mbids.append((mb_track, work_mbids))
 
-    # Unique works, in first-seen order -- each needs its own get_work_by_id
-    # for the artist-relation-list where composer/lyricist/... credits live
-    # (the embedded work stub carries only id/title/type).
+    # Unique works, in first-seen order.
     raw_work_credits: dict[str, list[MBTrackCredit]] = {}
-    unique_work_mbids: list[str] = []
-    seen_work_mbids: set[str] = set()
-    for _mb_track, work_mbids in track_work_mbids:
-        for work_mbid in work_mbids:
-            if work_mbid not in seen_work_mbids:
-                seen_work_mbids.add(work_mbid)
-                unique_work_mbids.append(work_mbid)
+    unique_work_mbids: list[str] = list(dict.fromkeys(wm for _mb_track, work_mbids in track_work_mbids for wm in work_mbids))
 
-    # Unique labels needing a get_label_by_id follow-up (the embedded label
-    # is only a stub, missing annotation/founder relations). A label already
-    # on file locally is left as a bare stub -- the write layer matches on
-    # MBID and only fills blanks.
+    # Unique labels needing a full lookup; a label already on file stays a bare stub.
     raw_labels: dict[str, tuple[MBLabelInfo, str | None]] = {}  # label_mbid -> (info, area_mbid)
     labels_to_fetch: list[tuple[str, str | None]] = []  # (label_mbid, catalog_number)
     seen_label_mbids: set[str] = set()
@@ -998,8 +424,7 @@ def fetch_release_detail(
 
     places_to_resolve = [pm for pm in raw_locations if pm not in known_place_mbids]
     for place_mbid in known_place_mbids & raw_locations.keys():
-        # Already have this exact Place locally, ancestry included --
-        # resolve_place_chain matches on MBID and trusts its existing chain.
+        # Already on file with its ancestry; resolve_place_chain matches on MBID.
         raw_locations[place_mbid]["area_mbid"] = None
         raw_locations[place_mbid]["area_name"] = None
 
@@ -1007,8 +432,7 @@ def fetch_release_detail(
     if progress_callback:
         progress_callback(0, progress_state["total"])
 
-    # --- Pass 1 over the per-entity follow-ups; failures are parked in
-    # `deferred` and retried once, together, at the end of the pass.
+    # --- Pass 1: per-entity follow-ups; failures are parked and retried once at the end.
     deferred: list[tuple[str, Callable[[], None]]] = []
 
     for i, work_mbid in enumerate(unique_work_mbids, start=1):
@@ -1037,9 +461,7 @@ def fetch_release_detail(
             deferred.append((f"record label {label_mbid}", _do_label))
         _tick()
 
-    # _resolve_place_area is already internally best-effort (a failed lookup
-    # returns (None, None), indistinguishable from "place has no area"), so
-    # it isn't a retry unit -- just a progress step.
+    # _resolve_place_area is already best-effort, so it is a progress step, not a retry unit.
     for i, place_mbid in enumerate(places_to_resolve, start=1):
         _status(f"Resolving recording location ({i} of {len(places_to_resolve)})")
         area_mbid, area_name = _resolve_place_area(place_mbid)
@@ -1053,8 +475,7 @@ def fetch_release_detail(
         for work_mbid in work_mbids:
             mb_track.credits.extend(raw_work_credits.get(work_mbid, []))
 
-    # --- Pass 2: area hierarchy walks, now that every place/label has (or
-    # hasn't) yielded an area MBID. Same collect-then-retry-once contract.
+    # --- Pass 2: area hierarchy walks, same collect-then-retry-once contract.
     pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
     for location in raw_locations.values():
         if location.get("area_mbid"):
@@ -1069,8 +490,7 @@ def fetch_release_detail(
     for idx, area_mbid in enumerate(area_list, start=1):
         _status(f"Resolving location hierarchy ({idx} of {len(area_list)})")
         if area_mbid in known_place_mbids:
-            # Same reasoning as the recording-location skip above -- this
-            # area already exists locally with its own ancestry intact.
+            # Already on file locally with its own ancestry.
             area_cache[area_mbid] = [{"mbid": area_mbid, "name": None, "type": None, "latitude": None, "longitude": None}]
             continue
 
@@ -1097,20 +517,8 @@ def fetch_release_detail(
 
 
 def fetch_release_group_aliases(release_group_mbid: str) -> list[MBAlias]:
-    """Alternate album titles live on the release-group (the abstract
-    "album" entity shared by every pressing), not the specific release --
-    a separate, small follow-up call from fetch_release_detail."""
-    configure()
-    try:
-        result = musicbrainzngs.get_release_group_by_id(release_group_mbid, includes=["aliases"])
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
+    """Alternate album titles from the release-group; raises MusicBrainzLookupError."""
+    result = _mb_call(musicbrainzngs.get_release_group_by_id, release_group_mbid, includes=["aliases"])
 
     aliases = []
     for al in result.get("release-group", {}).get("alias-list", []) or []:
