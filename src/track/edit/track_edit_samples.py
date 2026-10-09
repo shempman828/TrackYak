@@ -1,11 +1,9 @@
-# ---------------------------------------------------------------------------
-# SamplesTab
-# ---------------------------------------------------------------------------
+"""SamplesTab: which tracks this track samples, and which tracks sample it."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_context import track_context_map
 from src.common.widgets.entity_completer_edit import ContextItemDelegate
@@ -19,18 +17,13 @@ DIR_USED_BY = "used_by"  # other track -> this track (the other track samples th
 
 
 def _track_display(track):
-    """Bare track name -- the value the picked suggestion feeds back into
-    the field. Album (and now primary artist) context rides the dimmed
-    secondary-text channel of the results dropdown instead of being baked
-    into this string (see track_context_map / ContextItemDelegate)."""
+    """Return the bare track name shown for a search result."""
+    # Album and artist context go in the dimmed secondary text (see ContextItemDelegate).
     return getattr(track, "track_name", None) or str(track)
 
 
 def _build_track_index(tracks, exclude_id=None):
-    """
-    display_string -> track_id, with automatic disambiguation for duplicate
-    names (appends track_id when two tracks share a display string).
-    """
+    """Return display_string -> track_id, adding ' #id' to names that two tracks share."""
     index = {}
     seen_names = {}
     for t in tracks:
@@ -114,16 +107,13 @@ class _AddSampleBar(QWidget):
 
         self.name_combo = QComboBox()
         self.name_combo.setVisible(False)
-        self.name_combo.currentIndexChanged.connect(self._on_name_selected)
-        self.name_combo.view().setItemDelegate(
-            ContextItemDelegate(
-                lambda name: self._display_to_context.get(name, ""), self.name_combo.view()
-            )
-        )
+        # activated, not currentIndexChanged: the first result is already current after the
+        # combo is filled, so picking it would not emit currentIndexChanged.
+        self.name_combo.activated.connect(self._on_name_selected)
+        self.name_combo.view().setItemDelegate(ContextItemDelegate(lambda name: self._display_to_context.get(name, ""), self.name_combo.view()))
         search_row.addWidget(self.name_combo)
 
         add_btn = QPushButton("Add")
-        add_btn.setFixedWidth(60)
         add_btn.clicked.connect(self._handle_add)
         search_row.addWidget(add_btn)
 
@@ -133,16 +123,20 @@ class _AddSampleBar(QWidget):
         self._relabel_toggle()
 
     def set_exclude_id(self, exclude_id):
+        """Hide the track with `exclude_id` (the edited track) from results."""
         self._exclude_id = exclude_id
 
     def current_direction(self):
+        """Return DIR_USES or DIR_USED_BY from the toggle."""
         return DIR_USES if self.btn_uses.isChecked() else DIR_USED_BY
 
     def set_track_name(self, name):
+        """Set the edited track's name used in the toggle labels."""
         self._track_name = name or "This track"
         self._relabel_toggle()
 
     def _relabel_toggle(self, *_args):
+        """Write "X samples Y" sentences on both toggle buttons."""
         other = self.name_search.text().strip() or None
         uses_sentence = _sample_sentence(DIR_USES, self._track_name, other)
         used_by_sentence = _sample_sentence(DIR_USED_BY, self._track_name, other)
@@ -152,6 +146,7 @@ class _AddSampleBar(QWidget):
         self.btn_used_by.setToolTip(used_by_sentence + ".")
 
     def _on_name_search(self, text: str):
+        """Fill the results combo with tracks whose name contains `text` (2+ chars)."""
         self._matched_id = None
         text = text.strip()
         self.name_combo.blockSignals(True)
@@ -166,10 +161,7 @@ class _AddSampleBar(QWidget):
             tracks = tracks[:_MAX_SEARCH_RESULTS]
             self._display_to_id = _build_track_index(tracks, exclude_id=self._exclude_id)
             context_by_id = track_context_map(tracks)
-            self._display_to_context = {
-                display: context_by_id.get(track_id, "")
-                for display, track_id in self._display_to_id.items()
-            }
+            self._display_to_context = {display: context_by_id.get(track_id, "") for display, track_id in self._display_to_id.items()}
             for display in sorted(self._display_to_id.keys()):
                 self.name_combo.addItem(display, self._display_to_id[display])
             self.name_combo.setVisible(self.name_combo.count() > 0)
@@ -180,6 +172,7 @@ class _AddSampleBar(QWidget):
         self.name_combo.blockSignals(False)
 
     def _on_name_selected(self, index: int):
+        """Use the picked result as the track to link."""
         if index >= 0:
             self._matched_id = self.name_combo.currentData()
             self.name_search.blockSignals(True)
@@ -188,14 +181,16 @@ class _AddSampleBar(QWidget):
             self._relabel_toggle()
 
     def _handle_add(self):
+        """Add the link to the picked track (or to the result whose name matches exactly)."""
         if self._matched_id is None:
-            show_status_message(
-                self, "No track selected. Choose an existing track from the search results."
-            )
+            self._matched_id = self._display_to_id.get(self.name_search.text().strip())
+        if self._matched_id is None:
+            show_status_message(self, "No track selected. Choose an existing track from the search results.")
             return
         self._on_add(direction=self.current_direction(), matched_track_id=self._matched_id)
 
     def clear_inputs(self):
+        """Clear the search field and the results."""
         self.name_search.clear()
         self.name_combo.blockSignals(True)
         self.name_combo.clear()
@@ -206,6 +201,8 @@ class _AddSampleBar(QWidget):
 
 
 class SamplesTab(_BaseTab):
+    """Add and remove sample links of a single track."""
+
     saves_immediately = True  # add/remove write to the DB at once
 
     def __init__(self, tracks: list, controller, parent=None):
@@ -215,6 +212,7 @@ class SamplesTab(_BaseTab):
             self.add_bar.set_exclude_id(self.track.track_id)
 
     def _build_ui(self):
+        """Build the add bar and the two sample lists."""
         layout = QVBoxLayout(self)
 
         self.add_bar = _AddSampleBar(controller=self.controller, on_add=self._handle_add)
@@ -225,9 +223,7 @@ class SamplesTab(_BaseTab):
         self._used_list = QListWidget()
         self._used_list.itemDoubleClicked.connect(self._open_sampled)
         self._used_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self._used_list.customContextMenuRequested.connect(
-            lambda pos: self._list_context_menu(self._used_list, pos, self._remove_used)
-        )
+        self._used_list.customContextMenuRequested.connect(lambda pos: self._list_context_menu(self._used_list, pos, self._remove_used))
         layout.addWidget(self._used_list)
 
         # Sampled-by list
@@ -235,21 +231,21 @@ class SamplesTab(_BaseTab):
         self._by_list = QListWidget()
         self._by_list.itemDoubleClicked.connect(self._open_sampler)
         self._by_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self._by_list.customContextMenuRequested.connect(
-            lambda pos: self._list_context_menu(self._by_list, pos, self._remove_by)
-        )
+        self._by_list.customContextMenuRequested.connect(lambda pos: self._list_context_menu(self._by_list, pos, self._remove_by))
         layout.addWidget(self._by_list)
 
         layout.addWidget(QLabel("Double-click any track to open its editor."))
 
     def load(self, tracks: list) -> None:
+        """Show both sample lists of the track (single track only)."""
         self.tracks = tracks
         self._used_list.clear()
         self._by_list.clear()
 
-        # Samples tab is single-track only in a meaningful way
         if self.is_multi:
-            self._used_list.addItem("(Select a single track to manage samples)")
+            placeholder = QListWidgetItem("(Select a single track to manage samples)")
+            placeholder.setFlags(Qt.NoItemFlags)  # not selectable, not removable
+            self._used_list.addItem(placeholder)
             self.add_bar.setEnabled(False)
             return
 
@@ -273,90 +269,71 @@ class SamplesTab(_BaseTab):
                 self._by_list.addItem(item)
 
     def _reload_and_refresh(self):
-        # get_entity_object returns the SAME identity-mapped Track instance
-        # (this session never expunges it) -- reassigning self.tracks[0] to
-        # it is a no-op for staleness purposes. The actual write above went
-        # through the Samples model directly, not by mutating
-        # track.samples_used/sampled_by_tracks, and the session is opened
-        # with expire_on_commit=False (src/db/db_engine.py), so those two
-        # relationship collections -- once loaded by the load() call below --
-        # would otherwise keep showing pre-edit state indefinitely. Expire
-        # them so the reload actually reflects the DB write just made.
-        try:
-            refreshed = self.controller.get.get_entity_object("Track", track_id=self.track.track_id)
-            if refreshed:
-                self.tracks[0] = refreshed
-                self.controller.get.session.expire(refreshed, ["samples_used", "sampled_by_tracks"])
-        except SQLAlchemyError as e:
-            logger.warning(f"Could not reload track: {e}")
+        """Reload the track with fresh sample relationships and redisplay."""
+        # expire_on_commit=False: the cached relationships survive a commit, so expire them.
+        refreshed = self.controller.get.get_entity_object("Track", track_id=self.track.track_id)
+        if refreshed:
+            self.tracks[0] = refreshed
+            self.controller.get.session.expire(refreshed, ["samples_used", "sampled_by_tracks"])
         self.load(self.tracks)
 
     def _existing_sample_keys(self):
-        """Set of (sampled_by_id, sampled_id) already present for this track."""
+        """Return the (sampled_by_id, sampled_id) pairs that already exist for this track."""
         keys = {(self.track.track_id, s.sampled_id) for s in self.track.samples_used}
         keys |= {(s.sampled_by_id, self.track.track_id) for s in self.track.sampled_by_tracks}
         return keys
 
     def _handle_add(self, direction, matched_track_id):
+        """Add one sample link in `direction` to the matched track."""
         if matched_track_id == self.track.track_id:
             show_status_message(self, "A track can't sample itself.")
             return
 
-        if direction == DIR_USES:
-            kwargs = {"sampled_by_id": self.track.track_id, "sampled_id": matched_track_id}
-        else:
-            kwargs = {"sampled_by_id": matched_track_id, "sampled_id": self.track.track_id}
+        kwargs = {"sampled_by_id": self.track.track_id, "sampled_id": matched_track_id} if direction == DIR_USES else {"sampled_by_id": matched_track_id, "sampled_id": self.track.track_id}
 
         if (kwargs["sampled_by_id"], kwargs["sampled_id"]) in self._existing_sample_keys():
             show_status_message(self, "That sample relationship already exists.")
             return
 
-        try:
-            result = self.controller.add.add_entity("Samples", **kwargs)
-            if result is None:
-                raise RuntimeError("add_entity returned None")
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Failed to add sample: {e}")
-            QMessageBox.critical(self, "Error", f"Could not add sample:\n{e}")
+        # add_entity catches its own DB errors and returns None.
+        if self.controller.add.add_entity("Samples", **kwargs) is None:
+            logger.error(f"Failed to add sample {kwargs}")
+            QMessageBox.critical(self, "Error", "Could not add the sample. See the log for details.")
             return
 
         self.add_bar.clear_inputs()
         self._reload_and_refresh()
 
     def _delete_sample(self, sampled_by_id, sampled_id):
-        try:
-            ok = self.controller.delete.delete_entity(
-                "Samples", sampled_by_id=sampled_by_id, sampled_id=sampled_id
-            )
-            if not ok:
-                raise RuntimeError("delete_entity returned False")
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Failed to remove sample: {e}")
-            QMessageBox.critical(self, "Error", f"Could not remove sample:\n{e}")
+        """Delete one sample link."""
+        if not self.controller.delete.delete_entity("Samples", sampled_by_id=sampled_by_id, sampled_id=sampled_id):
+            logger.error(f"Failed to remove sample {sampled_by_id} -> {sampled_id}")
+            QMessageBox.critical(self, "Error", "Could not remove the sample. See the log for details.")
             return
         self._reload_and_refresh()
 
-    def _remove_used(self):
-        item = self._used_list.currentItem()
-        if not item:
-            return
-        other_id = item.data(Qt.UserRole)
-        self._delete_sample(sampled_by_id=self.track.track_id, sampled_id=other_id)
+    def _remove_used(self, item):
+        """Remove the "samples used" link shown by `item`."""
+        other_id = item.data(Qt.UserRole) if item is not None else None
+        if other_id is not None:
+            self._delete_sample(sampled_by_id=self.track.track_id, sampled_id=other_id)
 
-    def _remove_by(self):
-        item = self._by_list.currentItem()
-        if not item:
-            return
-        other_id = item.data(Qt.UserRole)
-        self._delete_sample(sampled_by_id=other_id, sampled_id=self.track.track_id)
+    def _remove_by(self, item):
+        """Remove the "sampled by" link shown by `item`."""
+        other_id = item.data(Qt.UserRole) if item is not None else None
+        if other_id is not None:
+            self._delete_sample(sampled_by_id=other_id, sampled_id=self.track.track_id)
 
     def _open_sampled(self, item):
+        """Open the editor of a sampled track."""
         self._open_track(item.data(Qt.UserRole))
 
     def _open_sampler(self, item):
+        """Open the editor of a sampling track."""
         self._open_track(item.data(Qt.UserRole))
 
     def _open_track(self, track_id):
+        """Open a non-modal editor for `track_id`; reload this tab when it saves."""
         if track_id is None:
             return
         track = self.controller.get.get_entity_object("Track", track_id=track_id)
@@ -371,7 +348,10 @@ class SamplesTab(_BaseTab):
 
     @staticmethod
     def _list_context_menu(list_widget, pos, remove_cb):
-        if list_widget.currentItem():
-            menu = QMenu(list_widget)
-            menu.addAction("Remove", remove_cb)
-            menu.exec(list_widget.mapToGlobal(pos))
+        """Offer "Remove" for the item under the cursor."""
+        item = list_widget.itemAt(pos)
+        if item is None or item.data(Qt.UserRole) is None:
+            return
+        menu = QMenu(list_widget)
+        menu.addAction("Remove", lambda: remove_cb(item))
+        menu.exec(list_widget.mapToGlobal(pos))

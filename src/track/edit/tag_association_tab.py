@@ -1,57 +1,26 @@
-"""Generic base for track-association tabs (genres, moods): a QListWidget
-of "this track is tagged with X" rows backed by a simple {track_id, x_id}
-association table, with search/add/remove and a context menu.
-
-Covers the Genre/Mood shape specifically -- both use QListWidget + a
-context menu, over a track_id-keyed association row. Places and Awards have
-extra per-association fields and a polymorphic entity_id/entity_type key,
-so they stay on their own bespoke tab implementations rather than being
-forced into this shape.
-"""
+"""Generic base for the Genres and Moods tabs: a list of tags backed by a {track_id, x_id} table."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-)
-from sqlalchemy.exc import SQLAlchemyError
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QVBoxLayout
 
-from src.common.widgets.entity_completer_edit import (
-    build_entity_search_widget,
-    find_or_create_by_name,
-    get_cached_entities,
-    register_cached_entity,
-)
+from src.common.widgets.entity_completer_edit import build_entity_search_widget, find_or_create_by_name, get_cached_entities, register_cached_entity
 from src.foundation.logger_config import logger
 from src.track.edit.track_edit_basetab import _BaseTab
 
 
 class _BaseTrackAssociationTab(_BaseTab):
-    """
-    Subclasses must set these class attributes:
-      model_name        -- e.g. "Genre"
-      id_field           -- e.g. "genre_id"
-      name_field         -- e.g. "genre_name"
-      assoc_model        -- e.g. "TrackGenre"
-      placeholder_text   -- e.g. "Search genres…"
-      add_button_text    -- e.g. "Add Genre"
+    """Search, add and remove tags of one kind on the edited track(s)."""
 
-    Optionally override `_load_track_items` (default: get_entity_links +
-    get_entity_object) for a faster ORM-relationship shortcut, and
-    `_find_or_create` to add an extra lookup step before creating.
-    """
-
+    # Subclasses set model_name ("Genre"), id_field ("genre_id"), name_field ("genre_name"),
+    # assoc_model ("TrackGenre"), relationship ("genres" on Track), placeholder_text and add_button_text.
     model_name: str = ""
     id_field: str = ""
     name_field: str = ""
     assoc_model: str = ""
+    relationship: str = ""
     placeholder_text: str = ""
     add_button_text: str = "Add"
     saves_immediately = True
@@ -61,12 +30,11 @@ class _BaseTrackAssociationTab(_BaseTab):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the search row, the tag list and the Remove button."""
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = build_entity_search_widget(
-            self.controller, self.model_name, self.name_field, self.id_field, self.placeholder_text
-        )
+        self._search = build_entity_search_widget(self.controller, self.model_name, self.name_field, self.id_field, self.placeholder_text)
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
@@ -79,138 +47,110 @@ class _BaseTrackAssociationTab(_BaseTab):
 
         self._list = QListWidget()
         self._list.setSelectionMode(QListWidget.ExtendedSelection)
+        self._list.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self._list)
 
+        remove_row = QHBoxLayout()
+        remove_row.addStretch()
+        self._remove_btn = QPushButton("Remove Selected")
+        self._remove_btn.setToolTip("Remove the selected items from the edited track(s) (Delete)")
+        self._remove_btn.setEnabled(False)
+        self._remove_btn.clicked.connect(self._remove_selected)
+        remove_row.addWidget(self._remove_btn)
+        layout.addLayout(remove_row)
+
+        delete_shortcut = QShortcut(QKeySequence.Delete, self._list)
+        delete_shortcut.setContext(Qt.WidgetShortcut)
+        delete_shortcut.activated.connect(self._remove_selected)
+
+    def _on_selection_changed(self):
+        """Enable "Remove Selected" when items are selected."""
+        self._remove_btn.setEnabled(bool(self._list.selectedItems()))
+
     def _known_entities(self) -> list:
-        """Candidate set for _find_or_create's case-insensitive duplicate
-        check: the full cached table when small enough to preload, or the
-        bounded search widget's last on-demand query otherwise."""
+        """Return the entities to check for a case-insensitive duplicate name."""
+        # The full cached table when small enough, else the widget's last query.
         cached = get_cached_entities(self.controller, self.model_name)
         if cached is not None:
             return cached
         return self._search.known_matches()
 
     def _on_search_text_changed(self, text: str):
+        """Enable the add button when the search has text."""
         self._add_btn.setEnabled(bool(text.strip()))
 
     def _load_track_items(self, track):
         """Return [(id, name), ...] tagged on a single track."""
-        assocs = self.controller.get.get_entity_links(self.assoc_model, track_id=track.track_id)
-        items = []
-        for a in assocs:
-            entity_id = getattr(a, self.id_field)
-            entity = self.controller.get.get_entity_object(
-                self.model_name, **{self.id_field: entity_id}
-            )
-            if entity:
-                items.append((getattr(entity, self.id_field), getattr(entity, self.name_field)))
-        return items
+        return [(getattr(e, self.id_field), getattr(e, self.name_field)) for e in getattr(track, self.relationship)]
 
     def load(self, tracks: list) -> None:
+        """Show the tags shared by every edited track."""
         self.tracks = tracks
         self._list.clear()
-        if self.is_multi:
-            items = self._common_items()
-        else:
-            items = self._load_track_items(self.track)
-        for entity_id, name in items:
+        items = self._common_items() if self.is_multi else self._load_track_items(self.track)
+        for entity_id, name in sorted(items, key=lambda i: (i[1] or "").lower()):
             item = QListWidgetItem(name)
             item.setData(Qt.UserRole, entity_id)
             self._list.addItem(item)
+        self._on_selection_changed()
 
     def _common_items(self):
+        """Return the (id, name) tags present on every edited track."""
         all_sets = [set(self._load_track_items(t)) for t in self.tracks]
-        common = all_sets[0]
-        for s in all_sets[1:]:
-            common &= s
-        return list(common)
+        return list(set.intersection(*all_sets)) if all_sets else []
 
     def _invalidate_cache(self) -> None:
-        """Hook for subclasses whose `_load_track_items` reads a cached ORM
-        relationship instead of querying fresh (see GenresTab). The base
-        implementation here (get_entity_links) always queries fresh, so
-        this is a no-op by default; override wherever a relationship
-        attribute could have already been loaded and cached on `self.track`
-        objects before the add/remove below writes past it -- the session
-        is opened with expire_on_commit=False, so commit() alone won't
-        invalidate it (see src/db/db_engine.py)."""
+        """Expire the cached tag relationship on every edited track."""
+        # expire_on_commit=False: a commit does not refresh the cached relationship.
+        session = self.controller.get.session
+        for track in self.tracks:
+            session.expire(track, [self.relationship])
 
     def _find_or_create(self, name: str):
-        return find_or_create_by_name(
-            self.controller, self.model_name, self.name_field, name, self._known_entities()
-        )
+        """Return the entity named `name`, creating it if needed."""
+        return find_or_create_by_name(self.controller, self.model_name, self.name_field, name, self._known_entities())
 
     def _add(self):
+        """Add every typed tag to every edited track."""
         names = self._search.split_names()
         if not names:
             return
 
-        # matched_id only names a single typed entry -- with several typed
-        # at once (e.g. "Rock;Pop") each is resolved by name instead of
-        # relying on that one-shot completer pick.
+        # matched_id only names a single typed entry; several names are each resolved by name.
         single_matched_id = self._search.matched_id() if len(names) == 1 else None
 
         entities = []
-        try:
-            for name in names:
-                if single_matched_id is not None:
-                    entity = self.controller.get.get_entity_object(
-                        self.model_name, **{self.id_field: single_matched_id}
-                    )
-                else:
-                    entity = self._find_or_create(name)
-                # _find_or_create ordinarily returns a single entity; a
-                # subclass (e.g. GenresTab) may return a list instead when
-                # `name` matches a split-alias rule, expanding into every
-                # target entity for that one typed name.
-                if isinstance(entity, list):
-                    entities.extend((name, e) for e in entity)
-                elif entity:
-                    entities.append((name, entity))
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to find/create {self.model_name}: {e}")
-            return
+        for name in names:
+            entity = self.controller.get.get_entity_object(self.model_name, **{self.id_field: single_matched_id}) if single_matched_id is not None else self._find_or_create(name)
+            # A subclass may return a list (a split-alias rule expands one name into several).
+            if isinstance(entity, list):
+                entities.extend((name, e) for e in entity)
+            elif entity:
+                entities.append((name, entity))
         if not entities:
+            QMessageBox.warning(self, "Error", f"Could not find or create the {self.model_name.lower()}.")
             return
 
-        rows = [
-            {"track_id": track.track_id, self.id_field: getattr(entity, self.id_field)}
-            for _name, entity in entities
-            for track in self.tracks
-        ]
-        try:
-            _, failed = self.controller.add.add_entities_with_fallback(self.assoc_model, rows)
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to add {self.model_name} to tracks: {e}")
-            failed = []
+        rows = [{"track_id": track.track_id, self.id_field: getattr(entity, self.id_field)} for _name, entity in entities for track in self.tracks]
+        _, failed = self.controller.add.add_entities_with_fallback(self.assoc_model, rows)
         if failed:
             bad_track_ids = ", ".join(dict.fromkeys(str(row["track_id"]) for row in failed))
-            logger.warning(
-                f"Failed to tag {len(failed)} track(s) with {self.model_name}: "
-                f"track_id(s) {bad_track_ids}"
-            )
+            logger.warning(f"Failed to tag {len(failed)} track(s) with {self.model_name}: track_id(s) {bad_track_ids}")
             QMessageBox.warning(
                 self,
                 "Some tracks not updated",
-                f"Could not add to {len(failed)} of {len(rows)} track(s) "
-                f"(track_id(s) {bad_track_ids}). They may have been deleted or "
-                f"changed since this tab was opened; try closing and reopening it.",
+                f"Could not add to {len(failed)} of {len(rows)} track(s) (track_id(s) {bad_track_ids}). They may have been deleted or changed since this tab was opened; try closing and reopening it.",
             )
 
         if single_matched_id is None:
+            search = self._search
             for _name, entity in entities:
                 entity_id = getattr(entity, self.id_field)
                 display = getattr(entity, self.name_field, None)
                 if display:
-                    # Deferred: _add() can run nested inside EntityCompleterEdit's
-                    # own keyPressEvent (Enter -> returnPressed fires *during*
-                    # that native call). add_to_index() replaces the QCompleter
-                    # object in place, and doing that while Qt's own key handling
-                    # is still mid-execution on that same completer corrupts its
-                    # internals and crashes the process. See artist_edit_types.py
-                    # _flush_new_chip_paint() for the same hazard.
-                    search = self._search
-                    QTimer.singleShot(0, lambda d=display, i=entity_id: search.add_to_index(d, i))
+                    # Deferred: add_to_index() rebuilds the completer, which crashes if done
+                    # mid key-dispatch (Enter -> returnPressed fires inside keyPressEvent).
+                    QTimer.singleShot(0, lambda d=display, i=entity_id, s=search: s.add_to_index(d, i))
                 register_cached_entity(self.model_name, entity)
 
         self._search.reset()
@@ -218,22 +158,20 @@ class _BaseTrackAssociationTab(_BaseTab):
         self.load(self.tracks)
 
     def _remove_selected(self):
+        """Remove the selected tags from every edited track."""
         items = self._list.selectedItems()
         if not items:
             return
         track_ids = [track.track_id for track in self.tracks]
-        for item in items:
-            entity_id = item.data(Qt.UserRole)
-            try:
-                self.controller.delete.delete_entity(
-                    self.assoc_model, track_id=track_ids, **{self.id_field: entity_id}
-                )
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to remove {self.model_name} from tracks: {e}")
+        failed = [item.text() for item in items if not self.controller.delete.delete_entity(self.assoc_model, track_id=track_ids, **{self.id_field: item.data(Qt.UserRole)})]
+        if failed:
+            logger.error(f"Failed to remove {self.model_name}(s) {failed} from tracks {track_ids}")
+            QMessageBox.warning(self, "Error", "Could not remove:\n" + "\n".join(failed))
         self._invalidate_cache()
         self.load(self.tracks)
 
     def contextMenuEvent(self, event):
+        """Offer "Remove" for the selected items."""
         if self._list.selectedItems():
             menu = QMenu(self)
             menu.addAction("Remove", self._remove_selected)

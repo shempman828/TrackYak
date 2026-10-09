@@ -1,24 +1,11 @@
-"""
-track_toolbar.py — widgets shared by TrackView and BaseTrackView:
-
-    TrackToolbar   search field + column-scope picker, an action slot, and a
-                   second line with the list summary and the scope chip
-    SelectionBar   a strip under the table, shown for 2+ selected rows, with
-                   the selection's size/length and its main actions
-
-Both are plain widgets; TrackViewToolbarMixin (track_view_toolbar.py) wires
-them to a host view.
-"""
+"""TrackToolbar and SelectionBar: widgets shared by TrackView and BaseTrackView."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 
 class TrackToolbar(QWidget):
-    """
-    ┌ 🔍 Search tracks…            [All Columns ▾] ┐   <actions…>
-    12,345 tracks · 812 h   [Genre: jazz  ✕]
-    """
+    """Search field with a column-scope picker, an action slot, the summary line and a scope chip."""
 
     scope_cleared = Signal()
 
@@ -90,8 +77,7 @@ class TrackToolbar(QWidget):
         return widget
 
     def set_scope(self, label: str | None, query: str = "") -> None:
-        """Show the scope chip for a single-column search (`label`), or hide
-        it for an all-columns search (`label` None)."""
+        """Show the scope chip for a single-column search, or hide it when `label` is None."""
         if not label:
             self.scope_chip.hide()
             return

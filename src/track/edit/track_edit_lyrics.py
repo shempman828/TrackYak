@@ -1,8 +1,8 @@
-# ---------------------------------------------------------------------------
-# LyricsTab
-# ---------------------------------------------------------------------------
+"""LyricsTab: edit or search the lyrics and the Explicit flag."""
+
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
@@ -14,13 +14,16 @@ from src.foundation.status_utility import show_status_message
 from src.lyrics.autotag.mood_autotag import auto_tag_lyrics_safe
 from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.track.edit.track_edit_basetab import _BaseTab
-from src.track.edit.track_edit_fieldform import _coerce, _make_widget_for_field, _read_widget, _write_widget
+from src.track.edit.track_edit_fieldform import _coerce, _make_widget_for_field, _read_widget, _show_mixed, _write_widget
 
 
 class LyricsTab(_BaseTab):
-    def __init__(self, tracks: list, controller, parent=None):
+    """Edit the lyrics text, search lyrics online, and set the Explicit flag."""
+
+    def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__(tracks, controller, parent)
         self._explicit_widget = None
+        self._dialog = dialog  # owning TrackEditDialog, for the live (unsaved) title
 
         from src.lyrics.lyrics_search import LyricSearchThread
 
@@ -32,6 +35,7 @@ class LyricsTab(_BaseTab):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the search button, Explicit box and lyrics editor."""
         layout = QVBoxLayout(self)
 
         # Search button + Explicit checkbox row
@@ -46,9 +50,7 @@ class LyricsTab(_BaseTab):
             explicit_lbl = QLabel(f"{explicit_cfg.friendly or 'Explicit'}:")
             if explicit_cfg.tooltip:
                 explicit_lbl.setToolTip(explicit_cfg.tooltip)
-            self._explicit_widget = _make_widget_for_field(
-                "is_explicit", explicit_cfg, self._mark_dirty
-            )
+            self._explicit_widget = _make_widget_for_field("is_explicit", explicit_cfg, self._mark_dirty)
             btn_row.addWidget(explicit_lbl)
             btn_row.addWidget(self._explicit_widget)
 
@@ -65,6 +67,7 @@ class LyricsTab(_BaseTab):
         layout.addWidget(self._edit)
 
     def load(self, tracks: list) -> None:
+        """Show the lyrics and Explicit flag of the track (empty lyrics in multi mode)."""
         self._lyric_thread.stop()
         self.tracks = tracks
         self._dirty.clear()
@@ -88,10 +91,12 @@ class LyricsTab(_BaseTab):
                 values = [getattr(t, "is_explicit", None) for t in tracks]
                 unique = {str(v) for v in values}
                 _write_widget(self._explicit_widget, values[0] if len(unique) == 1 else None)
+                _show_mixed(self._explicit_widget, len(unique) > 1)
             else:
                 _write_widget(self._explicit_widget, getattr(self.track, "is_explicit", None))
 
     def collect_changes(self) -> dict[str, Any]:
+        """Return the lyrics/Explicit changes and run mood auto-tagging on new lyrics."""
         changes = {}
         lyrics_dirty = "lyrics" in self._dirty
         if lyrics_dirty:
@@ -106,11 +111,7 @@ class LyricsTab(_BaseTab):
                 new_val = _coerce(_read_widget(self._explicit_widget), cfg)
                 if self.is_multi or self._has_changed("is_explicit", new_val):
                     changes["is_explicit"] = new_val
-            elif (
-                not self.is_multi
-                and getattr(self.track, "is_explicit", None) is None
-                and final_lyrics
-            ):
+            elif not self.is_multi and getattr(self.track, "is_explicit", None) is None and final_lyrics:
                 # Auto-fill only ever touches a never-determined (NULL)
                 # value -- once is_explicit is anything else, manual or
                 # auto-calculated, later saves leave it alone.
@@ -123,30 +124,34 @@ class LyricsTab(_BaseTab):
         return changes
 
     def _run_mood_autotag(self, lyrics: str) -> tuple[list, list, list]:
-        """Score `lyrics` and write any newly-matching mood/place
-        associations for this track, additive-only. Never raises -- a
-        matching failure must not block saving the rest of the dialog."""
+        """Add the moods/places that match `lyrics` to this track; never raises."""
         return auto_tag_lyrics_safe(self.controller, self.track.track_id, lyrics)
 
     def _show_autotag_status(self, moods_added: list, places_queued: list) -> None:
+        """Show a toast with the auto-tagging result."""
         parts = []
         if moods_added:
             parts.append(f"Tagged mood(s): {', '.join(moods_added)}.")
         if places_queued:
             plural = "s" if len(places_queued) != 1 else ""
-            parts.append(
-                f"{len(places_queued)} place{plural} awaiting review "
-                "(Tools → Review Song-About Places…)."
-            )
+            parts.append(f"{len(places_queued)} place{plural} awaiting review (Tools → Review Song-About Places…).")
         if parts:
             show_status_message(self, " ".join(parts))
 
     def _search_lyrics(self):
+        """Search lyrics online for the title as typed in the Basic tab."""
+        from src.lyrics.lyrics_search import LyricQuery
+
+        query = LyricQuery.from_track(self.track)
+        live_title = (self._dialog.get_live_track_name() or "").strip() if self._dialog is not None else ""
+        if live_title:
+            query = replace(query, song=live_title)
         self._search_btn.setEnabled(False)
         show_status_message(self, "Searching for lyrics…", duration=0)
-        self._lyric_thread.search(self.track)
+        self._lyric_thread.search(query)
 
     def _on_lyrics_ready(self, lyrics) -> None:
+        """Put the found lyrics in the editor and auto-tag moods."""
         formatted = self._format_lyrics(lyrics)
         self._edit.setPlainText(formatted)
         self._search_btn.setEnabled(True)
@@ -161,15 +166,18 @@ class LyricsTab(_BaseTab):
         show_status_message(self, message)
 
     def _on_lyrics_not_found(self) -> None:
+        """Tell the user that no lyrics were found."""
         self._search_btn.setEnabled(True)
         show_status_message(self, "No lyrics found.")
 
     def _on_lyric_error(self, message: str) -> None:
+        """Log a search error and tell the user."""
         logger.error(f"Lyrics search error: {message}")
         self._search_btn.setEnabled(True)
         show_status_message(self, f"Lyrics search failed: {message}")
 
     def cleanup(self) -> None:
+        """Abandon a running lyrics search."""
         self._lyric_thread.stop()
 
     _format_lyrics = staticmethod(format_lyrics_for_storage)

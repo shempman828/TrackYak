@@ -14,21 +14,10 @@ SEARCH_ALL = "__all__"
 
 
 class FilterWorker(CancellableWorker):
-    """
-    Runs the track-filter loop on a background thread.
-    Emits `finished` with the matching subset when done.
+    """Filter tracks by search text on a background thread; emit the matches."""
 
-    `field_value_fn` must only read already-loaded scalar data (plain Column
-    attributes or precomputed lookup caches) — never touch a lazy-loaded ORM
-    relationship, since the DB session is main-thread-only. Fields like
-    `album_name` / `release_year` are SQLAlchemy association_proxy's onto
-    `Track.album`, so a raw `getattr(track, field_name)` here would trigger a
-    lazy load off the main thread and raise DetachedInstanceError.
-
-    Checks `is_cancelled` inside the filter loop so a caller that starts a
-    new search while one is still running can interrupt it via
-    `request_cancel()` instead of blocking on `.wait()` until it finishes.
-    """
+    # field_value_fn must read only loaded columns or lookup caches: lazy loads off the main
+    # thread raise DetachedInstanceError. A cancelled worker emits nothing.
 
     finished = Signal(list)
 
@@ -42,6 +31,7 @@ class FilterWorker(CancellableWorker):
         self._field_value = field_value_fn
 
     def run(self):
+        """Collect the tracks that match the search text."""
         text = self._search_text
         results = []
 
@@ -76,19 +66,9 @@ class FilterWorker(CancellableWorker):
 
 
 class SortWorker(CancellableWorker):
-    """
-    Runs a column sort on a background thread so large libraries don't
-    freeze the UI while sorting.
+    """Sort tracks by one field on a background thread; emit the sorted list."""
 
-    `field_value_fn` must only read already-loaded scalar data (plain Column
-    attributes or precomputed lookup caches) — never touch a lazy-loaded ORM
-    relationship, since the DB session is main-thread-only.
-
-    Inherits CancellableWorker for naming consistency with the rest of the
-    codebase, but a single `sorted()` call has no natural interruption
-    point, so `request_cancel()` here can't do more than today: the caller
-    still waits for the in-flight sort to finish (which is fast).
-    """
+    # sorted() has no interruption point, so request_cancel() cannot stop a running sort.
 
     finished = Signal(list)
 
@@ -100,6 +80,8 @@ class SortWorker(CancellableWorker):
         self._ascending = ascending
 
     def run(self):
+        """Sort the tracks; missing values go last in both directions."""
+
         def sort_key(track):
             raw = self._field_value(track, self._field_name)
             if raw is None:

@@ -1,11 +1,7 @@
 # track_shuffle.py
 
-"""Play or shuffle a track list into the queue and start playback.
-
-Shared by BaseTrackView's "Shuffle All" action and by the playlist/mood tree
-context menus, which shuffle a playlist or mood without opening its tracks
-dialog first.
-"""
+"""Replace the queue with a track list (in order or shuffled) and start playback."""
+# Used by BaseTrackView/TrackView and by the playlist/mood tree context menus.
 
 from pathlib import Path
 import random
@@ -25,8 +21,7 @@ def shuffle_and_play(parent, controller, tracks):
 
 
 def play_tracks(parent, controller, tracks, shuffle: bool = False):
-    """Replace the queue with `tracks` (in order, or shuffled) and start
-    playback of the first one."""
+    """Replace the queue with `tracks` (in order or shuffled) and play the first one."""
     if not tracks:
         show_status_message(parent, f"No tracks available to {'shuffle' if shuffle else 'play'}.")
         return

@@ -27,10 +27,7 @@ def _fake_dialog(*, accept, alias_id=None):
     """A stand-in for CreditedAsDialog whose exec() result is fixed."""
 
     def _factory(*_args, **_kwargs):
-        return SimpleNamespace(
-            exec=lambda: QDialog.Accepted if accept else QDialog.Rejected,
-            selected_alias_id=lambda: alias_id,
-        )
+        return SimpleNamespace(exec=lambda: QDialog.Accepted if accept else QDialog.Rejected, selected_alias_id=lambda: alias_id)
 
     return _factory
 
@@ -84,46 +81,26 @@ def _album_helper(aliases):
     controller = _Controller(_Get(artist=artist, role=role, aliases=aliases))
     album = SimpleNamespace(album_id=5, album_roles=[])
     refreshed = []
-    helper = RelationshipHelpers(
-        controller, album, lambda: refreshed.append(True), widget=QWidget()
-    )
+    helper = RelationshipHelpers(controller, album, lambda: refreshed.append(True), widget=QWidget())
     return helper, controller, refreshed
 
 
 def test_add_artist_credit_aborts_when_credited_as_dialog_cancelled(qapp, monkeypatch):
-    helper, controller, _ = _album_helper(
-        aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
-    )
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.CreditedAsDialog",
-        _fake_dialog(accept=False),
-    )
+    helper, controller, _ = _album_helper(aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")])
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.CreditedAsDialog", _fake_dialog(accept=False))
 
-    helper.add_artist_credit(
-        ["Prince"], ["Performer"], matched_artist_id=1, matched_role_id=2
-    )
+    helper.add_artist_credit(["Prince"], ["Performer"], matched_artist_id=1, matched_role_id=2)
 
-    assert not any(
-        model == "AlbumRoleAssociation" for model, _ in controller.add.calls
-    ), "credit was added even though the Credit-as dialog was cancelled"
+    assert not any(model == "AlbumRoleAssociation" for model, _ in controller.add.calls), "credit was added even though the Credit-as dialog was cancelled"
 
 
 def test_add_artist_credit_proceeds_when_credited_as_dialog_accepted(qapp, monkeypatch):
-    helper, controller, _ = _album_helper(
-        aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
-    )
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.CreditedAsDialog",
-        _fake_dialog(accept=True, alias_id=9),
-    )
+    helper, controller, _ = _album_helper(aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")])
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.CreditedAsDialog", _fake_dialog(accept=True, alias_id=9))
 
-    helper.add_artist_credit(
-        ["Prince"], ["Performer"], matched_artist_id=1, matched_role_id=2
-    )
+    helper.add_artist_credit(["Prince"], ["Performer"], matched_artist_id=1, matched_role_id=2)
 
-    credit_calls = [
-        kwargs for model, kwargs in controller.add.calls if model == "AlbumRoleAssociation"
-    ]
+    credit_calls = [kwargs for model, kwargs in controller.add.calls if model == "AlbumRoleAssociation"]
     assert len(credit_calls) == 1
     assert credit_calls[0]["credited_alias_id"] == 9
 
@@ -138,31 +115,19 @@ def _roles_tab(monkeypatch, aliases):
     controller = _Controller(_Get(artist=artist, aliases=aliases))
     tab = RolesTab([SimpleNamespace(track_id=1, artist_roles=[])], controller)
 
-    tab._role_edit = SimpleNamespace(
-        split_names=lambda: ["Producer"],
-        matched_id=lambda: None,
-        reset=lambda: None,
-        setFocus=lambda: None,
-    )
+    tab._role_edit = SimpleNamespace(split_names=lambda: ["Producer"], matched_id=lambda: None, reset=lambda: None, setFocus=lambda: None)
     tab._resolve_role = lambda name, matched_id=None: SimpleNamespace(role_id=2)
     tab.load = lambda tracks: None
 
     added = []
-    tab._batch_add_track_artist_role = (
-        lambda artist_id, role_id, credited_alias_id=None: added.append(
-            (artist_id, role_id, credited_alias_id)
-        )
-    )
+    # Returns True like the real helper (no failed rows).
+    tab._batch_add_track_artist_role = lambda artist_id, role_id, credited_alias_id=None: added.append((artist_id, role_id, credited_alias_id)) or True
     return tab, added
 
 
 def test_track_add_role_aborts_when_credited_as_dialog_cancelled(qapp, monkeypatch):
-    tab, added = _roles_tab(
-        monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
-    )
-    monkeypatch.setattr(
-        "src.track.edit.track_edit_roles.CreditedAsDialog", _fake_dialog(accept=False)
-    )
+    tab, added = _roles_tab(monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")])
+    monkeypatch.setattr("src.track.edit.track_edit_roles.CreditedAsDialog", _fake_dialog(accept=False))
     try:
         tab._prompt_add_role_for_artist(1, "Prince")
         assert added == [], "role was added even though the Credit-as dialog was cancelled"
@@ -171,13 +136,8 @@ def test_track_add_role_aborts_when_credited_as_dialog_cancelled(qapp, monkeypat
 
 
 def test_track_add_role_proceeds_when_credited_as_dialog_accepted(qapp, monkeypatch):
-    tab, added = _roles_tab(
-        monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
-    )
-    monkeypatch.setattr(
-        "src.track.edit.track_edit_roles.CreditedAsDialog",
-        _fake_dialog(accept=True, alias_id=9),
-    )
+    tab, added = _roles_tab(monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")])
+    monkeypatch.setattr("src.track.edit.track_edit_roles.CreditedAsDialog", _fake_dialog(accept=True, alias_id=9))
     try:
         tab._prompt_add_role_for_artist(1, "Prince")
         assert added == [(1, 2, 9)]

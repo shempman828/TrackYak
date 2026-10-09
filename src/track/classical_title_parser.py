@@ -1,13 +1,6 @@
-"""Best-effort parser that pulls classical metadata out of a track title.
-
-Used by the Classical tab of the track edit dialog -- see
-docs/specs/classical_metadata_from_title.md. Pure: no Qt, no DB. The caller
-decides what to do with the result (fill blank fields, rewrite the title).
-
-The grammar recognised is the common
-    <work> [in <key> <mode>][, <catalogue>][ "<nickname>"] : <movement>
-shape, e.g. ``Symphony No. 5 in C minor, Op. 67: I. Allegro con brio``.
-"""
+"""Best-effort parser that reads classical metadata out of a track title (pure: no Qt, no DB)."""
+# Grammar: <work> [in <key> <mode>][, <catalogue>][ "<nickname>"] : <movement>
+# e.g. "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio". See docs/specs/classical_metadata_from_title.md.
 
 from __future__ import annotations
 
@@ -127,9 +120,7 @@ _WORK_TYPES: tuple[str, ...] = (
     "bourree",
 )
 _WORK_TYPE_CANON: dict[str, str] = {t: t.title() for t in _WORK_TYPES}
-_WORK_TYPE_RE = re.compile(
-    r"^\s*(" + "|".join(re.escape(t) for t in _WORK_TYPES) + r")\b", re.IGNORECASE
-)
+_WORK_TYPE_RE = re.compile(r"^\s*(" + "|".join(re.escape(t) for t in _WORK_TYPES) + r")\b", re.IGNORECASE)
 
 # Catalogue tokens -> canonical stored prefix. Keyed by token lowercased with
 # any trailing dot removed.
@@ -189,21 +180,7 @@ _MOVEMENT_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _ROMAN_RE = re.compile(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$", re.IGNORECASE)
-_ROMAN_VALUES: tuple[tuple[str, int], ...] = (
-    ("M", 1000),
-    ("CM", 900),
-    ("D", 500),
-    ("CD", 400),
-    ("C", 100),
-    ("XC", 90),
-    ("L", 50),
-    ("XL", 40),
-    ("X", 10),
-    ("IX", 9),
-    ("V", 5),
-    ("IV", 4),
-    ("I", 1),
-)
+_ROMAN_VALUES: tuple[tuple[str, int], ...] = (("M", 1000), ("CM", 900), ("D", 500), ("CD", 400), ("C", 100), ("XC", 90), ("L", 50), ("XL", 40), ("X", 10), ("IX", 9), ("V", 5), ("IV", 4), ("I", 1))
 
 _TEMPO_WORDS: frozenset[str] = frozenset(
     {
@@ -296,25 +273,12 @@ _TEMPO_WORDS: frozenset[str] = frozenset(
 # Result type
 # ---------------------------------------------------------------------------
 
-_DB_FIELDS: tuple[str, ...] = (
-    "work_name",
-    "work_type",
-    "classical_catalog_prefix",
-    "classical_catalog_number",
-    "classical_tempo",
-    "movement_name",
-    "movement_number",
-)
+_DB_FIELDS: tuple[str, ...] = ("work_name", "work_type", "classical_catalog_prefix", "classical_catalog_number", "classical_tempo", "movement_name", "movement_number")
 
 
 @dataclass
 class ClassicalTitleParse:
-    """Outcome of :func:`parse_classical_title`.
-
-    ``matched`` is True iff at least one structured field was extracted;
-    ``cleaned_title`` always holds the proposed replacement track title
-    (equal to the untouched input when nothing matched).
-    """
+    """Result of parse_classical_title: the extracted fields, the cleaned title and a matched flag."""
 
     work_name: str | None = None
     work_type: str | None = None
@@ -327,9 +291,7 @@ class ClassicalTitleParse:
     matched: bool = False
 
     def to_field_dict(self) -> dict[str, object]:
-        """Non-None classical column values -- feed straight to
-        ``FieldFormTab.set_if_empty``. ``is_classical`` is the caller's
-        responsibility (there is no title fragment for it)."""
+        """Return the non-None classical field values (is_classical is the caller's job)."""
         return {name: getattr(self, name) for name in _DB_FIELDS if getattr(self, name) is not None}
 
 
@@ -339,8 +301,7 @@ class ClassicalTitleParse:
 
 
 def _roman_to_int(text: str) -> int | None:
-    """Convert a Roman numeral to int, or None if it isn't a well-formed one
-    (e.g. ``IIII``)."""
+    """Convert a Roman numeral to int, or None if it is not well formed (e.g. IIII)."""
     if not _ROMAN_RE.match(text):
         return None
     upper = text.upper()
@@ -353,8 +314,7 @@ def _roman_to_int(text: str) -> int | None:
 
 
 def _tidy(text: str) -> str:
-    """Collapse whitespace and strip stray separators left behind after
-    clauses are cut out of a title fragment."""
+    """Collapse whitespace and strip separators left behind after clauses are cut out."""
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r",\s*,", ",", text)  # ", ," -> ","
     text = re.sub(r"\s+,", ",", text)  # " ," -> ","
@@ -371,13 +331,9 @@ _COMPOSER_PREFIX_RE = re.compile(r"^[A-Z][A-Za-z.'-]+:\s+")
 
 
 def _split_work_movement(title: str) -> tuple[str, str | None]:
-    """Split into ``(work_segment, movement_segment_or_None)``.
-
-    A leading ``Composer:`` / ``Performer:`` prefix is dropped first. The
-    divider is the first colon that (a) sits outside a quoted nickname and
-    (b) has whitespace on at least one side -- so an inline catalogue colon
-    (``Hob. XVI:32``) is never mistaken for the work/movement divider.
-    """
+    """Split a title into (work_segment, movement_segment or None) at the work/movement colon."""
+    # Drops a leading "Composer:" prefix. The divider is the first colon outside quotes with
+    # whitespace on one side, so a catalogue colon ("Hob. XVI:32") is not a divider.
     prefix = _COMPOSER_PREFIX_RE.match(title)
     if prefix and ":" in title[prefix.end() :]:
         title = title[prefix.end() :]
@@ -397,7 +353,7 @@ def _split_work_movement(title: str) -> tuple[str, str | None]:
 
 
 def _parse_work(segment: str) -> tuple[dict[str, object], bool]:
-    """Pull work_type / work_name / catalogue out of the work segment."""
+    """Read work_type, work_name and the catalogue from the work segment."""
     out: dict[str, object] = {}
     text = segment
 
@@ -449,33 +405,7 @@ def _parse_work(segment: str) -> tuple[dict[str, object], bool]:
 
 
 _TEMPO_CONNECTORS: frozenset[str] = frozenset(
-    {
-        "con",
-        "e",
-        "ed",
-        "ma",
-        "non",
-        "un",
-        "una",
-        "alla",
-        "poco",
-        "molto",
-        "assai",
-        "piu",
-        "più",
-        "meno",
-        "sotto",
-        "quasi",
-        "ben",
-        "il",
-        "la",
-        "di",
-        "del",
-        "in",
-        "sempre",
-        "troppo",
-        "d",
-    }
+    {"con", "e", "ed", "ma", "non", "un", "una", "alla", "poco", "molto", "assai", "piu", "più", "meno", "sotto", "quasi", "ben", "il", "la", "di", "del", "in", "sempre", "troppo", "d"}
 )
 
 _MAX_MOVEMENT_NUMBER = 30  # real movements don't run higher; a bigger number
@@ -483,7 +413,7 @@ _MAX_MOVEMENT_NUMBER = 30  # real movements don't run higher; a bigger number
 
 
 def _leading_tempo_run(tokens: list[str]) -> int:
-    """Number of leading tokens that are all Italian tempo terms."""
+    """Return the number of leading tokens that are Italian tempo terms."""
     count = 0
     for tok in tokens:
         bare = tok.strip(",.;:()").lower()
@@ -495,8 +425,7 @@ def _leading_tempo_run(tokens: list[str]) -> int:
 
 
 def _trim_tempo(tempo: str) -> str:
-    """Drop trailing connective words ("Allegro con" -> "Allegro") so the
-    stored tempo marking doesn't end mid-phrase."""
+    """Drop trailing connective words, e.g. "Allegro con" -> "Allegro"."""
     parts = tempo.split()
     while parts and parts[-1].strip(",.;:").lower() in _TEMPO_CONNECTORS:
         parts.pop()
@@ -504,8 +433,7 @@ def _trim_tempo(tempo: str) -> str:
 
 
 def _parse_movement(segment: str) -> tuple[dict[str, object], bool]:
-    """Pull movement_number / classical_tempo / movement_name out of the
-    movement segment (the part after the work/movement colon)."""
+    """Read movement_number, classical_tempo and movement_name from the movement segment."""
     out: dict[str, object] = {}
     text = segment.strip()
 
@@ -553,14 +481,7 @@ def _parse_movement(segment: str) -> tuple[dict[str, object], bool]:
 
 
 def parse_classical_title(title: str) -> ClassicalTitleParse:
-    """Best-effort parse of ``title`` into classical metadata plus a
-    stripped-down replacement title (:attr:`ClassicalTitleParse.cleaned_title`).
-
-    Nothing is extracted unless a real structural signal is present -- a
-    catalogue token, a work-type keyword at the start, an ``in <key> <mode>``
-    clause, or a movement marker/tempo after a colon. Titles with none of
-    these come back with ``matched=False`` and the input unchanged.
-    """
+    """Parse `title` into classical fields and a cleaned title; matched=False if nothing classical is found."""
     result = ClassicalTitleParse(cleaned_title=title)
     if not title or not title.strip():
         return result
@@ -595,9 +516,5 @@ def parse_classical_title(title: str) -> ClassicalTitleParse:
     # Build the stripped title: the bare movement name when there is a
     # movement, otherwise the de-cluttered work name.
     work_title = _tidy(" ".join(p for p in (result.work_type, result.work_name) if p))
-    if move_seg is not None:
-        cleaned = result.movement_name or result.classical_tempo or work_title or norm
-    else:
-        cleaned = work_title or norm
-    result.cleaned_title = cleaned
+    result.cleaned_title = (result.movement_name or result.classical_tempo or work_title or norm) if move_seg is not None else (work_title or norm)
     return result

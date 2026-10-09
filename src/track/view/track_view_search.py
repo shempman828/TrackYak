@@ -8,13 +8,7 @@ class TrackViewSearchMixin:
     """Kicks off and consumes results from the background FilterWorker."""
 
     def _on_search_text_changed(self, text: str):
-        """
-        Live search with a short pause: each keystroke restarts the host's
-        `_search_timer` (see TrackViewToolbarMixin._build_toolbar), so the
-        filter runs once typing stops. Enter filters at once. Clearing the
-        field restores the full list immediately rather than leaving a
-        stale filtered view on screen.
-        """
+        """Restart the search pause timer; an empty field restores the full list at once."""
         timer = getattr(self, "_search_timer", None)
         if not text.strip():
             if timer is not None:
@@ -24,7 +18,7 @@ class TrackViewSearchMixin:
             timer.start()
 
     def _apply_search_filter(self):
-        """Kicks off a background worker to filter tracks without blocking the UI."""
+        """Start a background filter for the search text (or show all tracks when it is empty)."""
         search_text = self.search_bar.text().strip().lower()
 
         # Stop any already-running worker first — a cancelled worker emits
@@ -54,7 +48,7 @@ class TrackViewSearchMixin:
         self._filter_worker.start()
 
     def _on_filter_done(self, results: list):
-        """Called on the main thread when the background filter finishes."""
+        """Show the filter results."""
         self._filter_active = True
         self._filtered_tracks = results
         self._loaded_count = 0
@@ -64,5 +58,5 @@ class TrackViewSearchMixin:
         logger.debug(f"Filter → {len(results):,} matches")
 
     def filter_tracks(self, text: str):
-        """Public alias kept for compatibility with external callers."""
+        """Set the search text (kept for external callers)."""
         self.search_bar.setText(text)

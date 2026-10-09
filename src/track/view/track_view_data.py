@@ -1,7 +1,4 @@
-"""
-track_view_data.py — lazy DB loading, batch pagination, sorting, and status
-text for TrackView.
-"""
+"""Lazy DB loading, batch pagination, sorting and status text for the track views."""
 
 import random
 
@@ -32,20 +29,15 @@ _SESSION_SHUFFLE_SEED = random.getrandbits(64)
 
 
 def session_shuffled(tracks: list, seed: int | None = None) -> list:
-    """
-    Return `tracks` in a pseudo-random order keyed on (seed, track_id).
-
-    Keying on the id rather than shuffling the list in place means the order
-    doesn't depend on the input order: a re-fetch gives the same sequence,
-    and added/removed tracks don't reshuffle everything else.
-    """
+    """Return `tracks` in a pseudo-random order keyed on (seed, track_id)."""
+    # Keyed on the id, so a re-fetch gives the same order and added tracks do not reshuffle the rest.
     if seed is None:
         seed = _SESSION_SHUFFLE_SEED
     return sorted(tracks, key=lambda t: hash((seed, t.track_id)))
 
 
 def _oxford_join(names: list) -> str:
-    """Join names as 'A' / 'A & B' / 'A, B, & C' (Oxford comma for 3+)."""
+    """Join names as 'A', 'A & B' or 'A, B, & C'."""
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
@@ -69,16 +61,8 @@ def _format_primary_artist_names(primary_names: list, featured_names: list | Non
 
 
 def _fetch_lookup_caches(session, track_ids=None, album_ids=None, disc_ids=None):
-    """
-    Bulk-fetch every relationship-derived value (album info, disc number,
-    primary artist names) in a handful of JOIN queries. Shared by the
-    synchronous first-load path and the background `TrackLookupCacheWorker`.
-
-    With no ids given, scans the whole library -- what TrackView wants,
-    since it always shows every track. BaseTrackView passes the ids of just
-    the (usually small) fixed track list it was given, so opening a popup
-    for e.g. "8 tracks in this mood" doesn't pay for a full-library JOIN.
-    """
+    """Fetch album, disc-number and artist-name lookup caches in a few joined queries."""
+    # No ids: the whole library (TrackView). BaseTrackView passes its own ids.
     album_query = select(Album.album_id, Album.album_name, Album.release_year, Album.release_month, Album.release_day)
     if album_ids is not None:
         album_query = album_query.where(Album.album_id.in_(album_ids))
@@ -128,18 +112,9 @@ def _fetch_lookup_caches(session, track_ids=None, album_ids=None, disc_ids=None)
 
 
 class TrackLookupCacheWorker(QObject):
-    """
-    Runs on a background thread. Rebuilds the artist/album/disc lookup
-    caches with 3 bulk queries and emits the results back to the main
-    thread — mirrors RoleLoaderWorker in src/role/role_view.py.
+    """Rebuild the lookup caches on a background thread."""
 
-    Used when the user revisits the Tracks nav item: switching views must
-    stay instant, so the (already-cached) tracks are re-displayed
-    immediately and this worker refreshes the relationship-derived caches
-    (which may have gone stale if artists/albums were edited on another
-    view) without blocking the GUI thread.
-    """
-
+    # Used on a Tracks nav revisit, so switching views stays instant.
     # Payload: (album_cache, disc_number_cache, artist_name_cache, artist_sort_cache)
     finished = Signal(object, object, object, object)
     error = Signal(str)
@@ -149,6 +124,7 @@ class TrackLookupCacheWorker(QObject):
         self.controller = controller
 
     def run(self):
+        """Fetch the caches and emit finished (or error)."""
         try:
             caches = _fetch_lookup_caches(self.controller.get.session)
             self.finished.emit(*caches)
@@ -158,16 +134,7 @@ class TrackLookupCacheWorker(QObject):
             logger.exception("Failed to load track view lookup caches")
             self.error.emit(str(e))
         finally:
-            # _refresh_lookup_caches_async() spins up a brand-new QThread on
-            # every Tracks-nav revisit, and each new OS thread gets its own
-            # entry in the scoped_session registry the first time it's touched
-            # above. Nothing else removes that entry, so its checked-out
-            # connection is never returned to the pool and the read
-            # transaction it opened on the WAL database stays open for the
-            # life of the process. Over a long session of view-switching this
-            # leaks a connection (plus its ~2 MB SQLite page cache) per
-            # revisit. Mirrors _RolesLoaderWorker in src/track/track_edit_roles.py
-            # and CancellableWorker._release_db_session.
+            # Each revisit uses a new thread with its own scoped session; release it or connections leak.
             from src.db.db_engine import Session
 
             Session.remove()
@@ -181,20 +148,11 @@ class TrackViewDataMixin:
     _shuffle_default_order = False
 
     def _default_order(self, tracks: list) -> list:
+        """Return `tracks` in the host's default order."""
         return session_shuffled(tracks) if self._shuffle_default_order else tracks
 
     def load_tracks_on_startup(self):
-        """
-        Load all tracks from DB into self._all_tracks (once).
-        Only pushes the first LAZY_BATCH_SIZE rows into the Qt model.
-
-        On first load, the lookup caches are built synchronously (nothing to
-        show yet anyway). On a revisit (nav dock switch back to Tracks),
-        tracks are already cached, so the model is refreshed immediately from
-        the existing caches and the lookup caches are rebuilt in the
-        background — that keeps the switch itself instant even though a
-        full-library JOIN is happening under the hood.
-        """
+        """Load the library once, then redisplay; on a revisit, refresh the caches in the background."""
         if not self._tracks_loaded:
             try:
                 tracks = self.controller.get.get_all_entities("Track")
@@ -212,26 +170,19 @@ class TrackViewDataMixin:
             self._refresh_lookup_caches_async()
 
     def _force_reload(self):
-        """Explicitly re-query the DB (Refresh)."""
+        """Query the DB again (Refresh)."""
         self._tracks_loaded = False
         self.load_tracks_on_startup()
 
     def load_data(self, tracks: list):
-        """External callers (e.g. main_window refresh) can push a new track list."""
+        """Show a new track list pushed by a caller."""
         self._all_tracks = self._default_order(tracks or [])
         self._tracks_loaded = True
         self._build_lookup_caches()
         self._redisplay_tracks()
 
     def _redisplay_tracks(self):
-        """
-        Rebuild the model from self._all_tracks, keeping the current search.
-
-        Every reload path (delete, edit, Refresh, nav revisit) goes through
-        here so the search text left in the bar still filters the new list.
-        The model is cleared first so no stale row (e.g. a just-deleted
-        track) stays selectable while the background filter runs.
-        """
+        """Rebuild the model from self._all_tracks, keeping the current search."""
         self._filtered_tracks = []
         self._filter_active = bool(self.search_bar.text().strip())
         self._loaded_count = 0
@@ -240,33 +191,9 @@ class TrackViewDataMixin:
         self._update_status()
 
     def _build_lookup_caches(self):
-        """
-        Bulk-fetch every relationship-derived value (album info, disc number,
-        primary artist names) in a handful of JOIN queries, keyed by the
-        already-loaded FK/PK columns (album_id, disc_id, track_id).
-
-        This is what makes sorting fast: `_field_value` below never has to
-        lazy-load a relationship per track, so sort_key() is a pure in-memory
-        dict lookup and is safe to run on the background SortWorker thread
-        (the ORM session itself is main-thread-only).
-
-        Used for the synchronous first-load / explicit-refresh paths. See
-        `_refresh_lookup_caches_async` for the background-thread version
-        used when revisiting the Tracks nav item.
-
-        Some hosts (e.g. BaseTrackView popups constructed with a lightweight
-        test double for `controller`) may not expose a real `.get.session`.
-        Degrade to empty caches rather than crashing the view -- `_field_value`
-        already falls back to `None` for cache-dependent fields when a cache
-        is empty.
-
-        A host with `_scope_lookup_caches_to_tracks = True` (BaseTrackView)
-        scopes the queries to just `self._all_tracks`'s own ids instead of
-        the whole library -- its fixed lists are typically small (a mood's
-        tracks, a duplicate group, ...), and a full-library JOIN on every
-        popup open is wasted work and a visible pause on a large library.
-        TrackView always shows the whole library, so it never scopes.
-        """
+        """Build the lookup caches synchronously (empty caches on failure)."""
+        # The caches make sorting a pure dict lookup that is safe on the SortWorker thread.
+        # A host with _scope_lookup_caches_to_tracks (BaseTrackView) scopes the queries to its own tracks.
         try:
             if getattr(self, "_scope_lookup_caches_to_tracks", False):
                 track_ids = [t.track_id for t in self._all_tracks]
@@ -284,7 +211,7 @@ class TrackViewDataMixin:
             self._artist_sort_cache = {}
 
     def _refresh_lookup_caches_async(self):
-        """Rebuild the lookup caches on a background thread (nav-switch revisit path)."""
+        """Start a background rebuild of the lookup caches."""
         try:
             if self._lookup_thread and self._lookup_thread.isRunning():
                 return
@@ -305,7 +232,7 @@ class TrackViewDataMixin:
         self._lookup_thread.start()
 
     def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache, artist_sort_cache):
-        """Called on the main thread once TrackLookupCacheWorker finishes."""
+        """Store the new caches and re-render the affected columns."""
         self._album_cache = album_cache
         self._disc_number_cache = disc_number_cache
         self._artist_name_cache = artist_name_cache
@@ -313,14 +240,11 @@ class TrackViewDataMixin:
         self._refresh_visible_rows()
 
     def _on_lookup_caches_error(self, message: str):
+        """Log a cache refresh error."""
         logger.error(f"Error refreshing track lookup caches: {message}")
 
     def _refresh_visible_rows(self):
-        """
-        Re-render the relationship-derived columns (artist/album/disc names)
-        for rows already pushed into the model, picking up any changes from
-        the just-completed background cache rebuild.
-        """
+        """Re-render the cache-dependent columns of the rows already in the model."""
         source = self._filtered_tracks if self._filter_active else self._all_tracks
         column_keys = list(self.columns.keys())
         relevant_columns = [(i, field_name) for i, field_name in enumerate(column_keys) if field_name in _CACHE_DEPENDENT_FIELDS]
@@ -346,11 +270,7 @@ class TrackViewDataMixin:
         return _format_primary_artist_names(primary_names, featured_names)
 
     def _field_value(self, track, field_name: str):
-        """
-        Return the raw value for `field_name`, using the precomputed caches
-        for relationship-derived fields instead of touching the ORM
-        relationship directly.
-        """
+        """Return the raw value of `field_name`, using the lookup caches for relationship fields."""
         if field_name == "primary_artist_names":
             return self._artist_name_cache.get(track.track_id, "Unknown Artist")
         if field_name == "primary_artist_names__sort":
@@ -393,17 +313,7 @@ class TrackViewDataMixin:
         self._update_status()
 
     def _on_header_clicked(self, logical_index: int):
-        """
-        Sort the backing track list by the clicked column and reload from scratch.
-
-        - Clicking a new column sorts ascending.
-        - Clicking the same column again flips between ascending and descending.
-        - If a search/filter is active we sort only the filtered results.
-        - Sorting always resets lazy loading so you see the top of the sorted list first.
-        - The actual sort runs on a background SortWorker so a large library
-          doesn't freeze the UI; the table is disabled and the status label
-          shows "Sorting…" until it finishes.
-        """
+        """Sort the listed tracks by the clicked column on a background worker (click again to reverse)."""
         if self._sort_worker and self._sort_worker.isRunning():
             self._sort_worker.request_cancel()
             self._sort_worker.wait()
@@ -435,7 +345,7 @@ class TrackViewDataMixin:
         self._sort_worker.start()
 
     def _on_sort_done(self, sorted_tracks: list):
-        """Called on the main thread once the background SortWorker finishes."""
+        """Show the sorted list from the top."""
         if self._filter_active:
             self._filtered_tracks = sorted_tracks
         else:
@@ -449,6 +359,7 @@ class TrackViewDataMixin:
         self._update_status()
 
     def _on_scroll(self, value: int):
+        """Load the next batch when the user scrolls near the end."""
         scrollbar = self.table.verticalScrollBar()
         if scrollbar.maximum() > 0 and value >= scrollbar.maximum() * 0.90:
             source = self._filtered_tracks if self._filter_active else self._all_tracks
@@ -456,8 +367,6 @@ class TrackViewDataMixin:
                 self._append_next_batch(source)
 
     def _update_status(self):
-        """Summary line ("12,345 tracks · 812 h 4 min" / "37 of 12,345
-        tracks · …") plus the matching empty-state message. The lazy-load
-        batch count is an internal detail and isn't shown."""
+        """Update the summary line and the empty-state message."""
         self.status_label.setText(self._summary_text())
         self._sync_empty_state()

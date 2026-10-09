@@ -1,23 +1,9 @@
-# ---------------------------------------------------------------------------
-# UsedInTab — external contexts where this track has been used (soundtracks
-# outside official releases, TV shows, games, commercials, etc.)
-# ---------------------------------------------------------------------------
+"""UsedInTab: external works (film, TV, games, ...) that used the track outside its releases."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-)
-from sqlalchemy.exc import SQLAlchemyError
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QHeaderView, QLineEdit, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout
 
 from src.foundation.logger_config import logger
 from src.track.edit.track_edit_basetab import _BaseTab
@@ -26,18 +12,13 @@ from src.track.edit.track_edit_basetab import _BaseTab
 USAGE_TYPES = ["Film", "TV Show", "Video Game", "Live Event", "Commercial", "Other"]
 
 
-class UsedInTab(_BaseTab):
-    """
-    Shows a table of TrackUsage records for this track -- external contexts
-    (a film, TV show, game, etc.) the track was used in, distinct from its
-    official album/soundtrack release. E.g. a song used in "Life is Strange"
-    or "Person of Interest" without appearing on either show's soundtrack
-    album.
+def _usage_key(u) -> tuple:
+    """Return the comparable (type, title, year, description, link) key of a TrackUsage."""
+    return (u.usage_type, u.title, u.year or 0, u.description or "", u.wikipedia_link or "")
 
-    For multi-track editing, the table shows usage entries common to every
-    selected track, and Add applies the new entry to all selected tracks at
-    once (each track gets its own TrackUsage row).
-    """
+
+class UsedInTab(_BaseTab):
+    """Add and remove external usages; in multi mode, entries common to every track."""
 
     saves_immediately = True  # add/remove write to the DB at once
 
@@ -46,6 +27,7 @@ class UsedInTab(_BaseTab):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the entry fields and the usage table."""
         layout = QVBoxLayout(self)
 
         # ── Add row ───────────────────────────────────────────────────────
@@ -71,9 +53,7 @@ class UsedInTab(_BaseTab):
 
         detail_row = QHBoxLayout()
         self._description_edit = QLineEdit()
-        self._description_edit.setPlaceholderText(
-            "Description (e.g. Plays during the credits scene)"
-        )
+        self._description_edit.setPlaceholderText("Description (e.g. Plays during the credits scene)")
         detail_row.addWidget(self._description_edit)
 
         self._wiki_edit = QLineEdit()
@@ -83,9 +63,7 @@ class UsedInTab(_BaseTab):
 
         # ── Table ─────────────────────────────────────────────────────────
         self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels(
-            ["Type", "Title", "Year", "Description", "Wikipedia", ""]
-        )
+        self._table.setHorizontalHeaderLabels(["Type", "Title", "Year", "Description", "Wikipedia", ""])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -95,44 +73,29 @@ class UsedInTab(_BaseTab):
         layout.addWidget(self._table)
 
     def load(self, tracks: list) -> None:
+        """Show the usages of the track (or the ones every edited track shares)."""
         self.tracks = tracks
         self._table.setRowCount(0)
 
-        if self.is_multi:
-            rows = self._common_usages()
-        else:
-            rows = [
-                (u.usage_id, u.usage_type, u.title, u.year, u.description, u.wikipedia_link)
-                for u in self.track.usages
-            ]
+        rows = self._common_usages() if self.is_multi else [(u.usage_id, u.usage_type, u.title, u.year, u.description, u.wikipedia_link) for u in self.track.usages]
 
         for usage_id, usage_type, title, year, description, wikipedia_link in rows:
             self._add_row(usage_id, usage_type, title, year, description, wikipedia_link)
 
     def _common_usages(self):
-        """Usage entries (matched by type/title/year) present on every selected track."""
-        all_sets = []
-        for t in self.tracks:
-            s = {
-                (u.usage_type, u.title, u.year or 0, u.description or "", u.wikipedia_link or "")
-                for u in t.usages
-            }
-            all_sets.append(s)
-        common = all_sets[0]
-        for s in all_sets[1:]:
-            common &= s
-        return [
-            (None, usage_type, title, year or None, description or None, wiki or None)
-            for usage_type, title, year, description, wiki in common
-        ]
+        """Return the usage entries present on every edited track."""
+        common = set.intersection(*({_usage_key(u) for u in t.usages} for t in self.tracks))
+        return [(None, usage_type, title, year or None, description or None, wiki or None) for usage_type, title, year, description, wiki in common]
 
     def _add_row(self, usage_id, usage_type, title, year, description, wikipedia_link):
+        """Append one read-only usage row with a Remove button."""
         row = self._table.rowCount()
         self._table.insertRow(row)
 
         type_item = QTableWidgetItem(usage_type or "")
         type_item.setFlags(type_item.flags() & ~Qt.ItemIsEditable)
         type_item.setData(Qt.UserRole, usage_id)
+        type_item.setData(Qt.UserRole + 1, (usage_type, title, year or 0, description or "", wikipedia_link or ""))
         self._table.setItem(row, 0, type_item)
 
         title_item = QTableWidgetItem(title or "")
@@ -156,6 +119,7 @@ class UsedInTab(_BaseTab):
         self._table.setCellWidget(row, 5, rm_btn)
 
     def _add_entry(self):
+        """Add the typed usage to every edited track."""
         usage_type = self._type_combo.currentText()
         title = self._title_edit.text().strip()
         year = self._year_spin.value() or None
@@ -166,23 +130,12 @@ class UsedInTab(_BaseTab):
             QMessageBox.warning(self, "Input Required", "Please enter a title.")
             return
 
-        rows = [
-            {
-                "track_id": track.track_id,
-                "usage_type": usage_type,
-                "title": title,
-                "year": year,
-                "description": description,
-                "wikipedia_link": wikipedia_link,
-            }
-            for track in self.tracks
-        ]
+        rows = [{"track_id": track.track_id, "usage_type": usage_type, "title": title, "year": year, "description": description, "wikipedia_link": wikipedia_link} for track in self.tracks]
 
-        try:
-            self.controller.add.add_entities("TrackUsage", rows)
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to add TrackUsage entry: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to add entry:\n{e}")
+        # add_entities catches its own DB errors and returns [] on failure.
+        if not self.controller.add.add_entities("TrackUsage", rows):
+            logger.error(f"Failed to add TrackUsage {title!r} to tracks {[r['track_id'] for r in rows]}")
+            QMessageBox.warning(self, "Error", "Could not add the entry. See the log for details.")
             return
 
         self._title_edit.clear()
@@ -194,44 +147,29 @@ class UsedInTab(_BaseTab):
         self.load(self.tracks)
 
     def _remove_row(self, row: int):
+        """Remove the usage in table row `row` (from every edited track in multi mode)."""
         type_item = self._table.item(row, 0)
-        title_item = self._table.item(row, 1)
-        year_item = self._table.item(row, 2)
-        if not type_item or not title_item:
+        if not type_item:
             return
 
         usage_id = type_item.data(Qt.UserRole)
-        try:
-            if usage_id is not None:
-                self.controller.delete.delete_entity("TrackUsage", entity_id=usage_id)
-            else:
-                # Multi-track batch row -- each track owns its own row, so
-                # remove the matching entry from every selected track.
-                track_ids = [track.track_id for track in self.tracks]
-                year_text = year_item.text() if year_item else ""
-                self.controller.delete.delete_entity(
-                    "TrackUsage",
-                    track_id=track_ids,
-                    usage_type=type_item.text(),
-                    title=title_item.text(),
-                    year=int(year_text) if year_text else None,
-                )
-        except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Failed to remove TrackUsage entry: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to remove entry:\n{e}")
+        if usage_id is not None:
+            usage_ids = [usage_id]
+        else:
+            # Multi-track row: each track owns its own copy; match the full key, as _common_usages does.
+            key = type_item.data(Qt.UserRole + 1)
+            usage_ids = [u.usage_id for t in self.tracks for u in t.usages if _usage_key(u) == key]
+        if usage_ids and not self.controller.delete.delete_entity("TrackUsage", entity_ids=usage_ids):
+            logger.error(f"Failed to remove TrackUsage row(s) {usage_ids}")
+            QMessageBox.warning(self, "Error", "Could not remove the entry. See the log for details.")
             return
 
         self._invalidate_usages_cache()
         self.load(self.tracks)
 
     def _invalidate_usages_cache(self):
-        # track.usages is a relationship() -- once load() above has accessed
-        # it, it's cached on the Track instance, and the writes above went
-        # through the TrackUsage model directly rather than mutating that
-        # collection. The session is opened with expire_on_commit=False
-        # (src/db/db_engine.py), so a plain commit() doesn't invalidate it
-        # either -- without this, load() would just redisplay the same
-        # pre-edit list.
+        """Expire the cached track.usages relationship on every edited track."""
+        # expire_on_commit=False: a commit does not refresh the cached relationship.
         session = self.controller.get.session
         for track in self.tracks:
             session.expire(track, ["usages"])

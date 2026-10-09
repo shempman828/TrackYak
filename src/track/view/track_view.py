@@ -1,19 +1,4 @@
-"""
-track_view.py — TrackView
-
-The widget itself is intentionally thin: it owns __init__ and wiring, while
-behavior lives in the mixins below (each is one former section of this file):
-
-    track_view_filter.py    — FilterWorker + shared constants (LAZY_BATCH_SIZE, etc.)
-    track_view_toolbar.py   — toolbar, search scope, empty states, selection bar
-                              (shared with BaseTrackView)
-    track_view_columns.py   — column setup, visibility, ordering, persistence
-    track_view_data.py      — lazy DB loading, batch pagination, sorting
-    track_view_search.py    — background search/filter application
-    track_view_actions.py   — clipboard, drag/drop, queue, playback
-    track_view_editing.py   — edit/delete dialogs, context menu, moods
-    track_table.py          — TrackTable + row delegate (now playing, badges)
-"""
+"""TrackView: the main library track list (behavior lives in the mixins it combines)."""
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QStandardItemModel
@@ -34,14 +19,7 @@ from src.track.view.track_view_toolbar import TrackViewToolbarMixin
 
 
 class TrackView(QWidget, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackViewDataMixin, TrackViewSearchMixin, TrackViewActionsMixin, TrackViewEditingMixin):
-    """
-    Main library track view with lazy loading.
-
-    self._all_tracks       — full track list from DB, loaded ONCE and cached.
-    self._loaded_count     — rows currently pushed into the Qt model.
-    self._filtered_tracks  — active subset when a search filter is live.
-    self._filter_active    — True while a search filter is applied.
-    """
+    """Main library track view: the whole library, loaded once and pushed to the model in batches."""
 
     _shuffle_default_order = True
     # The whole library: filter once typing pauses, not on every keystroke.
@@ -106,6 +84,7 @@ class TrackView(QWidget, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackView
         QTimer.singleShot(0, self._initial_load)
 
     def _initial_load(self):
+        """Load the library unless a nav revisit already did."""
         # A nav revisit may already have loaded the library.
         if not self._tracks_loaded:
             self.load_tracks_on_startup()
@@ -113,6 +92,7 @@ class TrackView(QWidget, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackView
     # ── Toolbar mixin hooks ───────────────────────────────────────────────
 
     def _add_toolbar_actions(self, toolbar):
+        """Add Play, Shuffle, the Queue menu and the View menu."""
         toolbar.add_action(make_primary_tool_button("▶  Play", "Play the listed tracks in order", lambda: self._play_visible(shuffle=False)))
         toolbar.add_action(make_primary_tool_button("⤮  Shuffle", "Shuffle the listed tracks and play", lambda: self._play_visible(shuffle=True)))
 
@@ -140,10 +120,13 @@ class TrackView(QWidget, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackView
         toolbar.add_action(view_btn)
 
     def _selection_bar_actions(self):
+        """Return the (play_next, queue, edit, delete) callables for the selection bar."""
         return (lambda: self.add_selected_to_queue(insert_next=True), lambda: self.add_selected_to_queue(False), self.edit_selected_track, self.delete_selected_tracks)
 
     def _now_playing_source(self):
+        """Return the player, for the now-playing highlight."""
         return self.player
 
     def _play_visible(self, shuffle: bool):
+        """Play the listed tracks, in order or shuffled."""
         play_tracks(self, self.controller, self._visible_source(), shuffle=shuffle)

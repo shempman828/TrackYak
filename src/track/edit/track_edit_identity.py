@@ -1,6 +1,5 @@
-# ---------------------------------------------------------------------------
-# IdentificationTab — like FieldFormTab("Identification") but adds Wikipedia
-# ---------------------------------------------------------------------------
+"""IdentificationTab: the Identification fields plus a MusicBrainz lookup."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
@@ -11,6 +10,8 @@ from src.track.edit.track_edit_fieldform import FieldFormTab
 
 
 class IdentificationTab(FieldFormTab):
+    """Identification fields with a "Look Up on MusicBrainz" action (single track only)."""
+
     def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__("Identification", tracks, controller, parent)
         self._dialog = dialog
@@ -20,21 +21,17 @@ class IdentificationTab(FieldFormTab):
             self._add_lookup_button()
 
     def _add_lookup_button(self):
+        """Add the MusicBrainz lookup button."""
         self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
         self.lookup_button.setToolTip(
-            "Search MusicBrainz recordings by track/artist/album and fill in "
-            "blank fields (MBID, ISRC) from the selected match. Never "
-            "overwrites fields you've already filled in."
+            "Search MusicBrainz recordings by track/artist/album and fill in blank fields (MBID, ISRC) from the selected match. Never overwrites fields you've already filled in."
         )
         self.lookup_button.clicked.connect(self._lookup_musicbrainz)
         self.add_action_widget(self.lookup_button)
 
     def _lookup_musicbrainz(self):
-        live_name = (
-            self._dialog.get_live_track_name()
-            if self._dialog is not None
-            else self.track.track_name
-        )
+        """Search MusicBrainz recordings and fill the blank fields from the picked match."""
+        live_name = self._dialog.get_live_track_name() if self._dialog is not None else self.track.track_name
         track_name = (live_name or "").strip()
         if not track_name:
             QMessageBox.warning(self, "MusicBrainz Lookup", "This track has no title to look up.")
@@ -46,10 +43,7 @@ class IdentificationTab(FieldFormTab):
         album_name = self.track.album_name or None
 
         dialog = MusicBrainzMatchDialog(
-            entity_label=f"track '{track_name}'",
-            search_call=lambda: search_recordings(track_name, artist_name, album_name),
-            complete_call=complete_recording_enrichment,
-            parent=self,
+            entity_label=f"track '{track_name}'", search_call=lambda: search_recordings(track_name, artist_name, album_name), complete_call=complete_recording_enrichment, parent=self
         )
         if dialog.exec() != QDialog.Accepted:
             return

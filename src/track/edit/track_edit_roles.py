@@ -6,7 +6,6 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLayout, QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.dialogs.credited_as_dialog import CreditedAsDialog
@@ -21,10 +20,7 @@ PRIMARY_ARTIST_ROLE = "Primary Artist"
 
 
 def _build_artist_index(artists) -> dict:
-    """display_name -> artist_id, with automatic disambiguation for
-    duplicate names (appends artist_id when two artists share a name).
-    Mirrors artist_edit_influences.py's _build_artist_index.
-    """
+    """Return display_name -> artist_id, adding ' #id' to names that two artists share."""
     index: dict = {}
     seen_names: dict = {}
     for a in artists:
@@ -42,10 +38,7 @@ def _build_artist_index(artists) -> dict:
 
 
 def _fetch_role_rows(session, track_ids: list):
-    """Bulk-fetch every (track, artist, role) triple for `track_ids` in a
-    single joined query, instead of walking `track.artist_roles` and the
-    `.artist`/`.role` relationships per row -- that lazy-loads one query at
-    a time and is what made the Roles tab hitch on open."""
+    """Fetch every (track, artist, role) row for `track_ids` in one joined query."""
     stmt = (
         select(TrackArtistRole.track_id, TrackArtistRole.artist_id, TrackArtistRole.role_id, TrackArtistRole.credited_alias_id, Role.role_name, Artist.artist_name, ArtistAlias.alias_name)
         .outerjoin(Artist, TrackArtistRole.artist_id == Artist.artist_id)
@@ -57,14 +50,7 @@ def _fetch_role_rows(session, track_ids: list):
 
 
 def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
-    """Turn flat (track_id, artist_id, role_id, ...) rows into the
-    (artist_id, credited_name) -> {"roles": {...}} shape the table renders.
-
-    Mirrors the two grouping strategies the tab always had: for a single
-    track every row becomes its own group; for multiple tracks only roles
-    common to *every* selected track survive (an intersection of per-track
-    sets), same as before.
-    """
+    """Group role rows by (artist_id, credited_name); in multi mode keep only roles common to every track."""
     grouped: dict[tuple, dict] = {}
 
     if is_multi:
@@ -93,8 +79,7 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
 
 
 class _RolesLoaderWorker(QObject):
-    """Runs on a background thread: fetches and groups the artist/role data
-    with a single bulk query, then emits the result back to the main thread."""
+    """Fetch and group the artist/role rows on a background thread."""
 
     # Payload: grouped dict, as returned by _group_role_rows.
     finished = Signal(object)
@@ -107,6 +92,7 @@ class _RolesLoaderWorker(QObject):
         self._is_multi = is_multi
 
     def run(self):
+        """Fetch and group the rows, then emit finished (or error)."""
         try:
             rows = _fetch_role_rows(self.controller.get.session, self._track_ids)
             grouped = _group_role_rows(rows, self._track_ids, self._is_multi)
@@ -117,25 +103,12 @@ class _RolesLoaderWorker(QObject):
             logger.exception("Failed to load track roles")
             self.error.emit(str(e))
         finally:
-            # load() spins up a brand-new QThread per call, and each new OS
-            # thread gets its own entry in the scoped_session registry the
-            # first time it's touched above. Nothing else ever removes that
-            # entry, so its checked-out connection was never released back to
-            # the pool -- repeated reloads (e.g. removing several track
-            # credits in a row, each of which calls load() again) exhausted
-            # the pool. Removing it here returns the connection once this
-            # thread's work is done.
+            # Each load uses a new thread with its own scoped session; release it or the pool runs dry.
             self.controller.SessionFactory.remove()
 
 
 class _FlowLayout(QLayout):
-    """Lays out child widgets left-to-right, wrapping to a new line when the
-    current line runs out of horizontal space.
-
-    Used for the role-chip cell so an artist with many roles expands the
-    row vertically to fit every chip, instead of squeezing/truncating them
-    onto a single line.
-    """
+    """Lay out child widgets left to right, wrapping to a new line when a line is full."""
 
     def __init__(self, parent=None, margin: int = 0, h_spacing: int = 6, v_spacing: int = 4):
         super().__init__(parent)
@@ -189,6 +162,7 @@ class _FlowLayout(QLayout):
         return size
 
     def _do_layout(self, rect, test_only: bool) -> int:
+        """Place the items in wrapped lines inside `rect`; return the height used."""
         left, top, right, bottom = self.getContentsMargins()
         effective_rect = rect.adjusted(left, top, -right, -bottom)
         x = effective_rect.x()
@@ -217,19 +191,13 @@ class _FlowLayout(QLayout):
 
 
 class _ChipCell(QWidget):
-    """QWidget host for a role-chip `_FlowLayout`, set as a table cell widget.
+    """Table cell that holds a role-chip _FlowLayout and reports its height at its real width."""
 
-    Plain `QWidget.sizeHint()` delegates to `layout().totalSizeHint()`, which
-    evaluates `heightForWidth()` at the layout's *minimum* width -- one chip
-    wide -- so every chip wraps onto its own line and the cell reports a
-    height many times taller than it needs (space for ~8 lines when only two
-    are used). `QTableView` sizes the row from that hint, and since the cell's
-    real (stretched-column) width never feeds back into `sizeHint()`,
-    `resizeRowsToContents()` can never bring it back down. Report the hint at
-    the cell's actual width instead.
-    """
+    # QWidget.sizeHint() evaluates heightForWidth() at the layout's minimum width
+    # (one chip), which makes rows far too tall; resizeRowsToContents() cannot fix that.
 
     def _hint(self) -> QSize:
+        """Return the size hint at the cell's current width."""
         lay = self.layout()
         width = self.width()
         if lay is not None and lay.hasHeightForWidth() and width > 0:
@@ -250,21 +218,9 @@ class _ChipCell(QWidget):
 
 
 class _RolesTable(QTableWidget):
-    """QTableWidget that keeps row heights matched to wrapped chip content.
+    """Roles table whose height follows its wrapped rows, up to _MAX_CONTENT_HEIGHT."""
 
-    Column 1 stretches to fill available width, so how many chip lines fit
-    per row changes whenever the widget is resized. Qt doesn't recompute
-    row heights on its own when a stretched column's width changes, so we
-    do it explicitly here.
-
-    QAbstractScrollArea (QTableWidget's base) defaults to an Expanding
-    vertical size policy, so this table would otherwise inflate to fill
-    whatever leftover space its parent layout hands it -- with only one or
-    two artist rows (a single-artist track, or an album's Track Credits
-    tab), that left a mostly-empty grid stretching down the page. Sizing to
-    content instead (capped so a long artist list still scrolls rather than
-    pushing the dialog taller) keeps the table only as tall as its rows.
-    """
+    # Qt does not recompute row heights when a stretched column changes width, so resizeEvent does.
 
     _MAX_CONTENT_HEIGHT = 260
 
@@ -285,6 +241,7 @@ class _RolesTable(QTableWidget):
         self.content_changed.emit()
 
     def content_height(self) -> int:
+        """Return the height of the header, all rows and the frame."""
         header = self.horizontalHeader()
         header_h = 0 if header.isHidden() else header.height()
         rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
@@ -292,6 +249,7 @@ class _RolesTable(QTableWidget):
         return header_h + rows_h + frame
 
     def is_overflowing(self) -> bool:
+        """Return True if the rows are taller than the height cap."""
         return self.content_height() > self._MAX_CONTENT_HEIGHT
 
     def sizeHint(self):
@@ -299,10 +257,9 @@ class _RolesTable(QTableWidget):
 
 
 class RolesTab(_BaseTab):
-    # Mirrors _RolesTable.is_overflowing(): lets an owning widget (e.g. the
-    # album editor's Track Credits tab, which wraps this tab in its own
-    # layout) give this tab priority for leftover space too, instead of
-    # only the table inside it -- see _sync_table_stretch.
+    """Add, remove and credit artist roles on the edited track(s)."""
+
+    # Mirrors _RolesTable.is_overflowing(), so an owning layout can give this tab leftover space.
     overflow_changed = Signal(bool)
     saves_immediately = True  # add/remove write to the DB at once
 
@@ -310,16 +267,15 @@ class RolesTab(_BaseTab):
         super().__init__(tracks, controller, parent)
         self._loader_thread: QThread | None = None
         self._worker: _RolesLoaderWorker | None = None
-        # Optional hook(artist_id, role_id): when set, a "→ Album" button is
-        # shown next to every role chip, letting the album editor's Track
-        # Credits tab convert a credit that's on every track into a single
-        # album-level credit. Only meaningful when `tracks` is a whole
-        # album's tracks (see base_album_edit_tabs.TrackCreditsTab) -- the
-        # regular per-track/multi-track editor never passes this.
+        self._reload_pending = False
+        self._cleaned_up = False
+        # Optional hook(artist_id, role_id) for the album editor's Track Credits tab:
+        # shows a "→ Album" button on each chip to make the credit album-level.
         self._on_convert_to_album = on_convert_to_album
         self._build_ui()
 
     def _build_ui(self):
+        """Build the artist/role search row and the roles table."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -388,11 +344,7 @@ class RolesTab(_BaseTab):
         self._sync_table_stretch()
 
     def _sync_table_stretch(self) -> None:
-        """Give the table priority for this tab's leftover vertical space
-        once its content no longer fits within _RolesTable's height cap,
-        instead of leaving that space blank below a capped table -- and
-        tell any owning widget (overflow_changed) so it can do the same
-        with its own layout."""
+        """Give the table the tab's leftover height once its rows overflow the height cap."""
         overflow = self._table.is_overflowing()
         self._layout.setStretch(self._table_stretch_idx, 1 if overflow else 0)
         self._layout.setStretch(self._trailing_stretch_idx, 0 if overflow else 1)
@@ -401,18 +353,17 @@ class RolesTab(_BaseTab):
     # ── Loading ───────────────────────────────────────────────────────────
 
     def load(self, tracks: list) -> None:
-        """Kick off a background load: fetching artist/role rows previously
-        walked `track.artist_roles` and `.artist`/`.role` per row, which
-        lazy-loads one DB query at a time and hitched the UI thread on open.
-        The table is (re)populated in `_on_roles_loaded` once the bulk query
-        finishes on a worker thread."""
+        """Start a background load of the artist/role rows of `tracks`."""
         self.tracks = tracks
 
         try:
             if self._loader_thread and self._loader_thread.isRunning():
+                # Run again when the current load ends, so a reload after an edit is not lost.
+                self._reload_pending = True
                 return
         except RuntimeError:
             self._loader_thread = None
+        self._reload_pending = False
 
         self._table.setEnabled(False)
 
@@ -427,11 +378,17 @@ class RolesTab(_BaseTab):
         self._worker.finished.connect(self._loader_thread.quit)
         self._worker.error.connect(self._loader_thread.quit)
         self._loader_thread.finished.connect(self._loader_thread.deleteLater)
+        self._loader_thread.finished.connect(self._run_pending_reload)
 
         self._loader_thread.start()
 
+    def _run_pending_reload(self) -> None:
+        """Start the reload that was asked for while a load was running."""
+        if self._reload_pending and not self._cleaned_up:
+            self.load(self.tracks)
+
     def _on_roles_loaded(self, grouped: dict) -> None:
-        """Called on the main thread once the background worker finishes."""
+        """Fill the table from the grouped rows (main thread)."""
         saved_scroll = self._table.verticalScrollBar().value()
         self._table.setRowCount(0)
 
@@ -465,13 +422,14 @@ class RolesTab(_BaseTab):
         QTimer.singleShot(0, lambda: self._table.verticalScrollBar().setValue(saved_scroll))
 
     def _on_roles_load_error(self, message: str) -> None:
+        """Log a load error and enable the table again."""
         logger.error(f"Error loading artist roles: {message}")
         self._table.setEnabled(True)
 
     def cleanup(self) -> None:
-        """Stop any in-flight background load before the tab is destroyed,
-        so the worker's finished/error signals never land on a deleted
-        widget."""
+        """Disconnect and stop a running background load before the tab is destroyed."""
+        self._cleaned_up = True
+        self._reload_pending = False
         try:
             if self._loader_thread and self._loader_thread.isRunning():
                 self._worker.finished.disconnect(self._on_roles_loaded)
@@ -483,8 +441,7 @@ class RolesTab(_BaseTab):
 
     @staticmethod
     def _sorted_groups(grouped: dict) -> list:
-        """Sort artists, putting anyone with a Primary Artist role first,
-        then alphabetically by credited name."""
+        """Sort artists: Primary Artists first, then by credited name."""
 
         def sort_key(item):
             (_artist_id, credited_name), entry = item
@@ -504,6 +461,7 @@ class RolesTab(_BaseTab):
         return sorted(roles.items(), key=sort_key)
 
     def _add_artist_row(self, artist_id, artist_name, roles: dict, credited_alias_id=None):
+        """Append one artist row: name, role chips and actions."""
         row = self._table.rowCount()
         self._table.insertRow(row)
 
@@ -539,6 +497,7 @@ class RolesTab(_BaseTab):
         self._table.resizeRowToContents(row)
 
     def _build_role_chip(self, artist_id, artist_name, role_id, role_name) -> QWidget:
+        """Return one removable role chip."""
         chip = QWidget()
         chip.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         chip.setProperty("class", "roleChip")
@@ -579,6 +538,7 @@ class RolesTab(_BaseTab):
         return chip
 
     def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
+        """Return the wrapped chip cell for one artist's roles."""
         cell = _ChipCell()
         row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
@@ -595,6 +555,7 @@ class RolesTab(_BaseTab):
     # ── Search ────────────────────────────────────────────────────────────
 
     def _update_add_btn(self):
+        """Enable "Add Role" when both fields have at least 2 characters."""
         artist_ok = len(self._artist_search.text().strip()) >= 2
         role_ok = len(self._role_edit.text().strip()) >= 2
         self._add_btn.setEnabled(artist_ok and role_ok)
@@ -602,6 +563,7 @@ class RolesTab(_BaseTab):
     # ── Resolution helpers ────────────────────────────────────────────────
 
     def _resolve_artist(self, artist_name: str, matched_id=None):
+        """Return the artist by completer pick or name, creating it if needed; None on failure."""
         if matched_id is not None:
             return self.controller.get.get_entity_object("Artist", artist_id=matched_id)
 
@@ -613,6 +575,7 @@ class RolesTab(_BaseTab):
         return artist
 
     def _resolve_role(self, role_name: str, matched_id=None):
+        """Return the role by completer pick or name, creating it if needed; None on failure."""
         if matched_id is not None:
             return self.controller.get.get_entity_object("Role", role_id=matched_id)
 
@@ -620,7 +583,8 @@ class RolesTab(_BaseTab):
         role = existing_role if not isinstance(existing_role, list) else (existing_role[0] if existing_role else None)
         if not role:
             role = self.controller.add.add_entity("Role", role_name=role_name)
-            register_cached_entity("Role", role)
+            if role is not None:
+                register_cached_entity("Role", role)
 
         if role:
             self._role_edit.add_to_index(role.role_name, role.role_id)
@@ -629,14 +593,13 @@ class RolesTab(_BaseTab):
     # ── Add / Remove ──────────────────────────────────────────────────────
 
     def _add_role(self):
+        """Add every typed role to every typed artist on the edited track(s)."""
         artist_names = self._artist_search.split_names()
         role_names = self._role_edit.split_names()
         if not artist_names or not role_names:
             return
 
-        # matched_id only names a single typed artist/role -- with several
-        # entered at once (e.g. "Deakin;Panda Bear") each is resolved by
-        # name instead of relying on that one-shot completer pick.
+        # matched_id only names a single typed entry; several names are each resolved by name.
         single_artist_matched_id = self._artist_search.matched_id() if len(artist_names) == 1 else None
         artists = [self._resolve_artist(name, matched_id=single_artist_matched_id) for name in artist_names]
         if any(artist is None for artist in artists):
@@ -649,24 +612,24 @@ class RolesTab(_BaseTab):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
+        all_ok = True
         for artist in artists:
             credited_alias_id = None
             if not self.is_multi:
                 accepted, credited_alias_id = self._prompt_credited_alias(artist)
                 if not accepted:
-                    # User dismissed the "Credit as…" dialog -- skip this
-                    # artist rather than adding under the canonical name.
-                    continue
+                    continue  # dismissed "Credit as…": skip, do not add under the canonical name
             for role in roles:
-                self._batch_add_track_artist_role(artist.artist_id, role.role_id, credited_alias_id=credited_alias_id)
+                all_ok = self._batch_add_track_artist_role(artist.artist_id, role.role_id, credited_alias_id=credited_alias_id) and all_ok
+        if not all_ok:
+            self._warn_failed("add the role to")
 
         self._artist_search.reset()
         self._role_edit.reset()
         self.load(self.tracks)
 
     def _prompt_add_role_for_artist(self, artist_id, artist_name):
-        """Add another role to an artist already shown in the table, via
-        the existing role input field (reused as a quick prompt)."""
+        """Add the role(s) typed in the role field to an artist already in the table."""
         role_names = self._role_edit.split_names()
         if not role_names:
             show_status_message(self, f"Type a role name (min 2 chars) in the role field, then click '+ Add role…' next to {artist_name}.")
@@ -687,18 +650,16 @@ class RolesTab(_BaseTab):
                 if not accepted:
                     return
 
-        for role in roles:
-            self._batch_add_track_artist_role(artist_id, role.role_id, credited_alias_id=credited_alias_id)
+        all_ok = True
+        for role in roles:  # try every role, even after a failure
+            all_ok = self._batch_add_track_artist_role(artist_id, role.role_id, credited_alias_id=credited_alias_id) and all_ok
+        if not all_ok:
+            self._warn_failed("add the role to")
         self._role_edit.reset()
         self.load(self.tracks)
 
     def _prompt_credited_alias(self, artist, current_alias_id=None):
-        """Show the alias picker for `artist` if they have any aliases on
-        file. Returns ``(accepted, alias_id)``: ``accepted`` is False only
-        when the user dismissed the dialog (Cancel/Esc), and the caller must
-        then abort rather than fall back to the canonical name. When the
-        artist has no aliases the dialog is skipped and
-        ``(True, current_alias_id)`` is returned."""
+        """Ask which alias to credit `artist` as; return (accepted, alias_id)."""
         aliases = self.controller.get.get_all_entities("ArtistAlias", artist_id=artist.artist_id)
         if not aliases:
             return True, current_alias_id
@@ -709,8 +670,7 @@ class RolesTab(_BaseTab):
         return False, current_alias_id
 
     def _change_credited_alias(self, artist_id, roles: dict, current_alias_id):
-        """Change the credited name for every role this artist currently
-        holds on the single selected track."""
+        """Change the credited name for every role this artist holds on the single track."""
         artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
         if not artist:
             return
@@ -719,44 +679,46 @@ class RolesTab(_BaseTab):
         if not accepted or new_alias_id == current_alias_id:
             return
 
-        for role_id in roles:
-            self.controller.update.update_entity_by_filter("TrackArtistRole", {"track_id": self.track.track_id, "artist_id": artist_id, "role_id": role_id}, credited_alias_id=new_alias_id)
+        failed = [
+            role_id
+            for role_id in roles
+            if not self.controller.update.update_entity_by_filter("TrackArtistRole", {"track_id": self.track.track_id, "artist_id": artist_id, "role_id": role_id}, credited_alias_id=new_alias_id)
+        ]
+        if failed:
+            self._warn_failed("change the credited name of")
         self.load(self.tracks)
 
     def _remove_role(self, artist_id, role_id):
-        self._batch_delete_track_artist_role(artist_id, role_id)
+        """Remove one role of one artist from every edited track."""
+        if not self._batch_delete_track_artist_role(artist_id, role_id):
+            self._warn_failed("remove the role from")
         self.load(self.tracks)
 
     def _remove_all_roles_for_artist(self, artist_id):
-        # Gather every role_id this artist currently holds across the
-        # selected tracks, then remove each.
-        role_ids: set = set()
-        for t in self.tracks:
-            for ra in t.artist_roles:
-                if ra.artist and ra.artist.artist_id == artist_id and ra.role:
-                    role_ids.add(ra.role.role_id)
-
-        for role_id in role_ids:
-            self._batch_delete_track_artist_role(artist_id, role_id)
-
+        """Remove every role of one artist from every edited track."""
+        # One filtered delete: the cached track.artist_roles can be out of date after edits.
+        track_ids = [track.track_id for track in self.tracks]
+        if not self.controller.delete.delete_entity("TrackArtistRole", track_id=track_ids, artist_id=artist_id):
+            self._warn_failed("remove the artist's roles from")
         self.load(self.tracks)
 
+    def _warn_failed(self, action: str) -> None:
+        """Tell the user that a role write failed."""
+        QMessageBox.warning(self, "Error", f"Could not {action} the selected track(s). See the log for details.")
+
     # ── Batch helpers ─────────────────────────────────────────────────────
-    #
-    # Both calls below issue a single DB statement covering every selected
-    # track (a bulk INSERT and a single DELETE ... WHERE track_id IN (...)
-    # respectively), instead of one round-trip per track.
+    # Each call is one DB statement for every selected track.
 
-    def _batch_add_track_artist_role(self, artist_id, role_id, credited_alias_id=None):
+    def _batch_add_track_artist_role(self, artist_id, role_id, credited_alias_id=None) -> bool:
+        """Add one artist role to every edited track; True if no row failed."""
         rows = [{"track_id": track.track_id, "artist_id": artist_id, "role_id": role_id, "credited_alias_id": credited_alias_id} for track in self.tracks]
-        try:
-            self.controller.add.add_entities("TrackArtistRole", rows)
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to add role to tracks: {e}")
+        # Rows that already exist are skipped, not reported as failed.
+        _added, failed = self.controller.add.add_entities_with_fallback("TrackArtistRole", rows)
+        if failed:
+            logger.error(f"Failed to add role {role_id} for artist {artist_id} to track(s) {[r['track_id'] for r in failed]}")
+        return not failed
 
-    def _batch_delete_track_artist_role(self, artist_id, role_id):
+    def _batch_delete_track_artist_role(self, artist_id, role_id) -> bool:
+        """Remove one artist role from every edited track; True on success."""
         track_ids = [track.track_id for track in self.tracks]
-        try:
-            self.controller.delete.delete_entity("TrackArtistRole", track_id=track_ids, artist_id=artist_id, role_id=role_id)
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to remove role from tracks: {e}")
+        return bool(self.controller.delete.delete_entity("TrackArtistRole", track_id=track_ids, artist_id=artist_id, role_id=role_id))

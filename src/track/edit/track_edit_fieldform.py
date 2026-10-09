@@ -1,6 +1,5 @@
-# ---------------------------------------------------------------------------
-# FieldFormTab — auto-builds titled field cards from TRACK_FIELDS for one category
-# ---------------------------------------------------------------------------
+"""FieldFormTab: titled field cards built from TRACK_FIELDS for one category."""
+
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -25,10 +24,7 @@ _NUMBER_FIELD_WIDTH = 160
 
 
 def _make_widget_for_field(field_name: str, field_config, on_change_cb):
-    """
-    Create and return the right editable widget for a FieldSpec.
-    Connects the widget's change signal to on_change_cb(field_name).
-    """
+    """Create the editable widget for a FieldSpec and connect it to on_change_cb(field_name)."""
     if field_config.type is bool:
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
@@ -156,9 +152,8 @@ _MIXED_PLACEHOLDER = "Mixed values"
 
 
 def _show_mixed(widget, mixed: bool) -> None:
-    """Mark a multi-track field whose tracks disagree, so it reads as
-    "the tracks differ" rather than "the value is empty". Line and text
-    edits swap in a placeholder; checkboxes show the partial state."""
+    """Mark a multi-track field whose tracks have different values."""
+    # Line and text edits show a placeholder; checkboxes show the partial state.
     if isinstance(widget, (QLineEdit, QTextEdit)):
         base = widget.property("basePlaceholder")
         if base is None:
@@ -173,15 +168,9 @@ def _show_mixed(widget, mixed: bool) -> None:
 
 
 class FieldFormTab(_BaseTab):
-    """
-    Generic tab that renders all TRACK_FIELDS belonging to `category`.
-    Editable fields → appropriate input widget.
-    Read-only fields → value label, styled as a key/value pair.
+    """Tab that shows all TRACK_FIELDS of one category in titled DetailCards."""
 
-    Fields are laid out in titled DetailCards: one per FieldSpec.section, or
-    — for categories without sections — one card for the editable fields
-    and one for the read-only ones.
-    """
+    # One card per FieldSpec.section, or one editable and one read-only card.
 
     # Fields sharing one form row instead of getting their own — keeps
     # short, closely-related fields from wasting vertical space. Keyed by
@@ -223,6 +212,7 @@ class FieldFormTab(_BaseTab):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the scroll area and one DetailCard per field group."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
@@ -318,12 +308,12 @@ class FieldFormTab(_BaseTab):
         self._body_layout.addStretch()
 
     def add_action_widget(self, widget: QWidget) -> None:
-        """Add a tab-specific action (e.g. a MusicBrainz lookup button) to
-        the row under the field cards."""
+        """Add a tab-specific action button to the row under the field cards."""
         self._actions_row.insertWidget(self._actions_row.count() - 1, widget)
 
     @staticmethod
     def _make_field_label(text: str, tooltip: str | None = None) -> QLabel:
+        """Return a form label with an optional tooltip."""
         lbl = QLabel(text)
         lbl.setProperty("textRole", "fieldLabel")
         if tooltip:
@@ -332,8 +322,7 @@ class FieldFormTab(_BaseTab):
 
     @staticmethod
     def _make_date_chip(rows: list) -> QWidget:
-        """Year/Month/Day parts as one framed chip, each part captioned
-        with the last word of its own label ("Year", "Month", "Day")."""
+        """Return the Year/Month/Day widgets as one framed date chip."""
         holder = QWidget()
         holder.setProperty("bgTransparent", True)
         holder_row = QHBoxLayout(holder)
@@ -360,9 +349,7 @@ class FieldFormTab(_BaseTab):
         return holder
 
     def _make_row_field(self, field_name: str, cfg):
-        """Build the (label, value_widget) pair for one field, or return
-        None if the field should be omitted (e.g. non-multiple in multi-track
-        edit mode)."""
+        """Return the (label, value_widget) pair for one field, or None to omit it."""
         lbl = self._make_field_label(cfg.friendly or field_name, cfg.tooltip)
 
         if not cfg.editable:
@@ -388,18 +375,18 @@ class FieldFormTab(_BaseTab):
     # ── _BaseTab interface ───────────────────────────────────────────────
 
     def load(self, tracks: list) -> None:
+        """Fill every field from `tracks` and clear the unsaved-edit set."""
         self.tracks = tracks
         self._dirty.clear()
         self._populate(tracks, skip_dirty=False)
 
     def refresh_values(self, tracks: list) -> None:
-        """Like load(), but leaves any field the user has already started
-        editing untouched — safe to call mid-session (e.g. after a
-        background audio analysis run updates the underlying track(s))."""
+        """Like load(), but leave the fields the user already edited untouched."""
         self.tracks = tracks
         self._populate(tracks, skip_dirty=True)
 
     def _populate(self, tracks: list, skip_dirty: bool) -> None:
+        """Write track values into the widgets and labels."""
         if self.is_multi:
             # Show the value only when all tracks agree; otherwise leave the
             # field blank and flag it "Mixed values".
@@ -426,17 +413,7 @@ class FieldFormTab(_BaseTab):
                 lbl.setText(_format_readonly(getattr(self.track, field_name, None), cfg, field_name))
 
     def set_if_empty(self, values: dict[str, Any]) -> None:
-        """Fill fields from a MusicBrainz enrichment dict, but only where
-        this tab's own widget is currently blank -- never overwrites
-        something the user already filled in or typed moments ago.
-
-        Unlike load()/refresh_values(), applied fields are explicitly
-        marked dirty so collect_changes() picks them up on Save, exactly
-        as if the user had typed them (collect_changes() only includes
-        fields present in self._dirty). Not offered in multi-track mode --
-        a single MusicBrainz recording match doesn't apply to a batch of
-        different tracks.
-        """
+        """Fill only the blank fields from `values` and mark them unsaved (single track only)."""
         if self.is_multi:
             return
         for field_name, value in values.items():
@@ -450,18 +427,12 @@ class FieldFormTab(_BaseTab):
             self._mark_dirty(field_name)
 
     def get_field_value(self, field_name: str) -> Any:
-        """Live, currently-typed value for one editable field on this tab --
-        reflects unsaved edits, unlike the same field read off self.track.
-        Returns None if the field isn't editable/present on this tab."""
+        """Return the currently typed value of one editable field, or None."""
         widget = self._widgets.get(field_name)
         return _read_widget(widget) if widget is not None else None
 
     def set_field_value(self, field_name: str, value: Any) -> bool:
-        """Write `value` into one editable widget on this tab and mark it
-        dirty so collect_changes() persists it on Save -- the inverse of
-        get_field_value(). Returns False if the field isn't an editable
-        widget on this tab (e.g. read-only, or filtered out in multi-track
-        mode)."""
+        """Write `value` into one editable field and mark it unsaved; False if absent."""
         widget = self._widgets.get(field_name)
         if widget is None:
             return False
@@ -470,9 +441,7 @@ class FieldFormTab(_BaseTab):
         return True
 
     def collect_all_values(self) -> dict[str, Any]:
-        """Return every currently displayed field with a value, editable or
-        read-only -- unlike collect_changes(), this isn't limited to fields
-        the user has actively edited this session."""
+        """Return every displayed field that has a value, editable or read-only."""
         values: dict[str, Any] = {}
         for field_name, w in self._widgets.items():
             cfg = TRACK_FIELDS.get(field_name)
@@ -488,18 +457,19 @@ class FieldFormTab(_BaseTab):
         return values
 
     def pending_changes(self) -> set[str]:
+        """Return the fields whose edited value differs from the saved value."""
         return set(self._gather_changes())
 
     def collect_changes(self) -> dict[str, Any]:
+        """Return the changed field values to save."""
         changes = self._gather_changes()
         if changes:
             logger.debug(f"Collected {len(changes)} field change(s) in '{self.category}' tab: {list(changes.keys())}")
         return changes
 
     def _gather_changes(self) -> dict[str, Any]:
-        """Dirty fields whose value really differs (every dirty field in
-        multi-track mode). No logging -- also backs pending_changes(),
-        which runs on every keystroke."""
+        """Return dirty fields whose value really differs (all dirty fields in multi mode)."""
+        # No logging: pending_changes() calls this on every keystroke.
         changes = {}
         for field_name in self._dirty:
             w = self._widgets.get(field_name)

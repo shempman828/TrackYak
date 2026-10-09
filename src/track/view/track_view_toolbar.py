@@ -1,17 +1,6 @@
-"""
-track_view_toolbar.py — toolbar, column-search scope, empty states, the
-selection bar, and now-playing wiring, shared by TrackView and BaseTrackView.
-
-Hosts provide:
-    self.layout                      their top-level QVBoxLayout
-    self.table / self.model          once built (TrackTable + QStandardItemModel)
-    _add_toolbar_actions(toolbar)    host-specific buttons right of the search
-    _selection_bar_actions()         (play_next, queue, edit, delete) callables
-    _now_playing_source()            the player object, or None
-and may override:
-    _search_debounce_ms              0 = filter on every keystroke
-    _empty_library_text              shown when the list has no tracks at all
-"""
+"""Toolbar, search scope, empty states, selection bar and now-playing wiring for both track views."""
+# Hosts provide self.layout, self.table/self.model, _add_toolbar_actions(), _selection_bar_actions()
+# and _now_playing_source(); they may override _search_debounce_ms and _empty_library_text.
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
@@ -48,6 +37,7 @@ class TrackViewToolbarMixin:
     # ── Toolbar ───────────────────────────────────────────────────────────
 
     def _build_toolbar(self):
+        """Build the shared toolbar and connect live search."""
         toolbar = TrackToolbar(self)
         self.toolbar = toolbar
         # Aliases kept for existing callers (mood_dialog.py reparents
@@ -82,16 +72,7 @@ class TrackViewToolbarMixin:
         """Hook: add host-specific action buttons to `toolbar`."""
 
     def _populate_search_combo(self):
-        """
-        Build the column-search drop-down menu with category submenus.
-
-        Layout:
-            [All Columns]          ← top-level, always present
-            ─────────────
-            Basic Info  ►          ← submenu per category
-            Technical   ►
-            …
-        """
+        """Build the search-scope menu: All Columns, then one submenu per field category."""
         menu = self._search_column_menu
         menu.clear()
 
@@ -118,13 +99,14 @@ class TrackViewToolbarMixin:
             menu.addMenu(submenu)
 
     def _on_search_column_selected(self):
-        """Called when the user picks a column (or 'All Columns') from the search menu."""
+        """Scope the search to the picked column (or all columns)."""
         action = self.sender()
         if not action:
             return
         self._set_search_scope(action.data() or SEARCH_ALL, action.text())
 
     def _set_search_scope(self, field_name: str, label: str):
+        """Set the search scope and search again."""
         self._search_field_name = field_name
         self._search_field_label = label if field_name != SEARCH_ALL else "All Columns"
         self.search_column_btn.setText(f"{self._search_field_label} ▾")
@@ -134,13 +116,16 @@ class TrackViewToolbarMixin:
         self._apply_search_filter()
 
     def _reset_search_scope(self, *_args):
+        """Search all columns again."""
         self._set_search_scope(SEARCH_ALL, "All Columns")
 
     def _sync_scope_chip(self):
+        """Show the scope chip only for a single-column search."""
         scoped = self._search_field_name != SEARCH_ALL
         self.toolbar.set_scope(self._search_field_label if scoped else None, self.search_bar.text().strip())
 
     def _apply_search_now(self):
+        """Search at once (Enter), skipping the pause timer."""
         timer = getattr(self, "_search_timer", None)
         if timer is not None:
             timer.stop()
@@ -149,8 +134,7 @@ class TrackViewToolbarMixin:
     # ── Table chrome: delegate, header menu, empty state, selection bar ──
 
     def _install_table_chrome(self):
-        """Call once the table is built, its columns set up, and the table
-        added to self.layout."""
+        """Install the row delegate, header menu, empty state, selection bar and now-playing link."""
         self._row_delegate = TrackRowDelegate(self.table, list(self.columns.keys()))
         self.table.setItemDelegate(self._row_delegate)
 
@@ -192,15 +176,19 @@ class TrackViewToolbarMixin:
                 self.table.set_now_playing(current)
 
     def _selection_bar_actions(self):
+        """Hook: return the (play_next, queue, edit, delete) callables."""
         raise NotImplementedError
 
     def _now_playing_source(self):
-        return None
+        """Hook: return the player, or None."""
+        return
 
     def _visible_source(self) -> list:
+        """Return the listed tracks (the filter results while a search is active)."""
         return self._filtered_tracks if self._filter_active else self._all_tracks
 
     def _update_selection_bar(self):
+        """Show the selection bar with count and length for 2+ selected rows."""
         bar = getattr(self, "selection_bar", None)
         if bar is None:
             return
@@ -214,6 +202,7 @@ class TrackViewToolbarMixin:
         bar.show()
 
     def _sync_empty_state(self):
+        """Show the right empty-state message (loading, no match, empty library)."""
         placeholder = getattr(self, "_empty_placeholder", None)
         if placeholder is None:
             return
@@ -238,8 +227,7 @@ class TrackViewToolbarMixin:
     # ── Status line ───────────────────────────────────────────────────────
 
     def _list_length(self, tracks: list) -> float:
-        """Summed duration, cached per (list identity, size) -- _update_status
-        runs after every lazy-load batch."""
+        """Return the summed duration of `tracks`, cached per list."""
         # Ends' identities guard against a freed list's id being reused.
         key = (id(tracks), len(tracks), id(tracks[0]) if tracks else None, id(tracks[-1]) if tracks else None)
         cache = getattr(self, "_length_cache", None)
@@ -250,6 +238,7 @@ class TrackViewToolbarMixin:
         return total
 
     def _summary_text(self) -> str:
+        """Return the "N tracks · length" summary line."""
         if not getattr(self, "_tracks_loaded", True):
             return "Loading…"
         total = len(self._all_tracks)

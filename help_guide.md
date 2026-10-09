@@ -110,16 +110,30 @@ huge library.
 (bit rate, format, etc.) are hidden to keep the table readable. Use the
 column-visibility control in the toolbar to bring back whichever ones you
 care about — they're grouped by category so you can turn a whole group on or
-off at once.
+off at once. In the column dialog, **Reset to Default** brings back the
+starting set of visible columns in their normal order. At least one column
+must stay visible, so the dialog (and the header's right-click menu) will not
+hide the last one.
 
 **Playing something**: double-click a row to play it immediately. To queue
 up a batch instead, select several tracks (Ctrl/Shift-click) and drag them
-onto a playlist, or use the context menu.
+onto a playlist, or use the context menu. Dragging also works from the track
+lists that open from an artist, role, or publisher. **Add to Playlist** and
+**Add to Mood** on the context menu show how many tracks were added and how
+many were already there.
 
 **Fixing up metadata**: select one track and choose Edit to change any
 field. Select several and edit them together — only fields safe to apply to
 a whole batch (like genre) show up in the multi-edit form, so you won't
-accidentally overwrite something track-specific like the title.
+accidentally overwrite something track-specific like the title. If Save
+fails (for example, an MBID that another track already uses), the editor
+stays open with the error under the tabs, so your edits are not lost.
+
+In the editor, the **Genres** and **Moods** tabs have a **Remove Selected**
+button (or press Delete) for the selected entries. The **Awards** tab links
+an award to the track: type an award name (a new name creates the award) and
+click **Link Award**. The Category and Year columns come from the award
+itself — edit them on the award's own detail panel.
 
 **Classical tracks from a messy title**: on a single track, the editor's
 Classical tab has a **Parse Title for Classical Data** button. It reads the

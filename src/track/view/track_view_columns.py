@@ -1,7 +1,4 @@
-"""
-track_view_columns.py — column setup, visibility, ordering, and state
-persistence for TrackView.
-"""
+"""Column setup, visibility, ordering and saved state for the track views."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -11,11 +8,24 @@ from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.track.view.track_columns import ColumnCustomizationDialog
 
+# Hidden by default in addition to the "Technical" category.
+_HIDDEN_BY_DEFAULT = frozenset({"file_size", "bit_rate", "sample_rate", "track_id", "track_file_path"})
+
 
 class TrackViewColumnsMixin:
     """Column model setup, header behavior, visibility, and persisted state."""
 
+    def default_hidden_columns(self) -> set[str]:
+        """Return the field names that are hidden by default."""
+        hidden = set()
+        for field_name in self.columns:
+            field_config = self.track_fields.get(field_name)
+            if (field_config and field_config.category == "Technical") or field_name in _HIDDEN_BY_DEFAULT:
+                hidden.add(field_name)
+        return hidden
+
     def _initialize_columns(self):
+        """Build self.columns from TRACK_FIELDS and fill the search-scope menu."""
         self.columns = {}
         for field_name, field_config in self.track_fields.items():
             if field_config.friendly:
@@ -24,6 +34,7 @@ class TrackViewColumnsMixin:
         self._populate_search_combo()
 
     def _setup_table(self):
+        """Configure the model columns, header, selection and drag behavior."""
         self.model.setColumnCount(len(self.columns))
         self.model.setHorizontalHeaderLabels(list(self.columns.values()))
 
@@ -56,12 +67,10 @@ class TrackViewColumnsMixin:
         self._set_initial_column_visibility()
 
     def _set_initial_column_visibility(self):
-        hidden_by_default = {"file_size", "bit_rate", "sample_rate", "track_id", "track_file_path"}
-        for i, (field_name, _) in enumerate(self.columns.items()):
-            field_config = self.track_fields.get(field_name)
-            if (
-                field_config and field_config.category == "Technical"
-            ) or field_name in hidden_by_default:
+        """Hide the default-hidden columns."""
+        hidden = self.default_hidden_columns()
+        for i, field_name in enumerate(self.columns):
+            if field_name in hidden:
                 self.table.setColumnHidden(i, True)
 
     # =========================================================================
@@ -77,6 +86,7 @@ class TrackViewColumnsMixin:
         return {"visible": visible, "order": order}
 
     def load_column_state(self):
+        """Apply the saved column visibility, order and widths."""
         try:
             visible = app_config.get_track_view_visible_columns()
             order = app_config.get_track_view_column_order()
@@ -103,6 +113,7 @@ class TrackViewColumnsMixin:
             logger.error(f"Error loading column state: {e}")
 
     def save_column_state(self):
+        """Save the column visibility, order and widths."""
         try:
             col_keys = list(self.columns.keys())
             header = self.table.horizontalHeader()
@@ -119,7 +130,6 @@ class TrackViewColumnsMixin:
     def show_column_menu(self):
         """Toggle Columns menu, grouped by FieldSpec category into submenus."""
         menu = QMenu(self)
-        list(self.columns.keys())
 
         # Build a dict of  category → list of (index, field_name, label)
         category_groups: dict[str, list] = {}
@@ -130,7 +140,7 @@ class TrackViewColumnsMixin:
 
         for cat, fields in sorted(category_groups.items()):
             submenu = QMenu(cat, menu)
-            for i, key, label in fields:
+            for i, _key, label in fields:
                 action = QAction(label, submenu)
                 action.setCheckable(True)
                 action.setChecked(not self.table.isColumnHidden(i))
@@ -139,17 +149,22 @@ class TrackViewColumnsMixin:
                 submenu.addAction(action)
             menu.addMenu(submenu)
 
-        # Find a sensible anchor: use the View button if it still exists, else cursor
         menu.exec_(self.cursor().pos())
 
     def _toggle_column(self):
+        """Show or hide the column of the triggered menu action, keeping at least one visible."""
         action = self.sender()
         if action:
             i = action.data()
+            visible = [c for c in range(len(self.columns)) if not self.table.isColumnHidden(c)]
+            if not action.isChecked() and visible == [i]:
+                action.setChecked(True)  # hiding the last column would leave no header to right-click
+                return
             self.table.setColumnHidden(i, not action.isChecked())
             self.save_column_state()
 
     def show_column_customization(self):
+        """Open the column order and visibility dialog."""
         dialog = ColumnCustomizationDialog(self, self)
         dialog.exec_()
 

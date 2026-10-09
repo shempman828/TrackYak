@@ -1,6 +1,5 @@
-# ---------------------------------------------------------------------------
-# Base class for all tabs
-# ---------------------------------------------------------------------------
+"""Base class for all track edit dialog tabs."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,59 +9,48 @@ from PySide6.QtWidgets import QWidget
 
 
 class _BaseTab(QWidget):
-    """
-    Every tab subclass must implement:
-      load(tracks)          — populate widgets from the track(s)
-      collect_changes()     — return {field_name: new_value} for scalar fields
-                              (relationship tabs return {} — they write directly)
-    """
+    """Common interface of a track edit tab: load, collect, refresh and clean up."""
 
-    # Emitted whenever the user edits a scalar field (see _mark_dirty), so the
-    # dialog can refresh its unsaved-change count and per-tab dirty markers.
+    # Emitted whenever the user edits a scalar field (see _mark_dirty).
     changed = Signal()
 
-    # True for relationship tabs (genres, roles, places, …) whose add/remove
-    # actions write to the DB at once instead of waiting for Save. The dialog
-    # shows a notice on these tabs so the two save models aren't confused.
+    # True for relationship tabs whose add/remove actions write to the DB at once
+    # instead of waiting for Save; the dialog shows a notice on these tabs.
     saves_immediately = False
 
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(parent)
-        # Always a list — even for single-track editing
-        self.tracks = tracks
+        self.tracks = tracks  # always a list, even for single-track editing
         self.controller = controller
         self.is_multi = len(tracks) > 1
-        # Tracks which scalar fields the user has touched
-        self._dirty: set = set()
+        self._dirty: set = set()  # scalar fields the user has touched
 
     @property
     def track(self):
-        """Convenience: the single track (only valid when is_multi is False)."""
+        """Return the first track (the only one when is_multi is False)."""
         return self.tracks[0]
 
     def load(self, tracks: list) -> None:
+        """Fill the widgets from `tracks`."""
         raise NotImplementedError
 
     def collect_changes(self) -> dict[str, Any]:
-        return {}
+        """Return {field_name: new_value} for the scalar fields to save."""
+        return {}  # relationship tabs write directly
 
     def refresh_values(self, tracks: list) -> None:
-        """Re-sync displayed values from `tracks` after a background update
-        (e.g. audio analysis) without disturbing unsaved edits. Default is a
-        no-op; override in tabs that display fields analysis can populate."""
+        """Show fresh values from `tracks` without touching unsaved edits."""
 
     def cleanup(self) -> None:
-        """Called when the owning dialog is closing. Default is a no-op;
-        override in tabs that own background threads or other resources
-        that must be stopped before the tab is destroyed."""
+        """Stop background work before the dialog destroys the tab."""
 
     def pending_changes(self) -> set[str]:
-        """Names of the fields this tab would write on Save. Cheap and free
-        of side effects (unlike collect_changes) -- called on every edit to
-        keep the dialog's unsaved-change count current."""
+        """Return the names of the fields this tab would write on Save."""
+        # Called on every edit, so it must be cheap and free of side effects.
         return set(self._dirty)
 
     def _mark_dirty(self, field_name: str) -> None:
+        """Record that the user edited `field_name`."""
         self._dirty.add(field_name)
         self.changed.emit()
 

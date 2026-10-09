@@ -24,9 +24,9 @@ from src.track.edit.track_edit_places import PlacesTab as TrackPlacesTab
 
 class _FakeDB:
     def __init__(self):
-        self.places = {}          # place_id -> ns(place_id, place_name, MBID)
-        self.assoc_types = {}     # id -> ns(association_type_id, type_name)
-        self.place_assocs = []    # ns(association_id, entity_id, entity_type, ...)
+        self.places = {}  # place_id -> ns(place_id, place_name, MBID)
+        self.assoc_types = {}  # id -> ns(association_type_id, type_name)
+        self.place_assocs = []  # ns(association_id, entity_id, entity_type, ...)
         self._next = {"place": 1, "type": 1, "assoc": 1}
 
     # -- lookup surface -----------------------------------------------------
@@ -68,24 +68,18 @@ class _FakeDB:
                 return t
         return self.add_assoc_type(name)
 
-    def add_place_assoc(self, entity_id, entity_type, place_id,
-                        association_type_id=None):
+    def add_place_assoc(self, entity_id, entity_type, place_id, association_type_id=None):
         aid = self._next["assoc"]
         self._next["assoc"] += 1
-        self.place_assocs.append(SimpleNamespace(
-            association_id=aid,
-            entity_id=entity_id,
-            entity_type=entity_type,
-            place_id=place_id,
-            association_type_id=association_type_id,
-            association_type=self.assoc_types.get(association_type_id),
-        ))
+        self.place_assocs.append(
+            SimpleNamespace(
+                association_id=aid, entity_id=entity_id, entity_type=entity_type, place_id=place_id, association_type_id=association_type_id, association_type=self.assoc_types.get(association_type_id)
+            )
+        )
 
     def delete_by_assoc_ids(self, assoc_ids):
         ids = set(assoc_ids)
-        self.place_assocs = [
-            a for a in self.place_assocs if a.association_id not in ids
-        ]
+        self.place_assocs = [a for a in self.place_assocs if a.association_id not in ids]
 
     # -- test convenience -------------------------------------------------- --
 
@@ -93,8 +87,7 @@ class _FakeDB:
         """Directly associate a place (by name) with one track."""
         p = self._ensure_place(place_name)
         t = self._ensure_type(type_name)
-        self.add_place_assoc(track_id, "Track", p.place_id,
-                             t.association_type_id if t else None)
+        self.add_place_assoc(track_id, "Track", p.place_id, t.association_type_id if t else None)
 
 
 class _FakeGet:
@@ -104,15 +97,16 @@ class _FakeGet:
     def count_entities(self, model_name):
         return len(self.db.rows_for(model_name))
 
-    def get_all_entities(self, model_name, **_kwargs):
-        return list(self.db.rows_for(model_name))
+    def get_all_entities(self, model_name, place_id__in=None, **_kwargs):
+        rows = list(self.db.rows_for(model_name))
+        if place_id__in is not None:
+            rows = [r for r in rows if r.place_id in place_id__in]
+        return rows
 
-    def get_entity_links(self, model_name, entity_id=None, entity_type=None, **_kw):
+    def get_entity_links(self, model_name, entity_id=None, entity_type=None, entity_id__in=None, **_kw):
         assert model_name == "PlaceAssociation"
-        return [
-            a for a in self.db.place_assocs
-            if a.entity_id == entity_id and a.entity_type == entity_type
-        ]
+        ids = set(entity_id__in) if entity_id__in is not None else {entity_id}
+        return [a for a in self.db.place_assocs if a.entity_id in ids and a.entity_type == entity_type]
 
     def get_entity_object(self, model_name, **filters):
         if model_name == "Place":
@@ -135,6 +129,7 @@ class _FakeAdd:
         assert model_name == "PlaceAssociation"
         for r in rows:
             self.db.add_place_assoc(**r)
+        return rows  # the real helper returns the new rows ([] on failure)
 
 
 class _FakeDelete:
@@ -143,9 +138,7 @@ class _FakeDelete:
 
     def delete_entity(self, model_name, entity_ids=None, **kwargs):
         assert model_name == "PlaceAssociation"
-        assert entity_ids is not None, (
-            "track-place removal must batch-delete by association_id"
-        )
+        assert entity_ids is not None, "track-place removal must batch-delete by association_id"
         self.db.delete_by_assoc_ids(entity_ids)
         return True
 
@@ -187,18 +180,8 @@ def _track(track_id):
 
 def _make_builder(db, tracks):
     album = SimpleNamespace(album_id=1, tracks=list(tracks))
-    helper = SimpleNamespace(
-        add_publisher=lambda *a: None,
-        remove_publisher=lambda *a: None,
-        add_place=lambda *a: None,
-        remove_place=lambda *a: None,
-    )
-    view = SimpleNamespace(
-        album=album,
-        controller=_FakeController(db),
-        helper=helper,
-        get_album_place_associations=list,
-    )
+    helper = SimpleNamespace(add_publisher=lambda *a: None, remove_publisher=lambda *a: None, add_place=lambda *a: None, remove_place=lambda *a: None)
+    view = SimpleNamespace(album=album, controller=_FakeController(db), helper=helper, get_album_place_associations=list)
     return AlbumTabBuilder(view)
 
 
@@ -208,10 +191,7 @@ def _places_widget(section):
 
 def _table_rows(widget):
     table = widget._table
-    return [
-        (table.item(r, 0).text(), table.item(r, 1).text())
-        for r in range(table.rowCount())
-    ]
+    return [(table.item(r, 0).text(), table.item(r, 1).text()) for r in range(table.rowCount())]
 
 
 # ---------------------------------------------------------------------------
@@ -273,14 +253,9 @@ def test_adding_place_writes_association_to_every_track(qapp, db):
     widget._add()
     qapp.processEvents()  # flush _add()'s deferred add_to_index()
 
-    assert {(a.entity_id, a.entity_type) for a in db.place_assocs} == {
-        (1, "Track"), (2, "Track"), (3, "Track")
-    }
+    assert {(a.entity_id, a.entity_type) for a in db.place_assocs} == {(1, "Track"), (2, "Track"), (3, "Track")}
     assert len({a.place_id for a in db.place_assocs}) == 1
-    assert all(
-        a.association_type.type_name == "Recording Location"
-        for a in db.place_assocs
-    )
+    assert all(a.association_type.type_name == "Recording Location" for a in db.place_assocs)
     # and it now shows as common
     assert _table_rows(widget) == [("Studio X", "Recording Location")]
 
@@ -314,9 +289,7 @@ def test_no_tracks_shows_label_and_omits_widget(qapp, db):
     section = _make_builder(db, [])._build_track_places_section()
 
     assert _places_widget(section) is None
-    label_text = " ".join(
-        lbl.text().lower() for lbl in section.findChildren(QLabel)
-    )
+    label_text = " ".join(lbl.text().lower() for lbl in section.findChildren(QLabel))
     assert "no tracks" in label_text
 
 
@@ -343,9 +316,7 @@ def test_section_reflects_current_track_set_on_rebuild(qapp, db):
     # simulate a track removed on the Tracks tab + refresh_view() rebuild
     builder.album.tracks = [t1, t2]
     section2 = builder._build_track_places_section()
-    assert _table_rows(_places_widget(section2)) == [
-        ("Abbey Road", "Recording Location")
-    ]
+    assert _table_rows(_places_widget(section2)) == [("Abbey Road", "Recording Location")]
 
 
 # ---------------------------------------------------------------------------

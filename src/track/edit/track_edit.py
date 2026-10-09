@@ -31,7 +31,7 @@ _COVER_SIZE = 76
 
 
 def _format_duration(seconds) -> str:
-    """m:ss below an hour, h:mm:ss above."""
+    """Format seconds as m:ss below an hour and h:mm:ss above."""
     total = int(seconds or 0)
     h, rem = divmod(total, 3600)
     m, s = divmod(rem, 60)
@@ -39,9 +39,8 @@ def _format_duration(seconds) -> str:
 
 
 def _safe_attr(obj, name: str, default=None):
-    """Read a track attribute that may be an association proxy onto a
-    missing relationship (e.g. album_name with no album) without letting
-    the header take the whole dialog down."""
+    """Read a track attribute, returning `default` if the read fails."""
+    # Association proxies onto a missing relationship (album_name with no album) can raise.
     try:
         return getattr(obj, name, default)
     except (AttributeError, SQLAlchemyError) as e:
@@ -55,10 +54,7 @@ def _safe_attr(obj, name: str, default=None):
 
 
 class _EditHeader(QFrame):
-    """Cover, title, "artist · album · year" byline and format badges for
-    the track(s) being edited, pinned above every tab so the user always
-    knows what they're changing. In multi-track mode it names the batch and
-    states once that edits apply to all of them."""
+    """Cover, title, byline and format badges for the track(s) being edited."""
 
     def __init__(self, tracks: list, parent=None):
         super().__init__(parent)
@@ -118,6 +114,7 @@ class _EditHeader(QFrame):
         self._title.setText(text.strip() or "Untitled track")
 
     def _badges(self) -> list[tuple[str, str]]:
+        """Return (text, state) pairs for the badge row."""
         tracks = self._tracks
         if len(tracks) > 1:
             total = sum(float(_safe_attr(t, "duration") or 0) for t in tracks)
@@ -137,8 +134,7 @@ class _EditHeader(QFrame):
         return out
 
     def _load_cover(self) -> None:
-        """Front cover of the track's album -- or, for a batch, of the album
-        they all share. Falls back to a note glyph."""
+        """Show the front cover of the album all tracks share, else a note glyph."""
         albums = {_safe_attr(t, "album_id") for t in self._tracks}
         album = _safe_attr(self._tracks[0], "album") if len(albums) == 1 else None
         cache = get_artwork_cache()
@@ -164,12 +160,9 @@ class _EditHeader(QFrame):
 
 
 class _EditNav(QScrollArea):
-    """Tab navigation with group headings and a per-tab "unsaved" dot.
+    """Tab navigation with group headings and a per-tab "unsaved" dot."""
 
-    Plain QPushButtons (not QListWidget rows) so every state -- hover,
-    current, dirty -- is styled in dark_mode.qss, like the main NavTree.
-    """
-
+    # Plain QPushButtons (not QListWidget rows) so every state is styled in dark_mode.qss.
     current_changed = Signal(int)
 
     def __init__(self, parent=None):
@@ -195,11 +188,13 @@ class _EditNav(QScrollArea):
         self._dots: list[QLabel] = []
 
     def add_group(self, title: str) -> None:
+        """Add a group heading below the existing items."""
         heading = QLabel(title.upper())
         heading.setObjectName("EditNavGroup")
         self._layout.insertWidget(self._layout.count() - 1, heading)
 
     def add_item(self, label: str) -> int:
+        """Add a tab button and return its index."""
         index = len(self._buttons)
         btn = QPushButton(label.replace("&", "&&"))  # literal '&', not a mnemonic
         btn.setObjectName("EditNavItem")
@@ -221,16 +216,20 @@ class _EditNav(QScrollArea):
         return index
 
     def count(self) -> int:
+        """Return the number of tab buttons."""
         return len(self._buttons)
 
     def set_current(self, index: int) -> None:
+        """Select the tab button at `index`, if it exists."""
         if 0 <= index < len(self._buttons):
             self._buttons[index].setChecked(True)
 
     def current(self) -> int:
+        """Return the index of the selected tab button."""
         return self._group.checkedId()
 
     def set_dirty(self, index: int, dirty: bool) -> None:
+        """Show or hide the unsaved-changes dot of one tab."""
         self._dots[index].setVisible(dirty)
 
 
@@ -240,62 +239,42 @@ class _EditNav(QScrollArea):
 
 
 class TrackEditDialog(QDialog):
-    """
-    Edit one track — or bulk-edit many at once.
+    """Edit one track, or bulk-edit a list of tracks."""
 
-    Usage:
-        # Single track
-        dlg = TrackEditDialog(track, controller, parent)
-        # Multiple tracks
-        dlg = TrackEditDialog([t1, t2, t3], controller, parent)
-
-    Two save models live side by side: scalar field tabs collect edits and
-    write them on Save, while relationship tabs (genres, roles, places, …;
-    `_BaseTab.saves_immediately`) write each add/remove at once. The footer
-    counts the former; a notice on the latter says so.
-    """
-
+    # Scalar field tabs collect edits and write them on Save; relationship tabs
+    # (_BaseTab.saves_immediately) write each add/remove at once.
     field_modified = Signal()
 
     def __init__(self, track_or_tracks: Any | list, controller, parent=None):
-        # Qt.Window makes this a proper independent top-level window
-        # so it can be moved freely, separate from the parent window.
+        # Qt.Window: an independent top-level window, shown non-modally by callers.
         super().__init__(parent, Qt.Window)
-        # Dialog is shown non-modally (see callers' .show() usage) so it
-        # doesn't block the parent window; clean up automatically on close
-        # since there's no exec() return value to trigger disposal.
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setObjectName("TrackEditDialog")
 
-        # Normalise to a list
-        if isinstance(track_or_tracks, list):
-            self.tracks = track_or_tracks
-        else:
-            self.tracks = [track_or_tracks]
+        self.tracks = list(track_or_tracks) if isinstance(track_or_tracks, list) else [track_or_tracks]
+        if not self.tracks:
+            raise ValueError("TrackEditDialog needs at least one track")
 
         self.controller = controller
         self.is_multi = len(self.tracks) > 1
-
-        # Convenience property
         self.track = self.tracks[0]
 
         # Set once the user has agreed to lose unsaved edits (or saved), so
         # reject() -> closeEvent() doesn't ask twice.
         self._close_approved = False
+        self._tabs_cleaned_up = False
         self._pending_count = 0
 
         title = f"Edit {len(self.tracks)} Tracks" if self.is_multi else f"Edit Track: {self.track.track_name}"
         self.setWindowTitle(title)
         self.setMinimumSize(940, 680)
 
-        # _build_ui() selects nav row 0, which builds and loads that tab via
-        # _on_nav -> _ensure_tab_built. Every other tab builds and loads
-        # itself lazily on first visit.
         self._build_ui()
 
     # ── UI Construction ───────────────────────────────────────────────────
 
     def _build_ui(self):
+        """Build the header, navigation, tab stack and footer."""
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 10)
         root.setSpacing(10)
@@ -326,14 +305,10 @@ class TrackEditDialog(QDialog):
 
         root.addWidget(self._build_footer())
 
-        # Tabs are built and loaded lazily, on first navigation to each one
-        # (see _ensure_tab_built), rather than all 18 up front -- some tabs
-        # (e.g. Samples, Roles) do real DB work in __init__/load(), which
-        # used to make every dialog open pay for every tab regardless of
-        # which ones the user actually visits. Only the nav button is cheap
-        # to build eagerly, so that's all _add_tab does here.
+        # Tabs are built and loaded lazily on first visit (see _ensure_tab_built):
+        # some tabs do real DB work in __init__/load().
         self._tab_factories: list = []
-        self._tabs: list[_BaseTab | None] = []
+        self._tabs: list[QWidget | None] = []
 
         self._nav.add_group("Metadata")
         self._add_tab("Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller))
@@ -345,7 +320,7 @@ class TrackEditDialog(QDialog):
 
         self._nav.add_group("Content")
         self._add_tab("Description", lambda: FieldFormTab("Description", self.tracks, self.controller))
-        self._add_tab("Lyrics", lambda: LyricsTab(self.tracks, self.controller))
+        self._add_tab("Lyrics", lambda: LyricsTab(self.tracks, self.controller, dialog=self))
         self._add_tab("Classical", lambda: ClassicalTab(self.tracks, self.controller, dialog=self))
 
         self._nav.add_group("Context")
@@ -376,6 +351,7 @@ class TrackEditDialog(QDialog):
         self._refresh_dirty_state()
 
     def _build_footer(self) -> QWidget:
+        """Build the status text, error banner, Cancel and Save buttons."""
         footer = QFrame()
         footer.setObjectName("EditFooter")
         row = QHBoxLayout(footer)
@@ -408,13 +384,13 @@ class TrackEditDialog(QDialog):
         row.addWidget(self._save_btn)
         return footer
 
+    def _built_tabs(self) -> list[_BaseTab]:
+        """Return the tabs that were built successfully."""
+        # A tab whose factory failed is a plain QWidget placeholder; skip it.
+        return [tab for tab in self._tabs if isinstance(tab, _BaseTab)]
+
     def get_live_track_name(self) -> str:
-        """Track title as currently typed in the Basic tab, if it's been
-        built, else falls back to the last-saved value. Basic is always
-        tab 0 and is built eagerly on dialog open (see _build_ui), so the
-        live value is normally available -- used by tabs whose MusicBrainz
-        searches (e.g. Albums' "Find Canonical Album") must reflect an
-        unsaved title edit rather than the stale value on self.track."""
+        """Return the track title as typed in the Basic tab, else the saved title."""
         basic_tab = self._tabs[0]
         if isinstance(basic_tab, FieldFormTab):
             value = basic_tab.get_field_value("track_name")
@@ -423,33 +399,33 @@ class TrackEditDialog(QDialog):
         return self.track.track_name
 
     def set_live_track_name(self, value: str) -> bool:
-        """Write `value` into the Basic tab's track-title field and mark it
-        dirty, so it's saved along with everything else on Save. Basic is
-        tab 0 and built eagerly on open, so this is always available.
-        Mirrors get_live_track_name(); used by the Classical tab's
-        parse-from-title action."""
+        """Write `value` into the Basic tab's title field and mark it unsaved."""
         basic_tab = self._tabs[0]
         if isinstance(basic_tab, FieldFormTab):
             return basic_tab.set_field_value("track_name", value)
         return False
 
     def _make_advanced_tab(self):
+        """Build the Advanced tab and connect its analysis signal."""
         advanced_tab = AdvancedTab(self.tracks, self.controller, dialog=self)
         advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
         return advanced_tab
 
     def _add_tab(self, label: str, factory):
+        """Add a navigation item and a placeholder page for a lazily built tab."""
         self._nav.add_item(label)
         self._stack.addWidget(QWidget())  # placeholder, replaced on first visit
         self._tab_factories.append(factory)
         self._tabs.append(None)
 
     def _on_nav(self, row: int):
+        """Show the tab at `row`, building it on first visit."""
         tab = self._ensure_tab_built(row)
         self._stack.setCurrentIndex(row)
         self._immediate_note.setVisible(bool(getattr(tab, "saves_immediately", False)))
 
-    def _ensure_tab_built(self, row: int) -> _BaseTab:
+    def _ensure_tab_built(self, row: int) -> QWidget:
+        """Build and load the tab at `row` if it is not built yet."""
         tab = self._tabs[row]
         if tab is not None:
             return tab
@@ -459,10 +435,8 @@ class TrackEditDialog(QDialog):
             tab = factory()
             tab.load(self.tracks)
         except Exception as e:
-            # Intentional broad boundary catch: dispatches to 18 heterogeneous
-            # tab classes (DB reads, dict/attr access, UI construction) via the
-            # shared _BaseTab interface -- a bug in any one tab must not block
-            # the whole edit dialog from opening.
+            # Intentional broad boundary catch: a bug in any one of the 18 tab
+            # classes must not block the whole edit dialog from opening.
             logger.error(f"Error building/loading tab at row {row}: {e}", exc_info=True)
             tab = QWidget()
 
@@ -483,8 +457,7 @@ class TrackEditDialog(QDialog):
     # ── Unsaved-change tracking ───────────────────────────────────────────
 
     def _refresh_dirty_state(self) -> None:
-        """Recount pending (Save-bound) edits: per-tab dots, footer text,
-        and the Save button's label."""
+        """Recount pending edits and update the dots, footer text and Save label."""
         total = 0
         for row, tab in enumerate(self._tabs):
             pending: set = set()
@@ -492,9 +465,7 @@ class TrackEditDialog(QDialog):
                 try:
                     pending = tab.pending_changes()
                 except Exception as e:
-                    # Intentional broad boundary catch: pending_changes reads
-                    # live widget state on 18 heterogeneous tabs -- one bad
-                    # tab must not freeze the footer for the rest.
+                    # Intentional broad boundary catch: one bad tab must not freeze the footer for the rest.
                     logger.exception(f"Error reading pending changes from {type(tab).__name__}: {e}")
             self._nav.set_dirty(row, bool(pending))
             total += len(pending)
@@ -505,14 +476,12 @@ class TrackEditDialog(QDialog):
             self._save_btn.setText("Save")
         else:
             self._footer_status.setText("No unsaved changes")
-            # Nothing to write, but still a deliberate "close and refresh the
-            # list" -- relationship tabs may have written already.
+            # Still a deliberate "close and refresh the list": relationship tabs may have written already.
             self._save_btn.setText("Done")
         self._error_label.hide()
 
     def _confirm_discard(self) -> bool:
-        """True if the dialog may close: nothing pending, already approved,
-        or the user agrees to discard."""
+        """Return True if the dialog may close without losing edits the user wants."""
         if self._close_approved:
             return True
         self._refresh_dirty_state()
@@ -526,89 +495,86 @@ class TrackEditDialog(QDialog):
         return self._close_approved
 
     def done(self, result: int) -> None:
+        """Close after an unsaved-changes check, and release tab resources."""
         if result == QDialog.Accepted:
             self._close_approved = True
         elif not self._confirm_discard():
             return
+        # Since Qt 6.3, done() closes without delivering closeEvent, so clean up here too.
+        self._cleanup_tabs()
         super().done(result)
 
     # ── Data ──────────────────────────────────────────────────────────────
 
     def _on_tracks_analyzed(self):
-        """Audio analysis updated the track(s) in place (e.g. bpm, key,
-        gain) — refresh every already-built tab's displayed values. This
-        leaves any unsaved edits the user already made untouched. Tabs the
-        user hasn't visited yet pick up the fresh values naturally when
-        they're built."""
-        for tab in self._tabs:
-            if tab is None:
-                continue
+        """Refresh the values shown by every built tab after audio analysis."""
+        for tab in self._built_tabs():
             try:
                 tab.refresh_values(self.tracks)
             except Exception as e:
-                # Intentional broad boundary catch: refresh_values is
-                # overridden differently by each of the 18 tab classes -- a
-                # bug in one tab's refresh must not stop the rest from
-                # picking up the new analysis values.
+                # Intentional broad boundary catch: a bug in one tab's refresh must not stop the rest.
                 logger.error(f"Error refreshing tab {type(tab).__name__}: {e}", exc_info=True)
 
     # ── Save ──────────────────────────────────────────────────────────────
 
+    def _show_save_error(self, message: str) -> None:
+        """Show a save failure in the footer banner and keep the dialog open."""
+        self._footer_status.setText("")
+        self._error_label.setText(message)
+        self._error_label.show()
+
     def _on_save(self):
-        try:
-            # Collect scalar field changes from all tabs
-            all_changes: dict[str, Any] = {}
-            for tab in self._tabs:
-                if tab is None:
-                    continue  # never visited -> no user edits to collect
-                try:
-                    changes = tab.collect_changes()
-                    all_changes.update(changes)
-                except Exception as e:
-                    # Intentional broad boundary catch: collect_changes is
-                    # overridden differently by each of the 18 tab classes --
-                    # a bug in one tab's collection must not prevent saving
-                    # the changes already gathered from the others.
-                    logger.exception(f"Error collecting changes from {type(tab).__name__}: {e}")
+        """Write the collected scalar changes to every track, then close."""
+        all_changes: dict[str, Any] = {}
+        for tab in self._built_tabs():
+            try:
+                all_changes.update(tab.collect_changes())
+            except Exception as e:
+                # Intentional broad boundary catch: a bug in one tab's collection must
+                # not prevent saving the changes already gathered from the others.
+                logger.exception(f"Error collecting changes from {type(tab).__name__}: {e}")
 
-            if all_changes:
-                track_ids = [track.track_id for track in self.tracks]
-                self.controller.update.update_entities("Track", track_ids, **all_changes)
-                logger.info(f"Saved {len(self.tracks)} track(s), fields: {list(all_changes.keys())}")
+        if all_changes:
+            track_ids = [track.track_id for track in self.tracks]
+            try:
+                ok = self.controller.update.update_entities("Track", track_ids, **all_changes)
+            except (SQLAlchemyError, RuntimeError) as e:
+                logger.error(f"Error saving track(s): {e}", exc_info=True)
+                self._show_save_error(f"Could not save: {e}")
+                return
+            # update_entities catches its own DB errors and returns False.
+            if not ok:
+                logger.error(f"Saving track(s) {track_ids} failed, fields: {list(all_changes)}")
+                self._show_save_error("Could not save the changes. A value may already be used by another track (for example an MBID). See the log for details.")
+                return
+            logger.info(f"Saved {len(self.tracks)} track(s), fields: {list(all_changes.keys())}")
 
-            self.field_modified.emit()
-            self.accept()
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error saving track(s): {e}", exc_info=True)
-            self._footer_status.setText("")
-            self._error_label.setText(f"Could not save: {e}")
-            self._error_label.show()
+        self.field_modified.emit()
+        self.accept()
 
     # ── Cleanup ───────────────────────────────────────────────────────────
 
-    def closeEvent(self, event) -> None:
-        if not self._confirm_discard():
-            event.ignore()
+    def _cleanup_tabs(self) -> None:
+        """Stop the background work of every built tab, once."""
+        if self._tabs_cleaned_up:
             return
-        for tab in self._tabs:
-            if tab is None:
-                continue  # never built -> nothing to clean up
+        self._tabs_cleaned_up = True
+        for tab in self._built_tabs():
             try:
                 tab.cleanup()
             except Exception as e:
-                # Intentional broad boundary catch: shutdown/cleanup code for
-                # 18 heterogeneous tab classes (some tear down background
-                # QThreads) -- one tab failing to clean up must not stop the
-                # rest from releasing their resources while the dialog closes.
+                # Intentional broad boundary catch: one tab failing to clean up must
+                # not stop the rest from releasing their resources.
                 logger.exception(f"Error cleaning up tab {type(tab).__name__}: {e}")
+
+    def closeEvent(self, event) -> None:
+        """Ask before closing with unsaved edits, then release tab resources."""
+        if not self._confirm_discard():
+            event.ignore()
+            return
+        self._cleanup_tabs()
         super().closeEvent(event)
 
 
-# ---------------------------------------------------------------------------
-# Backwards-compatibility alias so existing callers don't need changes
-# ---------------------------------------------------------------------------
-
-# Any code that imported MultiTrackEditDialog can now pass a list to
-# TrackEditDialog instead. We keep the name around to avoid import errors.
+# Old name; callers can pass a list to TrackEditDialog instead.
 MultiTrackEditDialog = TrackEditDialog

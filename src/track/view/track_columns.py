@@ -1,15 +1,7 @@
+"""ColumnCustomizationDialog: choose the order and visibility of track view columns."""
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout
 
 from src.foundation.logger_config import logger
 
@@ -27,6 +19,7 @@ class ColumnCustomizationDialog(QDialog):
         self.load_current_state()
 
     def init_ui(self):
+        """Build the column list, the bulk buttons and the dialog buttons."""
         layout = QVBoxLayout(self)
 
         # Instructions
@@ -58,9 +51,7 @@ class ColumnCustomizationDialog(QDialog):
         layout.addLayout(controls_layout)
 
         # Dialog buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply
-        )
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
         button_box.accepted.connect(self.accept_changes)
         button_box.rejected.connect(self.reject)
         button_box.button(QDialogButtonBox.Apply).clicked.connect(self.apply_changes)
@@ -105,29 +96,13 @@ class ColumnCustomizationDialog(QDialog):
             item.setCheckState(Qt.Unchecked)
 
     def reset_to_default(self):
-        """Reset to default column visibility and order."""
-        # Default visible columns (common fields)
-        default_visible = [
-            "track_file_name",
-            "artist_name",
-            "album_name",
-            "title",
-            "genre",
-            "duration",
-            "year",
-        ]
-
-        # Default order (alphabetical by display name)
-        all_columns = list(self.track_view.columns.keys())
-        default_order = sorted(all_columns, key=lambda x: self.track_view.columns[x])
-
-        # Clear and reload with defaults
+        """Reset to the field order and the view's default-hidden columns."""
+        hidden = self.track_view.default_hidden_columns()
         self.column_list.clear()
-        for field_name in default_order:
-            display_name = self.track_view.columns[field_name]
+        for field_name, display_name in self.track_view.columns.items():
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, field_name)
-            item.setCheckState(Qt.Checked if field_name in default_visible else Qt.Unchecked)
+            item.setCheckState(Qt.Unchecked if field_name in hidden else Qt.Checked)
             self.column_list.addItem(item)
 
     def get_selected_state(self):
@@ -147,13 +122,22 @@ class ColumnCustomizationDialog(QDialog):
     def apply_changes(self):
         """Apply changes without closing dialog."""
         state = self.get_selected_state()
-        self.apply_column_state(state)
+        if self._check_not_empty(state):
+            self.apply_column_state(state)
 
     def accept_changes(self):
         """Apply changes and close dialog."""
         state = self.get_selected_state()
-        self.apply_column_state(state)
-        self.accept()
+        if self._check_not_empty(state):
+            self.apply_column_state(state)
+            self.accept()
+
+    def _check_not_empty(self, state) -> bool:
+        """Return True if at least one column is checked, else warn the user."""
+        if state["visible"]:
+            return True
+        QMessageBox.warning(self, "No Columns Selected", "Select at least one column to show.")
+        return False
 
     def apply_column_state(self, state):
         """Apply column state to track view."""

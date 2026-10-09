@@ -1,17 +1,5 @@
-"""
-track_table.py — TrackTable (the QTableView both track views use) and its
-row delegate.
-
-The delegate paints the track list's row semantics -- the now-playing row,
-an explicit badge on the title, star ratings, muted secondary columns, and
-right-aligned numbers -- on top of the stylesheet's own item background
-(hover/selection still come from dark_mode.qss).
-
-Colors are Qt properties on TrackTable, so the theme sets them like any
-other style:
-
-    TrackTable { qproperty-nowPlayingColor: #8599ea; ... }
-"""
+"""TrackTable (the QTableView both track views use) and its row delegate."""
+# Colors are Qt properties, so the theme sets them: TrackTable { qproperty-nowPlayingColor: #8599ea; }
 
 from pathlib import Path
 
@@ -54,6 +42,7 @@ class TrackTable(QTableView):
         self.viewport().update()
 
     def now_playing_path(self) -> str | None:
+        """Return the path of the playing track, or None."""
         return self._now_playing_path
 
     # ── Themable colors (set from QSS via qproperty-*) ────────────────────
@@ -103,8 +92,9 @@ class TrackTable(QTableView):
 
 
 class TrackRowDelegate(QStyledItemDelegate):
-    """Paints one cell of a TrackTable row. `column_keys` maps logical
-    column index -> TRACK_FIELDS name (the host's `self.columns` order)."""
+    """Paint one TrackTable cell: now-playing, explicit badge, stars, muted columns."""
+
+    # column_keys maps logical column index -> TRACK_FIELDS name (the host's self.columns order).
 
     def __init__(self, table: TrackTable, column_keys: list[str]):
         super().__init__(table)
@@ -113,12 +103,14 @@ class TrackRowDelegate(QStyledItemDelegate):
         self._col = {key: i for i, key in enumerate(column_keys)}
 
     def _sibling_value(self, index, field_name: str, role=Qt.DisplayRole):
+        """Return the value of another column in the same row."""
         col = self._col.get(field_name)
         if col is None:
             return None
         return index.siblingAtColumn(col).data(role)
 
     def _is_now_playing(self, index) -> bool:
+        """Return True if the row is the playing track."""
         playing = self._table.now_playing_path()
         if not playing:
             return False
@@ -126,6 +118,7 @@ class TrackRowDelegate(QStyledItemDelegate):
         return bool(path) and str(Path(path)) == playing
 
     def paint(self, painter: QPainter, option, index):
+        """Paint the stylesheet background, then the cell text or stars."""
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         field_name = self._keys[index.column()] if index.column() < len(self._keys) else ""
@@ -180,8 +173,7 @@ class TrackRowDelegate(QStyledItemDelegate):
         painter.restore()
 
     def _draw_explicit_badge(self, painter: QPainter, rect: QRect, font: QFont) -> QRect:
-        """Small rounded "E" at the right edge of the title cell; returns the
-        rect left over for the title text."""
+        """Draw the explicit badge at the right edge of the title cell; return the rect left for text."""
         badge_font = QFont(font)
         badge_font.setBold(True)
         badge_font.setPointSizeF(max(6.0, font.pointSizeF() * 0.75))
@@ -200,7 +192,7 @@ class TrackRowDelegate(QStyledItemDelegate):
         return rect.adjusted(0, 0, -(w + 6), 0)
 
     def _draw_stars(self, painter: QPainter, rect: QRect, value) -> None:
-        """user_rating is 0-10 with half steps; show it as five stars."""
+        """Draw user_rating (0-10) as five stars."""
         try:
             rating = float(value)
         except (TypeError, ValueError):

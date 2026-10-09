@@ -1,23 +1,9 @@
 # track_edit_advanced.py
-"""
-AdvancedTab — wraps FieldFormTab("Advanced") and adds four action buttons:
-
-  • Copy to Clipboard   — serialises current field values to the clipboard.
-  • Write Metadata to File — reads each track's file tags, compares them to
-                       the database, and writes any tags that differ.
-  • Analyze Audio       — runs BatchAnalysisScheduler on the track(s) being
-                       edited, wiring its Qt signals back to this widget for
-                       live progress feedback. Results are written straight
-                       to the database and mirrored onto the in-memory
-                       track(s) so the form (here and on other tabs, e.g.
-                       Properties) reflects them immediately.
-  • Delete Track(s)     — removes the track(s) being edited via the shared
-                       "Remove from Library / Delete File(s) Too" prompt
-                       (src.common.dialogs.delete_confirmation), then closes the
-                       dialog so the parent view reloads.
-"""
+"""AdvancedTab: the Advanced fields plus copy, write-tags, analyze and delete actions."""
 
 from __future__ import annotations
+
+from contextlib import suppress
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget
@@ -32,18 +18,7 @@ from src.track.edit.track_edit_fieldform import FieldFormTab
 
 
 class AdvancedTab(_BaseTab):
-    """
-    The Advanced tab panel.
-
-    Layout
-    ------
-    ┌─────────────────────────────────┐
-    │  FieldFormTab("Advanced")       │  ← all the normal fields
-    ├─────────────────────────────────┤
-    │  [Copy to Clipboard] [Analyze]  │  ← action toolbar
-    │  <status label>                 │
-    └─────────────────────────────────┘
-    """
+    """The Advanced fields above an action toolbar and a status line."""
 
     # Emitted after each track finishes analysis, so the parent dialog can
     # refresh other tabs (e.g. Properties, which holds bpm/key/gain/peak).
@@ -69,6 +44,7 @@ class AdvancedTab(_BaseTab):
     # ── Toolbar construction ──────────────────────────────────────────────
 
     def _build_toolbar(self) -> QWidget:
+        """Build the action buttons and the status line."""
         container = QWidget()
         vbox = QVBoxLayout(container)
         vbox.setContentsMargins(4, 4, 4, 2)
@@ -84,10 +60,7 @@ class AdvancedTab(_BaseTab):
         self._copy_btn.clicked.connect(self._on_copy)
 
         self._write_btn = QPushButton("Write Metadata to File")
-        self._write_btn.setToolTip(
-            "Compare each track's file tags to the database and write\n"
-            "any tags that differ. Tracks already in sync are skipped."
-        )
+        self._write_btn.setToolTip("Compare each track's file tags to the database and write\nany tags that differ. Tracks already in sync are skipped.")
         self._write_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._write_btn.clicked.connect(self._on_write_metadata)
 
@@ -98,10 +71,7 @@ class AdvancedTab(_BaseTab):
 
         delete_label = "Delete Tracks" if self.is_multi else "Delete Track"
         self._delete_btn = QPushButton(delete_label)
-        self._delete_btn.setToolTip(
-            "Remove the track(s) being edited from the library, optionally\n"
-            "deleting the audio file(s) from disk. Closes this dialog."
-        )
+        self._delete_btn.setToolTip("Remove the track(s) being edited from the library, optionally\ndeleting the audio file(s) from disk. Closes this dialog.")
         self._delete_btn.setProperty("danger", True)
         self._delete_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._delete_btn.clicked.connect(self._on_delete)
@@ -124,15 +94,19 @@ class AdvancedTab(_BaseTab):
     # ── _BaseTab protocol ─────────────────────────────────────────────────
 
     def load(self, tracks: list) -> None:
+        """Fill the inner field form from `tracks`."""
         self._inner.load(tracks)
 
     def collect_changes(self) -> dict:
+        """Return the inner field form's changes."""
         return self._inner.collect_changes()
 
     def pending_changes(self) -> set[str]:
+        """Return the inner field form's pending fields."""
         return self._inner.pending_changes()
 
     def refresh_values(self, tracks: list) -> None:
+        """Show fresh values without touching unsaved edits."""
         self.tracks = tracks
         self._inner.refresh_values(tracks)
 
@@ -156,27 +130,16 @@ class AdvancedTab(_BaseTab):
     # ── Write metadata to file ────────────────────────────────────────────
 
     def _on_write_metadata(self):
-        """For each track being edited: read its file's current tags,
-        compare them to the database, and write only the tags that differ.
-        """
+        """Write the database tags that differ to each track's file."""
         try:
-            results = [
-                (track, self._metadata_writer.sync_metadata_to_track(track.track_id))
-                for track in self.tracks
-            ]
+            results = [(track, self._metadata_writer.sync_metadata_to_track(track.track_id)) for track in self.tracks]
 
             updated = [(t, r) for t, r in results if r["success"] and r["changed"]]
             unchanged = [(t, r) for t, r in results if r["success"] and not r["changed"]]
             failed = [(t, r) for t, r in results if not r["success"]]
 
-            self._set_status(
-                f"Write Metadata: {len(updated)} updated, "
-                f"{len(unchanged)} already up to date, {len(failed)} failed."
-            )
-            logger.info(
-                f"AdvancedTab: write metadata — {len(updated)} updated, "
-                f"{len(unchanged)} unchanged, {len(failed)} failed"
-            )
+            self._set_status(f"Write Metadata: {len(updated)} updated, {len(unchanged)} already up to date, {len(failed)} failed.")
+            logger.info(f"AdvancedTab: write metadata — {len(updated)} updated, {len(unchanged)} unchanged, {len(failed)} failed")
 
             if len(results) == 1:
                 track, result = results[0]
@@ -202,17 +165,13 @@ class AdvancedTab(_BaseTab):
     # ── Delete track(s) ──────────────────────────────────────────────────
 
     def _on_delete(self):
-        """Delete the track(s) being edited using the shared delete prompt
-        (DB-only vs. DB + file), then close the dialog so the parent view
-        reloads. Mirrors src/track/track_view_editing.py's delete flow."""
+        """Delete the edited track(s), optionally with their files, then close the dialog."""
         count = len(self.tracks)
-        names = ", ".join(getattr(t, "track_name", f"ID {t.track_id}") for t in self.tracks[:3])
+        names = ", ".join((t.track_name or f"ID {t.track_id}") for t in self.tracks[:3])
         if count > 3:
             names += f" … and {count - 3} more"
 
-        choice = confirm_delete_with_file_option(
-            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
-        )
+        choice = confirm_delete_with_file_option(self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}")
         if choice is None:
             return
 
@@ -238,11 +197,7 @@ class AdvancedTab(_BaseTab):
             logger.info(f"AdvancedTab: deleted {count} track(s) from DB")
         else:
             logger.error("AdvancedTab: delete_entity returned False for track(s)")
-            QMessageBox.warning(
-                self,
-                "Delete Track(s)",
-                "The track(s) could not be removed from the library. See the log for details.",
-            )
+            QMessageBox.warning(self, "Delete Track(s)", "The track(s) could not be removed from the library. See the log for details.")
             return
 
         if delete_files and file_paths:
@@ -276,12 +231,12 @@ class AdvancedTab(_BaseTab):
     # ── Audio analysis ────────────────────────────────────────────────────
 
     def _on_analyze(self):
-        """Start BatchAnalysisScheduler for the tracks being edited, always
-        re-analyzing regardless of cache state."""
+        """Start (or stop) a fresh audio analysis of the edited track(s)."""
         if self._scheduler and self._scheduler.is_running:
             # Button acts as a stop button while a run is in progress
             self._scheduler.stop()
-            self._set_status("Stopping…")
+            self._analyze_btn.setText("Analyze Audio")
+            self._set_status("Analysis stopped.")
             return
 
         self._scheduler = BatchAnalysisScheduler(self.controller)
@@ -301,10 +256,8 @@ class AdvancedTab(_BaseTab):
 
     @Slot(int, dict)
     def _on_track_done(self, track_id: int, metadata: dict):
-        # The worker already wrote `metadata` to the database directly;
-        # mirror it onto the in-memory track object too, so the form (this
-        # tab and others, e.g. Properties) can display the fresh values
-        # without requiring the dialog to be closed and reopened.
+        """Copy one track's analysis results onto the in-memory track and refresh."""
+        # The worker already wrote `metadata` to the database.
         track = next((t for t in self.tracks if t.track_id == track_id), None)
         if track is not None:
             for field_name, value in metadata.items():
@@ -318,23 +271,43 @@ class AdvancedTab(_BaseTab):
 
     @Slot(int, int)
     def _on_batch_done(self, completed: int, total: int):
+        """Show batch progress."""
         self._set_status(f"Analyzed {completed} / {total} track(s)…")
 
     @Slot(int)
     def _on_all_done(self, total: int):
+        """Reset the button and show the final count."""
         self._analyze_btn.setText("Analyze Audio")
         self._set_status(f"Analysis complete — {total} track(s) processed.")
         logger.info(f"AdvancedTab: analysis finished ({total} track(s))")
 
     @Slot(int, str)
     def _on_analysis_error(self, track_id: int, message: str):
+        """Log a per-track analysis error and show it in the status line."""
         logger.error(f"AdvancedTab: analysis error for track {track_id}: {message}")
         # Don't interrupt the run with a modal — just update the status label.
         # Fatal errors will surface in the all_done summary above.
         self._set_status(f"Error on track {track_id} — see log for details.")
 
+    def cleanup(self) -> None:
+        """Disconnect and stop a running analysis before the tab is destroyed."""
+        scheduler, self._scheduler = self._scheduler, None
+        if scheduler is None:
+            return
+        for signal, slot in (
+            (scheduler.signals.track_done, self._on_track_done),
+            (scheduler.signals.batch_done, self._on_batch_done),
+            (scheduler.signals.all_done, self._on_all_done),
+            (scheduler.signals.error, self._on_analysis_error),
+        ):
+            with suppress(RuntimeError, TypeError):  # already disconnected
+                signal.disconnect(slot)
+        if scheduler.is_running:
+            scheduler.stop()
+
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _set_status(self, text: str):
+        """Show `text` in the status line."""
         self._status_label.setText(text)
         self._status_label.show()
