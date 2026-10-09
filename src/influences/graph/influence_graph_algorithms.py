@@ -1,17 +1,6 @@
-"""
-influence_graph_algorithms.py
+"""Qt-free influence-graph algorithms, shared by the graph tab and the statistics module."""
 
-Pure, Qt-free graph algorithms for the artist influence graph: DB extraction,
-Louvain community assignment, descendant-count/PageRank influence scoring,
-and community-bridging ("eclecticism") scoring.
-
-Extracted out of InfluenceGraphDataMixin so this logic is callable from
-contexts that aren't a QWidget with `self.controller`/`self.node_names`/etc
--- specifically the statistics module's InfluenceStatsWorker, which needs
-influence_scores and community bridging for every artist, not just those
-displayed in the graph tab.
-"""
-
+from collections import Counter
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -21,11 +10,7 @@ from src.foundation.logger_config import logger
 
 
 def extract_global_influence_graph(get_helper):
-    """Extract only artists with influence relationships.
-
-    `get_helper` is a GetFromDB-like object (controller.get) exposing
-    `get_all_entities(entity_name, **filters)`.
-    """
+    """Return (nodes, edges) for every artist in an influence relationship, via a controller.get-like helper."""
     try:
         all_influences = get_helper.get_all_entities("ArtistInfluence")
         logger.info(f"Found {len(all_influences)} influence relationships in database")
@@ -66,12 +51,7 @@ def extract_global_influence_graph(get_helper):
 
 
 def fetch_artist_aliases(get_helper, artist_ids):
-    """Real ArtistAlias names for each artist, longest name first.
-
-    Lets the graph prefer a curated alias (stage name, legal name, etc.)
-    over a computed abbreviation when a node's label needs to shrink to fit
-    its box -- see graph.js's fitNodeLabel/aliasCandidates.
-    """
+    """Return {artist_id: [ArtistAlias names, longest first]} for graph.js's label shortening."""
     if not artist_ids:
         return {}
     try:
@@ -89,15 +69,8 @@ def fetch_artist_aliases(get_helper, artist_ids):
 
 
 def compute_descendant_counts(G):
-    """Number of distinct nodes reachable from each node in G.
-
-    Equivalent to ``{n: len(nx.descendants(G, n)) for n in G}``, but
-    without a full traversal per node: condenses G into its
-    strongly-connected-component DAG, accumulates each SCC's downstream
-    reachable set once in reverse topological order, then shares that
-    set across every member node. This turns an O(n * (n + e)) scan
-    into a single O(n + e) pass.
-    """
+    """Return the number of distinct nodes reachable from each node in G."""
+    # One pass over the SCC condensation DAG instead of nx.descendants() per node.
     condensation = nx.condensation(G)
     mapping = condensation.graph["mapping"]
 
@@ -112,17 +85,7 @@ def compute_descendant_counts(G):
 
 
 def compute_decayed_pagerank(G, alpha=0.85):
-    """
-    Computes PageRank on the reversed graph.
-
-    In the standard graph G (Influencer -> Influenced):
-    - A -> B means A influenced B.
-
-    Standard PageRank rewards the *recipient* of the edge (B).
-    To reward the *source* (A), we calculate PageRank on G.reverse() (B -> A).
-
-    This treats every person an Artist influenced as a 'vote' for that Artist.
-    """
+    """Return PageRank of the reversed graph, so each influenced artist is a vote for its influencer."""
     try:
         reversed_G = G.reverse(copy=True)
         return nx.pagerank(reversed_G, alpha=alpha)
@@ -133,66 +96,51 @@ def compute_decayed_pagerank(G, alpha=0.85):
 
 @dataclass
 class InfluenceScores:
+    """Descendant-count, PageRank, and combined (count, PageRank) scores per node."""
+
     influence_scores: dict = field(default_factory=dict)
     page_rank_scores: dict = field(default_factory=dict)
     combined_scores: dict = field(default_factory=dict)
 
 
 def calculate_influence_scores(node_ids, edges):
-    """Calculate descendant-count influence scores and decayed PageRank.
-
-    Returns an InfluenceScores dataclass rather than mutating instance
-    state, so this is safely callable outside a QWidget context.
-    """
+    """Return InfluenceScores (descendant counts and decayed PageRank) for the given graph."""
     try:
         G = nx.DiGraph()
         G.add_nodes_from(node_ids)
-        for source_id, target_id in edges:
-            G.add_edge(source_id, target_id)
+        G.add_edges_from(edges)
 
         descendant_counts = compute_descendant_counts(G)
         influence_scores = {node_id: descendant_counts.get(node_id, 0) for node_id in node_ids}
 
-        try:
-            decayed_pr = compute_decayed_pagerank(G)
-            page_rank_scores = decayed_pr
-            combined_scores = {node: (influence_scores.get(node, 0), decayed_pr.get(node, 0.0)) for node in node_ids}
-        except nx.NetworkXException as e:
-            logger.error(f"Failed to compute decayed PageRank: {e}")
-            page_rank_scores = {}
-            combined_scores = {node: (influence_scores.get(node, 0), 0.0) for node in node_ids}
+        # compute_decayed_pagerank catches its own NetworkXException.
+        page_rank_scores = compute_decayed_pagerank(G)
+        combined_scores = {node: (influence_scores.get(node, 0), page_rank_scores.get(node, 0.0)) for node in node_ids}
 
-        logger.info(f"Calculated influence scores for {len(node_ids)} nodes")
+        logger.debug(f"Calculated influence scores for {len(node_ids)} nodes")
         return InfluenceScores(influence_scores=influence_scores, page_rank_scores=page_rank_scores, combined_scores=combined_scores)
 
     except nx.NetworkXException as e:
         logger.error(f"Error calculating influence scores: {e}")
-        # Fallback: simple out-degree
-        influence_scores = {}
-        for node_id in node_ids:
-            direct = sum(1 for a, b in edges if a == node_id)
-            influence_scores[node_id] = direct
+        # Fallback: simple out-degree.
+        out_degree = Counter(a for a, _b in edges)
+        influence_scores = {node_id: out_degree.get(node_id, 0) for node_id in node_ids}
         return InfluenceScores(influence_scores=influence_scores)
 
 
-def assign_louvain_communities(node_ids, edges):
-    """Assign nodes to Louvain communities at every dendrogram level.
+# Fixed seed so the same graph gives the same communities (and colors) on every refresh.
+LOUVAIN_RANDOM_STATE = 0
 
-    Returns list[dict[node_id, community_index]], finest-grained first
-    (level 0) and coarsening from there -- the same hierarchy Louvain
-    computes internally via its aggregation passes (Blondel et al. 2008),
-    previously discarded by best_partition(), which returns only the
-    single highest-modularity level. Falls back to one flat community for
-    every node on failure.
-    """
+
+def assign_louvain_communities(node_ids, edges):
+    """Return Louvain partitions for every dendrogram level, finest first; one flat community on failure."""
     try:
         G = nx.Graph()
         G.add_nodes_from(node_ids)
-        for a, b in edges:
-            G.add_edge(a, b)
+        G.add_edges_from(edges)
         import community as community_louvain
 
-        dendrogram = community_louvain.generate_dendrogram(G)
+        dendrogram = community_louvain.generate_dendrogram(G, random_state=LOUVAIN_RANDOM_STATE)
         return [community_louvain.partition_at_level(dendrogram, level) for level in range(len(dendrogram))]
     except (TypeError, nx.NetworkXException) as e:
         logger.error(f"Error computing Louvain communities: {e}")
@@ -200,19 +148,7 @@ def assign_louvain_communities(node_ids, edges):
 
 
 def filter_eligible_levels(dendrogram, max_dominant_fraction=0.8):
-    """Filter a dendrogram down to levels worth surfacing in the UI.
-
-    Drops levels with fewer than 2 communities, drops levels where the
-    largest community holds more than `max_dominant_fraction` of all
-    nodes (near-degenerate "everything is one blob" cuts), and collapses
-    consecutive levels whose grouping of nodes is identical (Louvain's
-    aggregation passes sometimes produce no real structural change
-    between adjacent levels).
-
-    Returns list[dict[node_id, community_index]], same finest-first
-    order, a subset of the input. Thresholds are a starting point, tuned
-    against real data as described in the feature spec.
-    """
+    """Return the dendrogram levels worth showing: 2+ communities, no dominant blob, no repeated grouping."""
     eligible = []
     prev_signature = None
     total_nodes = None
@@ -242,11 +178,7 @@ def filter_eligible_levels(dendrogram, max_dominant_fraction=0.8):
 
 
 def compute_community_bridge_counts(node_ids, edges, community_id):
-    """Per-artist count of distinct Louvain communities among their direct
-    (undirected) neighbors -- the "eclecticism" metric: an artist whose
-    connections span many different communities bridges genres/scenes more
-    than one whose connections all sit inside their own community.
-    """
+    """Return per-artist count of distinct communities among direct neighbors (the "eclecticism" metric)."""
     neighbors = {node_id: set() for node_id in node_ids}
     for a, b in edges:
         if a in neighbors:

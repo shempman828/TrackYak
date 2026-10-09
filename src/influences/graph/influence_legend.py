@@ -1,16 +1,7 @@
 from typing import ClassVar
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.common.widgets.layout_utils import clear_layout
 from src.foundation.config_setup import app_config
@@ -34,18 +25,12 @@ class LegendRow(QWidget):
 
         label_text = f"{name} ({count})" if name else f"{count} artist{'s' if count != 1 else ''}"
         row.addWidget(QLabel(label_text))
+        self.setAccessibleName(f"Cluster: {label_text}")
         row.addStretch()
 
 
 class LegendPanel(QFrame):
-    """Small floating overlay explaining what the node colors mean.
-
-    User-resizable from any edge or corner, and movable by dragging the
-    title bar, so cluster lists longer than the default size can be
-    reviewed without a hard-coded row cap; overflow beyond the chosen size
-    just scrolls. Size and position are persisted across sessions once the
-    user interacts with either.
-    """
+    """Floating, resizable, draggable cluster legend whose size and position persist."""
 
     _MIN_WIDTH = 160
     _MIN_HEIGHT = 90
@@ -81,12 +66,14 @@ class LegendPanel(QFrame):
         self._title.installEventFilter(self)
         header.addWidget(self._title)
         header.addStretch()
+        self._rename_button = None
         if on_rename_all is not None:
-            rename_button = QPushButton("Rename…")
-            rename_button.setCursor(Qt.PointingHandCursor)
-            rename_button.setFlat(True)
-            rename_button.clicked.connect(on_rename_all)
-            header.addWidget(rename_button)
+            self._rename_button = QPushButton("Rename…")
+            self._rename_button.setCursor(Qt.PointingHandCursor)
+            self._rename_button.setFlat(True)
+            self._rename_button.setToolTip("Rename clusters")
+            self._rename_button.clicked.connect(on_rename_all)
+            header.addWidget(self._rename_button)
         self._layout.addLayout(header)
 
         self._level_row = QHBoxLayout()
@@ -111,6 +98,7 @@ class LegendPanel(QFrame):
         self._scroll.setWidget(self._rows_widget)
         self._layout.addWidget(self._scroll, 1)
 
+        self._busy = False
         self._resize_mode = ""
         self._resize_start_pos = QPointF()
         self._resize_start_geom = None
@@ -120,10 +108,7 @@ class LegendPanel(QFrame):
         self.setMouseTracking(True)
 
         width, height = app_config.get_influence_legend_size()
-        self.resize(
-            self._clamp(width, self._MIN_WIDTH, self._MAX_WIDTH),
-            self._clamp(height, self._MIN_HEIGHT, self._MAX_HEIGHT),
-        )
+        self.resize(self._clamp(width, self._MIN_WIDTH, self._MAX_WIDTH), self._clamp(height, self._MIN_HEIGHT, self._MAX_HEIGHT))
         saved_pos = app_config.get_influence_legend_position()
         self._user_positioned = saved_pos is not None
         if saved_pos is not None:
@@ -131,8 +116,7 @@ class LegendPanel(QFrame):
         self.hide()
 
     def has_custom_position(self):
-        """True once the user has dragged or resized the panel, meaning it
-        no longer tracks the default bottom-left anchor."""
+        """Return True once the user has dragged or resized the panel."""
         return self._user_positioned
 
     def clamp_to_parent(self):
@@ -150,14 +134,7 @@ class LegendPanel(QFrame):
         return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
 
     def set_level_count(self, level_sizes, active_level):
-        """Show one granularity-toggle button per eligible dendrogram level,
-        labeled by how many colored groups that level splits the graph into
-        (e.g. "12 groups") rather than a raw dendrogram index -- the finest
-        level, most groups, comes first. Hidden entirely when there's only
-        one eligible level -- nothing to toggle between.
-
-        `level_sizes` is the community count for each level, finest first.
-        """
+        """Show one "N groups" toggle per level (`level_sizes`, finest first); hide the row for one level."""
         for button in self._level_group.buttons():
             self._level_group.removeButton(button)
         while self._level_row.count():
@@ -180,15 +157,25 @@ class LegendPanel(QFrame):
             button.setFlat(True)
             button.setFixedHeight(20)
             button.setToolTip(f"Color the graph by {size} artist groups")
+            button.setEnabled(not self._busy)
             self._level_group.addButton(button, level)
             self._level_row.addWidget(button)
         self._level_row.addStretch()
+
+    def set_busy(self, busy):
+        """Disable the level toggles and Rename button while the graph recomputes."""
+        self._busy = busy
+        for button in self._level_group.buttons():
+            button.setEnabled(not busy)
+        if self._rename_button is not None:
+            self._rename_button.setEnabled(not busy)
 
     def _on_level_button_clicked(self, level):
         if self._on_level_changed is not None:
             self._on_level_changed(level)
 
     def set_communities(self, rows):
+        """Show one row per community; hide the panel when there is only one."""
         clear_layout(self._rows_layout)
 
         if len(rows) <= 1:
@@ -204,6 +191,7 @@ class LegendPanel(QFrame):
     # Resize (drag any edge or corner) and move (drag the title bar)
     # -----------------------
     def _hit_test(self, pos):
+        """Return the resize edge/corner under `pos`, or "" for the interior."""
         m = self._EDGE_MARGIN
         w, h = self.width(), self.height()
         left = pos.x() <= m
@@ -303,6 +291,7 @@ class LegendPanel(QFrame):
         return super().eventFilter(obj, event)
 
     def _persist_geometry(self):
+        """Save the panel's size and position to the app config."""
         app_config.set_influence_legend_size(self.width(), self.height())
         app_config.set_influence_legend_position(self.x(), self.y())
         app_config.save()

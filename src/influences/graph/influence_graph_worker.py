@@ -1,10 +1,4 @@
-"""
-influence_graph_worker.py
-
-Background-worker orchestration for InfluenceGraphView.display_global_network:
-runs extraction/scoring off the UI thread, then hands the result back to
-the main thread to push into Cytoscape and update the legend.
-"""
+"""Background recompute orchestration for InfluenceGraphView.display_global_network."""
 
 from PySide6.QtCore import Signal
 
@@ -14,17 +8,9 @@ from src.foundation.status_utility import show_status_message
 
 
 class _GlobalGraphWorker(CancellableWorker):
-    """Background worker for InfluenceGraphView.display_global_network.
+    """Run InfluenceGraphView._compute_graph_result off the GUI thread."""
 
-    Extraction and scoring (DB queries + networkx computation) only ever
-    touch plain data on the view -- self.controller, self.edges,
-    self.node_mass, etc -- never Qt widgets, so it's safe to run them here.
-    The Cytoscape push and legend update stay on the main thread, wired up
-    through the `finished`/`error` signals, mirroring
-    library.duplicate_finder.DuplicateScanWorker.
-    """
-
-    finished = Signal(bool)  # True if a graph was computed, False if empty
+    finished = Signal(object)  # GraphResult, or None when there is nothing to graph
     error = Signal(str)
 
     def __init__(self, view, parent=None):
@@ -33,107 +19,53 @@ class _GlobalGraphWorker(CancellableWorker):
 
     def run(self):
         try:
-            has_graph = self._view._compute_global_graph()
-            self.finished.emit(has_graph)
+            self.finished.emit(self._view._compute_graph_result())
         except Exception as e:
-            # Intentional broad boundary catch: this runs on a QThread and must
-            # not let an exception kill the thread silently — surface it to the UI.
+            # Intentional broad boundary catch: an exception must not kill the thread silently.
             logger.error(f"Error computing influence graph: {e}", exc_info=True)
             self.error.emit(str(e))
         finally:
-            # Extraction is read-only (DB queries via self._view.controller),
-            # so nothing else on this thread ever commits/closes -- see
-            # CancellableWorker's docstring.
+            # Read-only work, so nothing else on this thread commits/closes the session.
             self._release_db_session()
 
 
 class InfluenceGraphWorkerMixin:
-    """
-    Expects the host class to provide: self.node_names, self.node_aliases,
-    self.edges, self.node_mass, self.community_id, self.community_names,
-    self.community_levels, self.active_level, self.community_names_by_level,
-    self.influence_scores, self.extract_global_graph(),
-    self.fetch_node_aliases(), self._update_node_mass(),
-    self.assign_louvain_communities(),
-    self.calculate_influence_scores(), self._resolve_community_names(),
-    self._run_js(), self._update_legend(), self._push_graph(),
-    self.debug_size_distribution(), self.graph_updated (Signal),
-    and to be a QWidget subclass.
-    """
+    """Recompute orchestration; the host provides the data, render, and legend mixins."""
+
+    def is_computing(self):
+        """Return True while a background recompute runs."""
+        return self._graph_worker is not None and self._graph_worker.isRunning()
 
     def display_global_network(self):
-        """Kick off a background extraction/scoring pass for the whole
-        influence graph. Returns immediately; the Cytoscape push happens
-        asynchronously once `_GlobalGraphWorker` reports back via
-        `_on_global_graph_computed`/`_on_global_graph_error`.
-
-        A large influence graph makes this the most expensive operation in
-        the tab (DB extraction + Louvain + descendant/PageRank scoring), so
-        it runs off the UI thread rather than freezing the app on every
-        refresh.
-        """
-        if self._graph_worker is not None and self._graph_worker.isRunning():
+        """Start a background recompute of the whole graph; a call during a recompute only shows a status."""
+        if self.is_computing():
+            show_status_message(self, "The influence graph is already refreshing.")
             return
 
-        # Extraction + Louvain + scoring runs off-thread and the subsequent
-        # fcose layout settles async in the web process, so show the scrim
-        # now; graph.js drops it on the first layoutstop.
+        # graph.js drops the scrim on the first layoutstop.
         self._run_js("showLoading()")
-
-        self.node_names = {}
-        self.node_aliases = {}
-        self.edges = []
-        self.node_mass = {}
-        self.community_id = {}
-        self.community_names = {}
-        self.influence_scores = {}
-        # community_levels/active_level/community_names_by_level are NOT
-        # reset here: assign_louvain_communities() re-derives community_levels
-        # fresh every recompute anyway, and preserving active_level across a
-        # recompute is what keeps the user's chosen granularity from
-        # snapping back to default on every "Refresh".
+        self._set_busy(True)
 
         self._graph_worker = _GlobalGraphWorker(self)
         self._graph_worker.finished.connect(self._on_global_graph_computed)
         self._graph_worker.error.connect(self._on_global_graph_error)
         self._graph_worker.start()
 
-    def _compute_global_graph(self):
-        """Runs on the worker thread. Populates node_names/edges/node_mass/
-        community_id/influence_scores; returns False if there was nothing
-        to graph."""
-        nodes, edges = self.extract_global_graph()
+    def _set_busy(self, busy):
+        """Lock level/rename controls during a recompute and tell listeners."""
+        self._legend.set_busy(busy)
+        self.busy_changed.emit(busy)
 
-        if not nodes:
-            return False
-
-        node_ids = [n[0] for n in nodes]
-        node_id_set = set(node_ids)
-        self.node_names = dict(nodes)
-        self.node_aliases = self.fetch_node_aliases(node_ids)
-
-        deduped_edges = []
-        seen = set()
-        for a, b in edges:
-            if a in node_id_set and b in node_id_set:
-                key = (a, b)
-                if key not in seen:
-                    seen.add(key)
-                    deduped_edges.append(key)
-        self.edges = deduped_edges
-
-        self._update_node_mass(node_ids)
-        self.assign_louvain_communities(node_ids, self.edges)
-        self.calculate_influence_scores(node_ids, self.edges)
-        return True
-
-    def _on_global_graph_computed(self, has_graph):
-        """Main-thread slot: the only part of this pipeline allowed to
-        touch Qt widgets (legend, Cytoscape push)."""
+    def _on_global_graph_computed(self, result):
+        """Apply the result and push it to Cytoscape (main thread only)."""
         self._graph_worker = None
-        if not has_graph:
-            # No _push_graph()/layout will run, so drop the scrim here.
+        self._set_busy(False)
+        self._apply_graph_result(result)
+        if result is None:
+            # _push_graph clears the canvas; no layout runs, so drop the scrim here.
+            self._push_graph()
             self._run_js("hideLoading()")
+            self._update_legend()
             show_status_message(self, "No artists with influence relationships found. Add some influence relationships first.")
             self.graph_updated.emit()
             return
@@ -145,5 +77,6 @@ class InfluenceGraphWorkerMixin:
 
     def _on_global_graph_error(self, message):
         self._graph_worker = None
+        self._set_busy(False)
         self._run_js("hideLoading()")
         show_status_message(self, f"Failed to build influence graph: {message}")

@@ -2,18 +2,8 @@ import colorsys
 
 
 def generate_community_palette(count):
-    """Generate `count` maximally-distinct hex colors for Louvain community
-    coloring.
-
-    Hues step around the wheel by the golden-angle conjugate, which spreads
-    every prefix of the sequence (not just the full set) roughly evenly
-    around the circle — so even the first handful of communities look
-    clearly different from one another, rather than only being guaranteed
-    distinct once all `count` colors are in use. Saturation/value cycle
-    across a few bands as a secondary cue for hues that land close together,
-    and stay in a mid-high range so the fixed dark node-label text keeps
-    enough contrast against every swatch.
-    """
+    """Return `count` distinct hex colors for community coloring."""
+    # Golden-angle hue steps keep every prefix spread out; mid-high S/V keeps dark labels legible.
     golden_ratio_conjugate = 0.6180339887498949
     hue = 0.58  # anchors the first color near the app's existing indigo accent
     saturations = (0.68, 0.55, 0.78, 0.62)

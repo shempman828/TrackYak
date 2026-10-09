@@ -1,38 +1,28 @@
-"""
-influence_graph_render.py
-
-Cytoscape element/style/layout building, incremental live-graph updates,
-the JS bridge, and theming for InfluenceGraphView.
-"""
+"""Cytoscape element/style/layout building, incremental updates, JS bridge, and theming for InfluenceGraphView."""
 
 import configparser
 import json
 from typing import ClassVar
-
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 
 
 class InfluenceGraphRenderMixin:
-    """
-    Expects the host class to provide: self._web, self._page_ready,
-    self._pending_js, self.node_names, self.node_aliases, self.edges,
-    self.node_mass, self.community_id, self.community_names,
-    self.influence_scores, self.get_node_size(), self.get_label_font_size(),
-    self.get_community_color(), self.debug_graph_structure(),
-    self.graph_updated (Signal), and to be a QWidget subclass.
-    """
+    """Cytoscape bridge; the host provides the web view, graph model, and sizing/color helpers."""
 
-    # Canvas background per app theme, so the graph doesn't stay a
-    # hardcoded dark rectangle inside a light/colorful/accessibility theme.
+    # Edge styling range, interpolated by the source's influence score.
+    _EDGE_OPACITY = (0.18, 0.82)
+    _EDGE_WIDTH = (0.8, 2.6)
+    _EDGE_ARROW = (0.75, 1.15)
+
     _THEME_BACKGROUND: ClassVar[dict[str, str]] = {"dark_mode": "#0b0c10", "light_mode": "#f5f6fa", "colorful_mode": "#ffffff", "accessibility_mode": "#ffffff"}
 
     # -----------------------
     # JS bridge
     # -----------------------
     def _on_page_loaded(self, ok):
+        """Mark the page ready and flush JS queued before it loaded."""
         self._page_ready = ok
         pending = self._pending_js
         self._pending_js = []
@@ -40,15 +30,14 @@ class InfluenceGraphRenderMixin:
             self._web.page().runJavaScript(code)
 
     def _run_js(self, code):
+        """Run JS now, or queue it until the page has loaded."""
         if self._page_ready:
             self._web.page().runJavaScript(code)
         else:
             self._pending_js.append(code)
 
     def focus_artist_by_name(self, name):
-        """Center/zoom on the node whose name matches `name` (case-
-        insensitive, exact) and pulse it, for the toolbar's "Find artist"
-        field. Returns True if a matching node was found."""
+        """Center on and pulse the node whose name matches `name` (case-insensitive); return True if found."""
         name = (name or "").strip().lower()
         if not name:
             return False
@@ -62,6 +51,7 @@ class InfluenceGraphRenderMixin:
     # Theming
     # -----------------------
     def _theme_background(self):
+        """Return the canvas background color for the current app theme."""
         theme_name = None
         try:
             theme_name = app_config.get_display_theme()
@@ -72,88 +62,80 @@ class InfluenceGraphRenderMixin:
     # -----------------------
     # Cytoscape data/style/layout building
     # -----------------------
+    def _cluster_element(self, community_index):
+        """Return the Cytoscape compound-node element for one community."""
+        return {"data": {"id": f"c{community_index}", "label": self.community_names.get(community_index, ""), "color": self.get_community_color(community_index).name()}}
+
+    def _node_element(self, node_id, name):
+        """Return the Cytoscape element for one artist node."""
+        size = self.get_node_size(node_id)
+        color = self.get_community_color(self.community_id.get(node_id, 0))
+        return {
+            "data": {
+                "id": str(node_id),
+                "label": name,
+                "fullLabel": name,
+                "aliases": self.node_aliases.get(node_id, []),
+                "parent": f"c{self.community_id.get(node_id, 0)}",
+                "minWidth": size,
+                "minHeight": size * 0.5,
+                "fontSize": self.get_label_font_size(size),
+                "color": color.name(),
+                # Gradient stops must come from one data field; Cytoscape can't join two.
+                "gradientColors": f"{color.lighter(130).name()} {color.name()}",
+                "borderColor": color.darker(140).name(),
+            }
+        }
+
+    def _edge_element(self, source_id, target_id, strength):
+        """Return the Cytoscape element for one edge; `strength` in [0, 1] drives opacity/width/arrow size."""
+
+        def lerp(bounds):
+            low, high = bounds
+            return low + strength * (high - low)
+
+        source_color = self.get_community_color(self.community_id.get(source_id, 0))
+        arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
+        return {
+            "data": {
+                "id": f"e{source_id}_{target_id}",
+                "source": str(source_id),
+                "target": str(target_id),
+                "opacity": lerp(self._EDGE_OPACITY),
+                "width": lerp(self._EDGE_WIDTH),
+                "arrowScale": lerp(self._EDGE_ARROW),
+                "arrowColor": arrow_color.name(),
+                "edgeGradientColors": f"{source_color.name()} {arrow_color.name()}",
+            }
+        }
+
     def _build_elements(self):
+        """Return every cluster, node, and edge element for the current graph model."""
         elements = []
         seen_clusters = set()
         for node_id, name in self.node_names.items():
             community_index = self.community_id.get(node_id, 0)
-            cluster_id = f"c{community_index}"
-            if cluster_id not in seen_clusters:
-                seen_clusters.add(cluster_id)
-                cluster_color = self.get_community_color(community_index)
-                elements.append({"data": {"id": cluster_id, "label": self.community_names.get(community_index, ""), "color": cluster_color.name()}})
-            size = self.get_node_size(node_id)
-            color = self.get_community_color(community_index)
-            elements.append(
-                {
-                    "data": {
-                        "id": str(node_id),
-                        "label": name,
-                        "fullLabel": name,
-                        "aliases": self.node_aliases.get(node_id, []),
-                        "parent": cluster_id,
-                        "minWidth": size,
-                        "minHeight": size * 0.5,
-                        "fontSize": self.get_label_font_size(size),
-                        "color": color.name(),
-                        # background-gradient-stop-colors takes its whole
-                        # value from a single data field already containing
-                        # the space-separated stop colors -- it can't be
-                        # built from two separate data() calls in one
-                        # property string.
-                        "gradientColors": f"{color.lighter(130).name()} {color.name()}",
-                        "borderColor": color.darker(140).name(),
-                    }
-                }
-            )
+            if community_index not in seen_clusters:
+                seen_clusters.add(community_index)
+                elements.append(self._cluster_element(community_index))
+            elements.append(self._node_element(node_id, name))
 
-        # Edge opacity/width/arrow-size by source influence score, matching
-        # the original visual language: important influencers get
-        # prominent edges, weak ones fade out. sqrt eases the curve for
-        # large score ranges.
-        MIN_OPACITY, MAX_OPACITY = 0.18, 0.82
-        MIN_WIDTH, MAX_WIDTH = 0.8, 2.6
-        MIN_ARROW, MAX_ARROW = 0.75, 1.15
+        # sqrt eases the curve so mid-range influencers stay visible.
         max_score = max(self.influence_scores.values()) if self.influence_scores else 0
         for source_id, target_id in self.edges:
             if source_id not in self.node_names or target_id not in self.node_names:
                 continue
-            src_score = self.influence_scores.get(source_id, 0)
-            t = (src_score / max_score) ** 0.5 if max_score else 0.0
-            opacity = MIN_OPACITY + t * (MAX_OPACITY - MIN_OPACITY)
-            source_color = self.get_community_color(self.community_id.get(source_id, 0))
-            arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
-            elements.append(
-                {
-                    "data": {
-                        "id": f"e{source_id}_{target_id}",
-                        "source": str(source_id),
-                        "target": str(target_id),
-                        "opacity": opacity,
-                        "width": MIN_WIDTH + t * (MAX_WIDTH - MIN_WIDTH),
-                        "arrowScale": MIN_ARROW + t * (MAX_ARROW - MIN_ARROW),
-                        "arrowColor": arrow_color.name(),
-                        # A soft source->target color blend reads as an
-                        # actual connection between two specific clusters,
-                        # rather than every edge sharing one flat accent
-                        # color regardless of which communities it links.
-                        "edgeGradientColors": f"{source_color.name()} {arrow_color.name()}",
-                    }
-                }
-            )
+            strength = (self.influence_scores.get(source_id, 0) / max_score) ** 0.5 if max_score else 0.0
+            elements.append(self._edge_element(source_id, target_id, strength))
         return elements
 
     def _build_stylesheet(self, bg):
+        """Return the Cytoscape stylesheet for clusters, artist nodes, and edges."""
         return [
             {
                 "selector": "node:parent",
                 "style": {
-                    # Cluster regions used to be fully invisible (just a
-                    # floating label) -- the color grouping only showed up
-                    # once you looked at individual node fills. A soft
-                    # translucent card behind each community, tinted with
-                    # that community's own color, makes the grouping
-                    # readable at a glance instead of implied.
+                    # Soft tinted card behind each community so the grouping reads at a glance.
                     "shape": "round-rectangle",
                     "corner-radius": 22,
                     "background-color": "data(color)",
@@ -163,61 +145,30 @@ class InfluenceGraphRenderMixin:
                     "border-opacity": 0.32,
                     "padding": 32,
                     "label": "data(label)",
-                    # Matching the label color to its own region (instead
-                    # of one fixed accent for every cluster) visually ties
-                    # a cluster's name to its swatch and its nodes.
                     "color": "data(color)",
                     "font-size": 12,
                     "font-weight": 700,
                     "text-valign": "top",
                     "text-halign": "center",
                     "text-margin-y": -8,
-                    # A small pill behind the label lifts it off of
-                    # whatever nodes happen to sit near the region's top
-                    # edge, like a tab on a folder.
                     "text-background-color": bg,
                     "text-background-opacity": 0.85,
                     "text-background-shape": "round-rectangle",
                     "text-background-padding": 4,
-                    # Compounds are still click-through despite now being
-                    # visible -- their bounding box covers most of the
-                    # canvas, and without this a click-drag meant to pan
-                    # the viewport would land on the region (nodes are
-                    # separately locked via autoungrabify) instead of
-                    # reaching the background.
+                    # Click-through, or a drag meant to pan would land on the region.
                     "events": "no",
                 },
             },
             {
                 "selector": "node[parent]",
                 "style": {
-                    # 'auto' makes the corner radius track the node's own
-                    # (smaller) dimension, turning the box into a full
-                    # stadium/pill -- matching the pill-shaped chips used
-                    # throughout the rest of the app (filter chips, type
-                    # chips, "Now Playing" metadata pills) instead of the
-                    # barely-rounded rectangle this used to be.
+                    # 'auto' radius gives a full pill, matching the app's chips.
                     "shape": "round-rectangle",
                     "corner-radius": "auto",
-                    # 'label' auto-sizes the box to exactly contain its own
-                    # (word-wrapped, per text-wrap below) label. graph.js's
-                    # fitNodeLabel tries the full artist name first; if that
-                    # would grow the box past its influence-based minimum
-                    # (minWidth/minHeight data, see get_node_size), it swaps
-                    # in a shorter initials-style alias instead of letting
-                    # the box balloon -- so box size tracks influence, not
-                    # name length, for all but genuinely long names. The
-                    # full name is always available on hover (fullLabel
-                    # data). Floors at minWidth/minHeight either way, so
-                    # the box can grow to fit text but never shrinks below
-                    # what influence dictates.
+                    # Box fits its own wrapped label; graph.js fitNodeLabel floors it at minWidth/minHeight.
                     "width": "label",
                     "height": "label",
                     "padding": 10,
-                    # A diagonal gradient plus a faint negative "blacken"
-                    # (a slight overall lighten) reads as a glossy, lit
-                    # pill instead of the flat top-to-bottom fill this had
-                    # before.
                     "background-fill": "linear-gradient",
                     "background-gradient-direction": "to-bottom-right",
                     "background-gradient-stop-colors": "data(gradientColors)",
@@ -232,29 +183,14 @@ class InfluenceGraphRenderMixin:
                     "font-weight": 600,
                     "text-valign": "center",
                     "text-halign": "center",
-                    # 'wrap' breaks a label onto additional lines at
-                    # whitespace only (never mid-word) instead of eliding
-                    # it -- combined with width/height: 'label' above, the
-                    # box always grows to fit whatever this produces, so
-                    # text can never overflow its own box.
+                    # Wrap at whitespace (never elide) to the node's influence-based width.
                     "text-wrap": "wrap",
-                    # Wrap at the node's own influence-based target width,
-                    # not a flat constant -- a low-influence node's (short,
-                    # likely-aliased) label wraps into a narrow column
-                    # matching its small box; a high-influence node gets a
-                    # proportionally wider column, matching its bigger one.
                     "text-max-width": "data(minWidth)",
-                    # A faint light halo keeps the dark label legible
-                    # across the full 50-color community palette, some of
-                    # which sit darker/more saturated than others.
+                    # Faint halo keeps dark text legible on darker palette colors.
                     "text-outline-width": 0.6,
                     "text-outline-color": "#ffffff",
                     "text-outline-opacity": 0.25,
-                    # A soft colored halo behind the node, off by default
-                    # and eased in on hover/find below -- the closest
-                    # substitute to a drop-shadow glow this Cytoscape
-                    # build offers (no shadow-* style support), but reads
-                    # the same way at a glance.
+                    # Glow substitute (no shadow-* support); eased in on hover/find.
                     "underlay-color": "data(color)",
                     "underlay-opacity": 0,
                     "underlay-padding": 0,
@@ -281,34 +217,13 @@ class InfluenceGraphRenderMixin:
         ]
 
     def _build_layout_options(self):
-        # fcose (Fast Compound Spring Embedder) -- a proven force-directed
-        # layout with first-class support for compound nodes (our
-        # per-community groups): it pulls same-parent nodes together and
-        # pushes separate compounds apart. NOTE: fcose is a force-directed
-        # heuristic, not a hard collision constraint solver -- it settles
-        # at an energy equilibrium that usually keeps nodes apart but can
-        # still leave pairs overlapping, especially inside a densely
-        # packed community. The actual overlap-free guarantee comes from
-        # a deterministic separation pass (resolveOverlaps in graph.js)
-        # that runs after every layout settles. Replaces the earlier
-        # hand-rolled repulsion/cohesion/collision system. All values here
-        # are tunable knobs if the grouping still needs to feel
-        # tighter/looser.
+        """Return fcose layout options; graph.js resolveOverlaps removes any overlap fcose leaves."""
         return {
             "name": "fcose",
             "quality": "default",
-            # randomize seeds fcose's force solve from a random scatter; it
-            # stays on because the spectral/(0,0) fallback gives noticeably
-            # worse first-load layouts, not for any visual effect.
+            # The spectral fallback gives worse first-load layouts than a random scatter.
             "randomize": True,
-            # Snap straight to the computed layout. fcose solves the final
-            # node positions instantly; there is no ongoing computation to
-            # visualize, so there is no animation.
             "animate": False,
-            # Node boxes auto-size to exactly contain their own label (see
-            # _build_stylesheet's width/height: 'label'), so this is a
-            # no-op in practice now, but keeps fcose's collision footprint
-            # correct if that ever changes.
             "nodeDimensionsIncludeLabels": True,
             "fit": True,
             "padding": 40,
@@ -327,6 +242,10 @@ class InfluenceGraphRenderMixin:
         }
 
     def _push_graph(self):
+        """Send the full graph to Cytoscape, or clear the canvas when the model is empty."""
+        if not self.node_names:
+            self._run_js("clearGraph()")
+            return
         bg = self._theme_background()
         elements = json.dumps(self._build_elements())
         style = json.dumps(self._build_stylesheet(bg))
@@ -337,86 +256,52 @@ class InfluenceGraphRenderMixin:
     # -----------------------
     # Incremental live-graph updates
     # -----------------------
+    def _new_node_elements(self, artist_id, artist_name):
+        """Add an artist to the model and return its elements (plus its cluster if new); [] if present."""
+        if artist_id in self.node_names:
+            return []
+        self.node_names[artist_id] = artist_name
+        self.node_aliases[artist_id] = self.fetch_node_aliases([artist_id]).get(artist_id, [])
+        self.node_mass[artist_id] = 1
+        community_index = self.community_id.get(artist_id, 0)
+        cluster_known = any(self.community_id.get(n, 0) == community_index for n in self.node_names if n != artist_id)
+        elements = [] if cluster_known else [self._cluster_element(community_index)]
+        elements.append(self._node_element(artist_id, artist_name))
+        return elements
+
     def add_single_artist(self, artist_id, artist_name):
-        """Add a single artist to the existing graph only if it has relationships"""
-        try:
-            # Check if this artist has any influence relationships
-            influences_as_influencer = self.controller.get.get_all_entities("ArtistInfluence", influencer_id=artist_id)
-            influences_as_influenced = self.controller.get.get_all_entities("ArtistInfluence", influenced_id=artist_id)
-
-            # Only add if the artist has at least one relationship
-            if not influences_as_influencer and not influences_as_influenced:
-                logger.info(f"Artist {artist_name} ({artist_id}) has no influence relationships, skipping")
-                return
-
-            # If this artist is already in the graph, just update the label
-            if artist_id in self.node_names:
-                self.node_names[artist_id] = artist_name
-                self._run_js(f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})")
-                self.graph_updated.emit()
-                return
-
+        """Add one artist node to the live graph, or refresh its label if it is already there."""
+        if artist_id in self.node_names:
             self.node_names[artist_id] = artist_name
-            self.node_aliases[artist_id] = self.fetch_node_aliases([artist_id]).get(artist_id, [])
-            self.node_mass[artist_id] = 1
-            community_index = self.community_id.get(artist_id, 0)
-            cluster_id = f"c{community_index}"
-            size = self.get_node_size(artist_id)
-            color = self.get_community_color(community_index)
-
-            elements = [
-                {
-                    "data": {
-                        "id": str(artist_id),
-                        "label": artist_name,
-                        "fullLabel": artist_name,
-                        "aliases": self.node_aliases[artist_id],
-                        "parent": cluster_id,
-                        "minWidth": size,
-                        "minHeight": size * 0.5,
-                        "fontSize": self.get_label_font_size(size),
-                        "color": color.name(),
-                        "gradientColors": f"{color.lighter(130).name()} {color.name()}",
-                        "borderColor": color.darker(140).name(),
-                    }
-                }
-            ]
-            self._run_js(f"addElements({json.dumps(elements)})")
-            self.graph_updated.emit()
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error adding single artist {artist_id}: {e}")
+            self._run_js(f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})")
+        else:
+            self._run_js(f"addElements({json.dumps(self._new_node_elements(artist_id, artist_name))})")
+        self.graph_updated.emit()
 
     def add_edge(self, source_id, target_id):
-        """Add one influence edge to the live graph model + canvas, without
-        a full reload."""
-        key = (source_id, target_id)
-        if key in self.edges:
+        """Add one influence edge between two nodes already in the live graph."""
+        if (source_id, target_id) in self.edges or source_id not in self.node_names or target_id not in self.node_names:
             return
-        if source_id not in self.node_names or target_id not in self.node_names:
-            return
+        self._run_js(f"addElements({json.dumps([self._edge_model_element(source_id, target_id)])})")
 
-        self.edges.append(key)
+    def _edge_model_element(self, source_id, target_id):
+        """Record a new edge in the model and return its element at mid strength."""
+        self.edges.append((source_id, target_id))
         self.node_mass[source_id] = self.node_mass.get(source_id, 1) + 1
         self.node_mass[target_id] = self.node_mass.get(target_id, 1) + 1
+        # Unranked until the next full recompute, so use the mid-range style.
+        return self._edge_element(source_id, target_id, 0.5)
 
-        source_color = self.get_community_color(self.community_id.get(source_id, 0))
-        arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
-        # No influence score for a brand-new relationship yet -- mid-range
-        # opacity/width/arrow-scale, matching _build_elements' t=0.5 point,
-        # until the next full recompute ranks it properly.
-        elements = [
-            {
-                "data": {
-                    "id": f"e{source_id}_{target_id}",
-                    "source": str(source_id),
-                    "target": str(target_id),
-                    "opacity": 0.5,
-                    "width": 1.7,
-                    "arrowScale": 0.95,
-                    "arrowColor": arrow_color.name(),
-                    "edgeGradientColors": f"{source_color.name()} {arrow_color.name()}",
-                }
-            }
-        ]
-        self._run_js(f"addElements({json.dumps(elements)})")
+    def add_influence(self, influencer, influenced):
+        """Add an (id, name) -> (id, name) relationship to the live graph, adding missing endpoints."""
+        if not self.node_names:
+            # Nothing on the canvas yet, so build the graph from scratch.
+            self.display_global_network()
+            return
+        (source_id, source_name), (target_id, target_name) = influencer, influenced
+        elements = self._new_node_elements(source_id, source_name) + self._new_node_elements(target_id, target_name)
+        if (source_id, target_id) not in self.edges:
+            elements.append(self._edge_model_element(source_id, target_id))
+        if elements:
+            self._run_js(f"addElements({json.dumps(elements)})")
+        self.graph_updated.emit()

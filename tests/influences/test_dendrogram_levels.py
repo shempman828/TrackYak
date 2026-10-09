@@ -56,7 +56,7 @@ def test_filter_eligible_levels_rejects_single_community():
 
 def test_filter_eligible_levels_rejects_dominant_community():
     # 9 nodes in one community, 1 in another -- 90% > 80% dominance cap.
-    partition = {i: 0 for i in range(9)}
+    partition = dict.fromkeys(range(9), 0)
     partition[9] = 1
     assert filter_eligible_levels([partition]) == []
 
@@ -76,3 +76,18 @@ def test_filter_eligible_levels_keeps_valid_multilevel_dendrogram():
     assert len(eligible) >= 1
     for partition in eligible:
         assert len(set(partition.values())) >= 2
+
+
+def test_assign_louvain_communities_is_deterministic_across_runs():
+    # Unseeded Louvain renumbered communities on every refresh, so cluster colors jumped.
+    import random
+
+    node_ids = list(range(30))
+    rng = random.Random(7)
+    edges = [(rng.randrange(30), rng.randrange(30)) for _ in range(60)]
+    edges = [(a, b) for a, b in edges if a != b]
+
+    first = assign_louvain_communities(node_ids, edges)
+    second = assign_louvain_communities(node_ids, edges)
+
+    assert first == second

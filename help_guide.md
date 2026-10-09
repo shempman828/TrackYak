@@ -650,21 +650,27 @@ and zoom around.
 
 **Reading the graph**: bigger nodes influenced more other artists; nodes are
 colored by cluster, using automatic community detection that groups related
-artists together. The legend panel (toggle it with "Show Cluster Legend")
-lets you switch between looser and tighter clustering — the "Detail" buttons
-are labeled by how many groups each option splits the graph into — and you
-can rename a cluster to something meaningful via its Rename button. A spinner
-covers the graph while it is being built or re-grouped. Hover any node to see
-its full name, even when the label on the graph itself is abbreviated to
-fit.
+artists together. The same data always gives the same clusters and colors, so
+a refresh does not reshuffle them. The legend panel (toggle it with the
+Legend button) lets you switch between looser and tighter clustering — the
+"Detail" buttons are labeled by how many groups each option splits the graph
+into — and its Rename… button lets you name clusters at every level in one
+place. Two clusters at the same level cannot share a name. A spinner covers
+the graph while it is being built or re-grouped; the Detail, Rename… and
+Refresh Graph buttons are unavailable until it finishes. Hover any node to see
+its full name, even when the label on the graph itself is abbreviated to fit.
 
 **Adding a relationship**: click Add Influence and type both artist names —
 it tells you as you type whether it found an existing match or will create a
-new artist, so you don't end up with accidental duplicates. Remove Influence
-works the same way in reverse: pick an existing relationship from a
-searchable list and delete it.
+new artist, so you don't end up with accidental duplicates. A relationship
+that already exists is refused with a message, and the dialog stays open if
+the save fails. The new relationship appears on the graph right away, even
+when one of the artists had no influences before. Remove Influence works the
+same way in reverse: pick an existing relationship from a searchable list
+(click it or use the arrow keys; each row also shows its description) and
+delete it. A status message confirms the removal and the graph rebuilds.
 
-**Getting unstuck**: if the layout looks tangled, Refresh Graph recomputes
+**Getting unstuck**: if the layout looks tangled, Refresh Graph (↻) recomputes
 it from scratch; Fit to View reframes everything to the window if you've
 scrolled or zoomed away from the action.
 

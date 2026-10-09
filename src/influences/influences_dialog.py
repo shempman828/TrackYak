@@ -6,23 +6,21 @@ from src.common.widgets.entity_completer_edit import EntityCompleterEdit
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
+_INFLUENCE_ROLE = Qt.UserRole
+
+
+class InfluenceAddError(Exception):
+    """A database write for a new influence or artist failed."""
+
 
 def _repolish(widget):
-    """Force Qt to re-evaluate a stylesheet rule keyed on a dynamic
-    property after that property changes on an already-shown widget."""
+    """Re-apply stylesheet rules keyed on a dynamic property that just changed."""
     widget.style().unpolish(widget)
     widget.style().polish(widget)
 
 
 class _ArtistField(QWidget):
-    """One "who" side of an influence relationship: a name field with
-    autocomplete/create-new (EntityCompleterEdit) plus a small chip
-    reporting whether the typed name currently resolves to an existing
-    artist, would create a new one, or is still empty. Replaces the old
-    plain-text status label ("✓ Using existing artist...") with a real
-    dropdown of matches and an at-a-glance chip, instead of asking the
-    user to read a sentence to find out what will happen.
-    """
+    """Artist name field with autocomplete and an "Existing artist" / "Will create new" chip."""
 
     def __init__(self, placeholder, known_names_lower, parent=None):
         super().__init__(parent)
@@ -44,22 +42,24 @@ class _ArtistField(QWidget):
         self._refresh_chip()
 
     def set_index(self, display_to_id):
+        """Set the completer's {name: artist_id} index."""
         self.field.set_index(display_to_id)
 
     def note_known_name(self, name, artist_id):
-        """Register a name the dialog now considers resolvable (either
-        freshly created, or swapped in from the other field), so the chip
-        and later resolution both see it as existing."""
+        """Register a newly created artist so the chip and later lookups treat it as existing."""
         self._known_names_lower.add(name.strip().lower())
         self.field.add_to_index(name, artist_id)
 
     def text(self):
+        """Return the trimmed field text."""
         return self.field.text().strip()
 
     def matched_id(self):
+        """Return the artist_id of a completer pick, or None."""
         return self.field.matched_id()
 
     def swap_text_with(self, other):
+        """Swap the typed names with another field and refresh both chips."""
         mine, theirs = self.text(), other.text()
         self.field.reset()
         other.field.reset()
@@ -69,6 +69,7 @@ class _ArtistField(QWidget):
         other._refresh_chip()
 
     def _refresh_chip(self, *_args):
+        """Update the chip for the current text: empty, existing, or new."""
         text = self.text()
         if not text:
             state, label = "empty", ""
@@ -83,25 +84,31 @@ class _ArtistField(QWidget):
 
 
 class AddInfluenceDialog(QDialog):
+    """Add an influence relationship, creating either artist if the name is new."""
+
     def __init__(self, controller, all_artists, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.all_artists = list(all_artists)  # List of (artist_id, artist_name)
+        # First artist wins when two share a name; a completer pick is more precise.
+        self._id_by_lower_name = {}
+        for artist_id, name in self.all_artists:
+            self._id_by_lower_name.setdefault(name.strip().lower(), artist_id)
         self.created_artists = []
+        self.added_influence = None  # ((influencer_id, name), (influenced_id, name)) once saved
         self.setWindowTitle("Add Influence Relationship")
         self.setModal(True)
         self.init_ui()
 
     def init_ui(self):
+        """Build the two artist fields, swap button, description, and buttons."""
         layout = QVBoxLayout(self)
 
         index = {name: artist_id for artist_id, name in self.all_artists}
-        known_names_lower = {name.strip().lower() for _artist_id, name in self.all_artists}
+        known_names_lower = set(self._id_by_lower_name)
 
         layout.addWidget(self._section_label("INFLUENCER"))
-        self.influencer_field = _ArtistField(
-            "Search or type new artist name…", known_names_lower, self
-        )
+        self.influencer_field = _ArtistField("Search or type new artist name…", known_names_lower, self)
         self.influencer_field.set_index(index)
         layout.addWidget(self.influencer_field)
 
@@ -110,6 +117,7 @@ class AddInfluenceDialog(QDialog):
         self.swap_button = QPushButton("⇅")
         self.swap_button.setObjectName("InfluenceSwapButton")
         self.swap_button.setToolTip("Swap influencer and influenced")
+        self.swap_button.setAccessibleName("Swap influencer and influenced")
         self.swap_button.setCursor(Qt.PointingHandCursor)
         self.swap_button.clicked.connect(self._swap_fields)
         swap_row.addWidget(self.swap_button)
@@ -117,9 +125,7 @@ class AddInfluenceDialog(QDialog):
         layout.addLayout(swap_row)
 
         layout.addWidget(self._section_label("INFLUENCED"))
-        self.influenced_field = _ArtistField(
-            "Search or type new artist name…", known_names_lower, self
-        )
+        self.influenced_field = _ArtistField("Search or type new artist name…", known_names_lower, self)
         self.influenced_field.set_index(index)
         layout.addWidget(self.influenced_field)
 
@@ -139,7 +145,6 @@ class AddInfluenceDialog(QDialog):
         button_layout.addWidget(self.add_button)
         layout.addLayout(button_layout)
 
-        self.setLayout(layout)
         self.resize(480, 420)
 
     @staticmethod
@@ -151,31 +156,33 @@ class AddInfluenceDialog(QDialog):
     def _swap_fields(self):
         self.influencer_field.swap_text_with(self.influenced_field)
 
-    def _resolve_artist(self, field):
-        """Get or create the artist named in `field`, preferring a
-        completer pick over a name lookup over creating a new artist."""
-        name = field.text()
+    def _existing_id(self, field):
+        """Return the artist_id `field` names (completer pick, then name lookup), or None."""
         matched_id = field.matched_id()
         if matched_id is not None:
-            return matched_id, False
+            return matched_id
+        return self._id_by_lower_name.get(field.text().lower())
 
-        for artist_id, artist_name in self.all_artists:
-            if artist_name.lower() == name.lower():
-                return artist_id, False
-
-        try:
-            new_artist = self.controller.add.add_entity("Artist", artist_name=name)
-        except SQLAlchemyError as e:
-            raise Exception(f"Failed to create new artist '{name}': {e!s}") from e
-
+    def _create_artist(self, name):
+        """Create an artist and register it with both fields; raise InfluenceAddError on failure."""
+        new_artist = self.controller.add.add_entity("Artist", artist_name=name)
+        if new_artist is None:
+            raise InfluenceAddError(f"Could not create the new artist '{name}'.")
         new_artist_id = new_artist.artist_id
         self.all_artists.append((new_artist_id, name))
+        self._id_by_lower_name[name.lower()] = new_artist_id
         self.created_artists.append((new_artist_id, name))
         self.influencer_field.note_known_name(name, new_artist_id)
         self.influenced_field.note_known_name(name, new_artist_id)
-        return new_artist_id, True
+        return new_artist_id
+
+    def _influence_exists(self, influencer_id, influenced_id):
+        """Return True when this exact relationship is already stored."""
+        existing = self.controller.get.get_entity_object("ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id)
+        return existing is not None
 
     def add_influence(self):
+        """Validate both names, create any new artists, then save the relationship."""
         influencer_name = self.influencer_field.text()
         influenced_name = self.influenced_field.text()
         description = self.description_edit.toPlainText().strip()
@@ -184,33 +191,40 @@ class AddInfluenceDialog(QDialog):
             show_status_message(self, "Please enter both influencer and influenced artist names!")
             return
 
-        if influencer_name.lower() == influenced_name.lower():
+        influencer_id = self._existing_id(self.influencer_field)
+        influenced_id = self._existing_id(self.influenced_field)
+        # Compare IDs when both exist (two artists can share a name); else compare names.
+        both_exist = influencer_id is not None and influenced_id is not None
+        is_self = influencer_id == influenced_id if both_exist else influencer_name.lower() == influenced_name.lower()
+        if is_self:
             show_status_message(self, "An artist cannot influence themselves!")
             return
 
+        created_before = len(self.created_artists)
         try:
-            self.created_artists = []
+            if influencer_id is not None and influenced_id is not None and self._influence_exists(influencer_id, influenced_id):
+                show_status_message(self, f"{influencer_name} → {influenced_name} already exists.")
+                return
 
-            influencer_id, _influencer_created = self._resolve_artist(self.influencer_field)
-            influenced_id, _influenced_created = self._resolve_artist(self.influenced_field)
+            # Create new artists only after every check passes.
+            if influencer_id is None:
+                influencer_id = self._create_artist(influencer_name)
+            if influenced_id is None:
+                influenced_id = self._create_artist(influenced_name)
 
-            influence_data = {
-                "influencer_id": influencer_id,
-                "influenced_id": influenced_id,
-                "description": description if description else None,
-            }
-
-            self.controller.add.add_entity("ArtistInfluence", **influence_data)
-
-            self.accept()
-
-        except Exception as e:
-            # Intentional broad boundary catch: _resolve_artist() above
-            # re-raises DB failures as a plain Exception (not a specific
-            # subclass), so this Qt button-click slot must catch the base
-            # type to avoid crashing the app instead of showing this dialog.
+            saved = self.controller.add.add_entity("ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id, description=description or None)
+            if saved is None:
+                raise InfluenceAddError("Could not save the influence relationship.")
+        except (InfluenceAddError, SQLAlchemyError) as e:
+            orphans = self.created_artists[created_before:]
+            if orphans:
+                logger.warning(f"Influence save failed; artists created without a relationship: {orphans}")
             logger.exception("Failed to add influence")
             QMessageBox.critical(self, "Error", f"Failed to add influence: {e!s}")
+            return
+
+        self.added_influence = ((influencer_id, influencer_name), (influenced_id, influenced_name))
+        self.accept()
 
     def get_created_artists(self):
         """Return list of newly created artists (artist_id, artist_name)"""
@@ -218,9 +232,7 @@ class AddInfluenceDialog(QDialog):
 
 
 class _InfluenceRow(QFrame):
-    """One relationship row in RemoveInfluenceDialog's results list: a
-    compact card naming both artists plus, when present, the relationship's
-    description -- replacing the old plain "A → B" text line."""
+    """Card row for RemoveInfluenceDialog: "A → B" plus the optional description."""
 
     def __init__(self, influence, parent=None):
         super().__init__(parent)
@@ -245,25 +257,29 @@ class _InfluenceRow(QFrame):
             layout.addWidget(desc_label, 1)
 
     def set_selected(self, selected):
+        """Toggle the row's selected style."""
         self.setProperty("selected", "true" if selected else "false")
         _repolish(self)
 
 
 class RemoveInfluenceDialog(QDialog):
+    """Pick an existing influence relationship from a searchable list and delete it."""
+
     def __init__(self, controller, all_influences, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.all_influences = all_influences
         self.selected_influence = None
+        self.removed_influence = None  # the influence dict once deleted
         self._selected_row = None
         self.setWindowTitle("Remove Influence Relationship")
         self.setModal(True)
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
+        """Build the search box, result list, selection label, and buttons."""
+        layout = QVBoxLayout(self)
 
-        # Search
         layout.addWidget(QLabel("Search Influence Relationships:"))
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Search by artist name...")
@@ -271,21 +287,19 @@ class RemoveInfluenceDialog(QDialog):
         self.search_box.textChanged.connect(self.filter_influences)
         layout.addWidget(self.search_box)
 
-        # Search status
-        self.search_status = QLabel("Type to search...")
+        self.search_status = QLabel()
+        self.search_status.setProperty("textRole", "muted")
         layout.addWidget(self.search_status)
 
-        # Results list
         layout.addWidget(QLabel("Select Relationship to Remove:"))
         self.results_list = QListWidget()
-        self.results_list.itemClicked.connect(self.on_item_selected)
+        # currentItemChanged also fires for arrow-key navigation, not only clicks.
+        self.results_list.currentItemChanged.connect(self.on_item_selected)
         layout.addWidget(self.results_list)
 
-        # Selected item display
         self.selected_display = QLabel("No relationship selected")
         layout.addWidget(self.selected_display)
 
-        # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         self.cancel_button = QPushButton("Cancel")
@@ -299,99 +313,80 @@ class RemoveInfluenceDialog(QDialog):
         button_layout.addWidget(self.remove_button)
         layout.addLayout(button_layout)
 
-        self.setLayout(layout)
         self.resize(520, 440)
 
         self.filter_influences("")
 
     def filter_influences(self, text):
-        """Filter and display results in the list widget"""
-        self.results_list.clear()
+        """Show the relationships whose artist names contain `text` (all when blank)."""
+        # Clear selection state first: clear() fires currentItemChanged with None.
         self._selected_row = None
+        self.results_list.clear()
 
-        if not text.strip():
-            # Show all when search is empty
+        search_lower = text.strip().lower()
+        if not search_lower:
             influences_to_show = self.all_influences
             self.search_status.setText(f"Showing all {len(influences_to_show)} relationships")
         else:
-            # Filter based on search text
-            search_lower = text.lower()
-            influences_to_show = []
-            for inf in self.all_influences:
-                influencer_name = inf["influencer_name"].lower()
-                influenced_name = inf["influenced_name"].lower()
-
-                if search_lower in influencer_name or search_lower in influenced_name:
-                    influences_to_show.append(inf)
-
+            influences_to_show = [inf for inf in self.all_influences if search_lower in inf["influencer_name"].lower() or search_lower in inf["influenced_name"].lower()]
             self.search_status.setText(f"Found {len(influences_to_show)} relationships")
 
-        # Populate the list widget with card-style rows
         for inf in influences_to_show:
             item = QListWidgetItem()
-            item.setData(1000, inf)  # Store the influence data in the item
+            item.setData(_INFLUENCE_ROLE, inf)
+            item.setData(Qt.AccessibleTextRole, f"{inf['influencer_name']} influenced {inf['influenced_name']}")
             row = _InfluenceRow(inf)
             item.setSizeHint(row.sizeHint())
             self.results_list.addItem(item)
             self.results_list.setItemWidget(item, row)
 
-        # Clear selection when filtering
+        self._clear_selection()
+
+    def _clear_selection(self):
         self.remove_button.setEnabled(False)
         self.selected_influence = None
         self.selected_display.setText("No relationship selected")
 
-    def on_item_selected(self, item):
-        """Handle when user clicks an item in the list"""
+    def on_item_selected(self, item, _previous=None):
+        """Track the current row (click or keyboard) and enable Remove."""
         if self._selected_row is not None:
             self._selected_row.set_selected(False)
+            self._selected_row = None
+        if item is None:
+            self._clear_selection()
+            return
 
-        influence_data = item.data(1000)
+        influence_data = item.data(_INFLUENCE_ROLE)
         self.selected_influence = influence_data
         row = self.results_list.itemWidget(item)
-        row.set_selected(True)
-        self._selected_row = row
+        if row is not None:
+            row.set_selected(True)
+            self._selected_row = row
 
-        influencer_name = influence_data["influencer_name"]
-        influenced_name = influence_data["influenced_name"]
-
-        self.selected_display.setText(f"Selected: {influencer_name} → {influenced_name}")
+        self.selected_display.setText(f"Selected: {influence_data['influencer_name']} → {influence_data['influenced_name']}")
         self.remove_button.setEnabled(True)
 
     def remove_influence(self):
-        """Remove the selected influence relationship"""
+        """Confirm, then delete the selected relationship and close on success."""
         if not self.selected_influence:
             show_status_message(self, "Please select a relationship to remove!")
             return
 
+        influence = self.selected_influence
+        arrow_text = f"{influence['influencer_name']} → {influence['influenced_name']}"
+        reply = QMessageBox.question(self, "Confirm Removal", f"Remove this influence relationship?\n\n{arrow_text}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
         try:
-            influencer_id = self.selected_influence["influencer_id"]
-            influenced_id = self.selected_influence["influenced_id"]
-            influencer_name = self.selected_influence["influencer_name"]
-            influenced_name = self.selected_influence["influenced_name"]
-
-            # Confirm deletion
-            reply = QMessageBox.question(
-                self,
-                "Confirm Removal",
-                f"Remove this influence relationship?\n\n{influencer_name} → {influenced_name}",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-
-            if reply == QMessageBox.Yes:
-                success = self.controller.delete.delete_entity(
-                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
-                )
-                if success:
-                    QMessageBox.information(
-                        self,
-                        "Success",
-                        f"Influence relationship removed:\n{influencer_name} → {influenced_name}",
-                    )
-                    self.accept()
-                else:
-                    QMessageBox.critical(self, "Error", "Failed to remove relationship")
-
-        except (SQLAlchemyError, KeyError) as e:
+            success = self.controller.delete.delete_entity("ArtistInfluence", influencer_id=influence["influencer_id"], influenced_id=influence["influenced_id"])
+        except SQLAlchemyError as e:
             logger.error(f"Error removing influence: {e}")
             QMessageBox.critical(self, "Error", f"Failed to remove: {e!s}")
+            return
+
+        if not success:
+            QMessageBox.critical(self, "Error", "Failed to remove relationship")
+            return
+        self.removed_influence = influence
+        self.accept()

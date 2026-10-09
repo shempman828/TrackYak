@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,39 +10,40 @@ from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.influences.graph.influence_graph import InfluenceGraphView
-from src.influences.influences_dialog import RemoveInfluenceDialog
+from src.influences.influences_dialog import AddInfluenceDialog, RemoveInfluenceDialog
 
 
 class InfluencesView(QWidget):
+    """Influences tab: toolbar (find, fit, legend, add/remove, refresh) over the influence graph."""
+
+    _DOUBLE_FOCUS_WINDOW = 0.3  # seconds
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.current_mode = "global"
+        self._last_focus = None  # (name, monotonic time) of the last focus
 
         self.init_ui()
         self.show_global_view()
 
     def init_ui(self):
-        """Initialize the user interface"""
+        """Build the toolbar and the graph view."""
         layout = QVBoxLayout()
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
         layout.addWidget(self._build_toolbar())
 
-        # Graph view -- stretch 1 so it takes all spare height; the toolbar
-        # and graph are both Preferred, so without it the layout splits the
-        # extra height between them and the toolbar balloons.
+        # Stretch 1, or the Preferred toolbar takes half the spare height.
         self.graph_view = InfluenceGraphView(self.controller)
         self.graph_view.graph_updated.connect(self._refresh_find_index)
+        self.graph_view.busy_changed.connect(self._on_graph_busy)
         layout.addWidget(self.graph_view, 1)
 
         self.setLayout(layout)
 
     def _build_toolbar(self):
-        """Build the control strip above the graph: a "Find artist" field on
-        the left, view controls (Fit/Legend) next to it, and the rarer edit
-        actions (Add/Remove Influence) grouped on the right."""
+        """Build the toolbar: find field, view controls, then edit actions and refresh on the right."""
         toolbar = QFrame()
         toolbar.setObjectName("InfluencesToolbar")
         toolbar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -61,7 +64,8 @@ class InfluencesView(QWidget):
         self.fit_view_button = QToolButton()
         self.fit_view_button.setIcon(icon("fullscreen.svg"))
         self.fit_view_button.setIconSize(QSize(16, 16))
-        self.fit_view_button.setToolTip("Zoom to fit the whole graph on screen")
+        self.fit_view_button.setToolTip("Fit to View: zoom to fit the whole graph on screen")
+        self.fit_view_button.setAccessibleName("Fit to View")
         self.fit_view_button.clicked.connect(lambda: self.graph_view.fit_to_view())
         toolbar_layout.addWidget(self.fit_view_button)
 
@@ -70,7 +74,7 @@ class InfluencesView(QWidget):
         self.legend_button.setCheckable(True)
         self.legend_button.setCursor(Qt.PointingHandCursor)
         self.legend_button.setChecked(app_config.get_influence_legend_visible())
-        self.legend_button.setToolTip("Show or hide the cluster legend overlay. Double-click a legend entry to rename that cluster.")
+        self.legend_button.setToolTip("Show or hide the cluster legend overlay. Use its Rename… button to name clusters.")
         self.legend_button.toggled.connect(self.toggle_legend_visible)
         toolbar_layout.addWidget(self.legend_button)
 
@@ -93,7 +97,8 @@ class InfluencesView(QWidget):
         self.refresh_button = QToolButton()
         self.refresh_button.setText("↻")
         self.refresh_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.refresh_button.setToolTip("Refresh Graph")
+        self.refresh_button.setToolTip("Refresh Graph: rebuild the layout and clusters from the database")
+        self.refresh_button.setAccessibleName("Refresh Graph")
         self.refresh_button.clicked.connect(self.refresh_graph)
         toolbar_layout.addWidget(self.refresh_button)
 
@@ -106,16 +111,27 @@ class InfluencesView(QWidget):
         divider.setFrameShape(QFrame.VLine)
         return divider
 
+    def _on_graph_busy(self, busy):
+        """Disable Refresh while the graph recomputes."""
+        self.refresh_button.setEnabled(not busy)
+
     def _refresh_find_index(self):
-        """Keep the "Find artist" completer in sync with the graph's
-        current node set, whenever InfluenceGraphView reports a change."""
+        """Sync the "Find artist" completer with the graph's current nodes."""
         index = {name: node_id for node_id, name in self.graph_view.node_names.items()}
         self.find_field.set_index(index)
+        self._last_focus = None
 
     def _focus_typed_artist(self):
+        """Center the graph on the typed artist, or show a status when not found."""
         name = self.find_field.text().strip()
         if not name:
             return
+        # A completer pick plus Enter fires both picked and returnPressed for one key press.
+        now = time.monotonic()
+        last = self._last_focus
+        if last and last[0] == name and now - last[1] < self._DOUBLE_FOCUS_WINDOW:
+            return
+        self._last_focus = (name, now)
         if not self.graph_view.focus_artist_by_name(name):
             show_status_message(self, f'No artist named "{name}" in the graph.')
 
@@ -124,105 +140,64 @@ class InfluencesView(QWidget):
         self.graph_view.set_legend_visible(visible)
 
     def show_global_view(self):
-        """Display entire influence graph"""
-        try:
-            self.current_mode = "global"
-            # No max_nodes parameter anymore
-            self.graph_view.display_global_network()
-
-        except RuntimeError as e:
-            logger.error(f"Error displaying global view: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to display global graph: {e!s}")
+        """Display the entire influence graph."""
+        self.refresh_graph()
 
     def show_add_influence_dialog(self):
-        """Show dialog to add new influence relationship"""
+        """Open the Add Influence dialog and add the new relationship to the live graph."""
         try:
-            from src.influences.influences_dialog import AddInfluenceDialog
-
-            # Get current artists for the dialog
             artists = self.controller.get.get_all_entities("Artist")
-            all_artists = [(artist.artist_id, artist.artist_name) for artist in artists]
-
-            dialog = AddInfluenceDialog(self.controller, all_artists, self)
-            if dialog.exec() == QDialog.Accepted:
-                # Get any newly created artists
-                created_artists = dialog.get_created_artists()
-
-                # Add new artists to the existing graph without refreshing
-                for artist_id, artist_name in created_artists:
-                    self.graph_view.add_single_artist(artist_id, artist_name)
-
-                # Always add the new influence relationship to the graph
-                self.add_new_influence_edges()
-
-                logger.info("Added influence relationship incrementally")
-
-        except (ImportError, SQLAlchemyError) as e:
-            logger.error(f"Error showing add influence dialog: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"Error loading artists for add influence dialog: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open influence dialog: {e!s}")
+            return
 
-    def add_new_influence_edges(self):
-        """Add the most recent influence edges to the existing graph"""
-        try:
-            # Get the most recent influence relationships (last few)
-            influences = self.controller.get.get_all_entities("ArtistInfluence")
-
-            # Take only the last few relationships to avoid adding duplicates
-            recent_influences = influences[-5:]  # Get last 5 to be safe
-
-            for influence in recent_influences:
-                self.graph_view.add_edge(influence.influencer_id, influence.influenced_id)
-                logger.info(f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}")
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error adding new influence edges: {e}")
-            # If incremental addition fails, fall back to refresh
-            QMessageBox.warning(self, "Partial Error", f"Added influence but couldn't update display properly: {e!s}")
-
-    def on_influence_modified(self):
-        """Handle complex influence modifications that require full refresh"""
-        try:
-            # Refresh the entire graph (only for complex changes)
-            self.refresh_graph()
-
-            logger.info("Graph fully refreshed after complex modification")
-
-        except RuntimeError as e:
-            logger.error(f"Error updating graph after complex modification: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to update graph: {e!s}")
-
-    def closeEvent(self, event):
-        """Clean up when closing"""
-        super().closeEvent(event)
+        all_artists = [(artist.artist_id, artist.artist_name) for artist in artists]
+        dialog = AddInfluenceDialog(self.controller, all_artists, self)
+        if dialog.exec() != QDialog.Accepted or dialog.added_influence is None:
+            return
+        influencer, influenced = dialog.added_influence
+        self.graph_view.add_influence(influencer, influenced)
+        logger.info(f"Added influence {influencer[0]} -> {influenced[0]} incrementally")
 
     def refresh_graph(self):
-        """Refresh the current graph view"""
+        """Rebuild the graph from the database in the background."""
         try:
-            # Simply refresh the graph without any node limit
             self.graph_view.display_global_network()
-            logger.info("Graph refreshed manually")
-
         except RuntimeError as e:
             logger.error(f"Error refreshing graph: {e}")
             QMessageBox.critical(self, "Error", f"Failed to refresh graph: {e!s}")
 
+    def _load_influence_rows(self):
+        """Return one dict per stored influence for the Remove dialog, skipping orphan rows."""
+        rows = []
+        for inf in self.controller.get.get_all_entities("ArtistInfluence"):
+            if inf.influencer is None or inf.influenced is None:
+                logger.warning(f"Skipping orphan influence {inf.influencer_id} -> {inf.influenced_id}")
+                continue
+            rows.append(
+                {
+                    "influencer_id": inf.influencer_id,
+                    "influenced_id": inf.influenced_id,
+                    "influencer_name": inf.influencer.artist_name,
+                    "influenced_name": inf.influenced.artist_name,
+                    "description": inf.description,
+                }
+            )
+        return rows
+
     def show_remove_influence_dialog(self):
-        """Show dialog to remove influence relationship"""
+        """Open the Remove Influence dialog and rebuild the graph after a removal."""
         try:
-            # Get current influence relationships for the dialog
-            influences = self.controller.get.get_all_entities("ArtistInfluence")
-            all_influences = []
-            for inf in influences:
-                # Direct access to the related artist objects
-                influencer_name = inf.influencer.artist_name
-                influenced_name = inf.influenced.artist_name
-
-                all_influences.append({"influencer_id": inf.influencer_id, "influenced_id": inf.influenced_id, "influencer_name": influencer_name, "influenced_name": influenced_name})
-            dialog = RemoveInfluenceDialog(self.controller, all_influences, self)
-            if dialog.exec() == QDialog.Accepted:
-                # Refresh the graph with the influence removed
-                self.on_influence_modified()
-
-        except (SQLAlchemyError, AttributeError) as e:
+            all_influences = self._load_influence_rows()
+        except SQLAlchemyError as e:
             logger.error(f"Error showing remove influence dialog: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open remove influence dialog: {e!s}")
+            return
+
+        dialog = RemoveInfluenceDialog(self.controller, all_influences, self)
+        if dialog.exec() == QDialog.Accepted and dialog.removed_influence is not None:
+            removed = dialog.removed_influence
+            show_status_message(self, f"Removed influence: {removed['influencer_name']} → {removed['influenced_name']}")
+            # A removal can orphan a node or split a community, so recompute in full.
+            self.refresh_graph()

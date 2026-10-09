@@ -97,3 +97,49 @@ def test_migrate_legacy_anchor_names_empty_dict_writes_nothing(tmp_path):
     path = tmp_path / "community_identity.json"
     community_identity.migrate_legacy_anchor_names({}, [{1: 0}], path=path)
     assert not path.exists()
+
+
+def test_load_ignores_malformed_structure(tmp_path):
+    path = tmp_path / "community_identity.json"
+    path.write_text(json.dumps({"not-a-level": {"X": [1]}, "1": ["wrong shape"], "2": {"Jazz": [1, 2]}}))
+
+    assert community_identity._load(path) == {2: {"Jazz": [1, 2]}}
+
+
+def test_load_ignores_non_dict_root(tmp_path):
+    path = tmp_path / "community_identity.json"
+    path.write_text(json.dumps(["a", "b"]))
+
+    assert community_identity._load(path) == {}
+
+
+def test_resolve_all_levels_reads_and_writes_once(tmp_path, monkeypatch):
+    path = tmp_path / "community_identity.json"
+    community_identity.persist_renames({0: [("Bebop", None, {1, 2, 3})], 1: [("Jazz", None, {1, 2, 3, 4})]}, path=path)
+
+    saves = []
+    real_save = community_identity._save
+    monkeypatch.setattr(community_identity, "_save", lambda data, path=None: (saves.append(1), real_save(data, path)))
+
+    # Membership drift updates the snapshot, so exactly one write is expected.
+    resolved = community_identity.resolve_all_levels({0: {0: {1, 2, 3, 5}}, 1: {7: {1, 2, 3, 4}}}, path=path)
+
+    assert resolved == {0: {0: "Bebop"}, 1: {7: "Jazz"}}
+    assert len(saves) == 1
+
+
+def test_resolve_all_levels_skips_write_when_nothing_changed(tmp_path, monkeypatch):
+    path = tmp_path / "community_identity.json"
+    community_identity.persist_rename(0, "Bebop", None, {1, 2, 3}, path=path)
+    monkeypatch.setattr(community_identity, "_save", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("unexpected write")))
+
+    assert community_identity.resolve_all_levels({0: {0: {1, 2, 3}}}, path=path) == {0: {0: "Bebop"}}
+
+
+def test_persist_renames_swap_keeps_both_names(tmp_path):
+    path = tmp_path / "community_identity.json"
+    community_identity.persist_renames({0: [("A", None, {1, 2}), ("B", None, {3, 4})]}, path=path)
+
+    community_identity.persist_renames({0: [("B", "A", {1, 2}), ("A", "B", {3, 4})]}, path=path)
+
+    assert json.loads(path.read_text())["0"] == {"B": [1, 2], "A": [3, 4]}

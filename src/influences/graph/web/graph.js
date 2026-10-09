@@ -1,6 +1,5 @@
-// Thin driver around Cytoscape.js. Python (InfluenceGraphView) talks to this
-// page one-directionally via QWebEngineView.page().runJavaScript() -- these
-// are the only entry points it calls.
+// Thin driver around Cytoscape.js. Python (InfluenceGraphView) calls only the
+// window.* entry points below, one-directionally via runJavaScript().
 (function () {
   let cy = null;
   let currentLayoutOptions = null;
@@ -8,11 +7,7 @@
   const tooltipEl = document.getElementById("node-tooltip");
   const loadingEl = document.getElementById("loading-overlay");
 
-  // Loading scrim, driven one-directionally from Python: showLoading() is
-  // called when display_global_network kicks off its background worker and
-  // when a level toggle triggers a relayout; hideLoading() runs from the
-  // layoutstop handler below once the fresh layout settles, and from
-  // Python's error/empty-graph branches where no layout ever runs.
+  // Python shows the scrim before a recompute/relayout; layoutstop hides it.
   window.showLoading = function () {
     if (loadingEl) loadingEl.classList.remove("hidden");
   };
@@ -20,15 +15,8 @@
     if (loadingEl) loadingEl.classList.add("hidden");
   };
 
-  // Progressively shorter display candidates for a name, from most to
-  // least informative: the real name; real ArtistAlias names (from
-  // Python's node.data("aliases"), longest first -- a curated stage/legal/
-  // former name reads better than a computed abbreviation, so these are
-  // tried before any guesswork); initials for every word but the last,
-  // e.g. "Christina Aguilera" -> "C. Aguilera" (the last word is usually
-  // the most identifying part of an artist/band name); and, only if that's
-  // still not enough, initials for every word. Single-word names have
-  // nothing to abbreviate, so computed candidates are skipped for them.
+  // Display candidates, most to least informative: full name, real aliases
+  // (longest first), "C. Aguilera"-style initials, then all initials.
   function aliasCandidates(name, realAliases) {
     const lowerName = name.toLowerCase();
     const aliases = (realAliases || []).filter((a) => a && a.toLowerCase() !== lowerName);
@@ -40,26 +28,10 @@
     return [name, ...aliases, `${initials(words.slice(0, -1))} ${last}`, initials(words)];
   }
 
-  // node[parent] is styled width/height: 'label' with text-wrap: 'wrap'
-  // (influence_graph_render.py's _build_stylesheet), so Cytoscape
-  // auto-sizes each node's box to exactly contain whatever label text is
-  // currently set -- no label can ever overflow its own box. Used alone
-  // that would make a low-influence node's box track its *name length*
-  // instead of its influence: a minor artist with a long name would
-  // render bigger than a major one with a short name (confirmed
-  // empirically against the real DB, see scratch/graph_repro/repro.py).
-  //
-  // Tries each candidate from aliasCandidates in order (most to least
-  // informative) against the node's influence-based target
-  // (minWidth/minHeight data, from get_node_size), stopping at the first
-  // one that fits within a modest allowance -- so box size tracks
-  // influence for the common case, and only a genuinely long name (one
-  // where even all-initials doesn't fit) still grows its box, rather than
-  // being truncated (no name is ever elided). If nothing fits the
-  // allowance, falls back to whichever candidate measured smallest.
-  // Either way, the result is floored at the influence-based minimum, so
-  // the box can grow to fit text but never shrinks below what influence
-  // dictates.
+  // Pick the first candidate whose auto-sized box fits the influence-based
+  // target (minWidth/minHeight) within SIZE_ALLOWANCE, so box size tracks
+  // influence rather than name length. Falls back to the smallest candidate;
+  // the box never shrinks below the target.
   const SIZE_ALLOWANCE = 1.25;
 
   function fitNodeLabel(node) {
@@ -97,14 +69,10 @@
     nodes.forEach(fitNodeLabel);
   }
 
-  // fcose is a force-directed heuristic: it settles at an energy
-  // equilibrium that usually keeps nodes apart but has no hard
-  // non-overlap constraint, so dense communities can still resolve with
-  // pairs touching or overlapping. This deterministic pass runs after
-  // every layout settles and pushes any remaining overlapping pairs
-  // apart along their shallower axis until none overlap, guaranteeing
-  // the end state is overlap-free regardless of what the physics
-  // simulation converged to.
+  // fcose has no hard non-overlap constraint, so after every layout push any
+  // pairs closer than `padding` apart along their shallower axis. Bounding
+  // boxes are cached per pass and pairs are pruned with an x-sorted sweep; a
+  // pass with no moves sees fresh, sorted boxes, so the end state is exact.
   function resolveOverlaps() {
     if (!cy) return;
     const nodes = cy.nodes("[parent]");
@@ -112,32 +80,46 @@
     if (n < 2) return;
     const padding = 4;
     const maxIterations = 80;
+
+    function shift(box, axis, delta) {
+      if (axis === "x") {
+        box.x1 += delta;
+        box.x2 += delta;
+      } else {
+        box.y1 += delta;
+        box.y2 += delta;
+      }
+    }
+
     for (let iter = 0; iter < maxIterations; iter++) {
+      const boxes = [];
+      nodes.forEach((node) => {
+        const bb = node.boundingBox({ includeLabels: true });
+        boxes.push({ node, x1: bb.x1, x2: bb.x2, y1: bb.y1, y2: bb.y2 });
+      });
+      boxes.sort((p, q) => p.x1 - q.x1);
+
       let moved = false;
       for (let i = 0; i < n; i++) {
-        const a = nodes[i];
-        const aBB = a.boundingBox({ includeLabels: true });
+        const a = boxes[i];
         for (let j = i + 1; j < n; j++) {
-          const b = nodes[j];
-          const bBB = b.boundingBox({ includeLabels: true });
-          const overlapX = Math.min(aBB.x2, bBB.x2) - Math.max(aBB.x1, bBB.x1);
-          const overlapY = Math.min(aBB.y2, bBB.y2) - Math.max(aBB.y1, bBB.y1);
+          const b = boxes[j];
+          // Sorted by x1: every later box starts even further right.
+          if (b.x1 - a.x2 >= padding) break;
+          const overlapX = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1);
+          const overlapY = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
           if (overlapX <= -padding || overlapY <= -padding) continue;
 
           moved = true;
-          const aPos = a.position();
-          const bPos = b.position();
-          if (overlapX < overlapY) {
-            const push = (overlapX + padding) / 2;
-            const sign = bPos.x - aPos.x >= 0 ? 1 : -1;
-            a.position("x", aPos.x - sign * push);
-            b.position("x", bPos.x + sign * push);
-          } else {
-            const push = (overlapY + padding) / 2;
-            const sign = bPos.y - aPos.y >= 0 ? 1 : -1;
-            a.position("y", aPos.y - sign * push);
-            b.position("y", bPos.y + sign * push);
-          }
+          const aPos = a.node.position();
+          const bPos = b.node.position();
+          const axis = overlapX < overlapY ? "x" : "y";
+          const push = ((axis === "x" ? overlapX : overlapY) + padding) / 2;
+          const sign = bPos[axis] - aPos[axis] >= 0 ? 1 : -1;
+          a.node.position(axis, aPos[axis] - sign * push);
+          b.node.position(axis, bPos[axis] + sign * push);
+          shift(a, axis, -sign * push);
+          shift(b, axis, sign * push);
         }
       }
       if (!moved) break;
@@ -155,15 +137,11 @@
   }
 
   function attachInteractionHandlers() {
-    // Only leaf artist nodes carry a `parent` data field (the invisible
-    // per-community compound node); this selector excludes the compounds
-    // themselves from the hover highlight/tooltip.
+    // node[parent] = artist nodes only, not the community compounds.
     cy.on("mouseover", "node[parent]", (evt) => {
       const node = evt.target;
       node.addClass("hovered");
-      // The displayed label can be a shortened alias (fitNodeLabel), so
-      // always show the real full name on hover -- not just when it
-      // differs -- so hovering is a reliable way to confirm identity.
+      // Always show the full name: the label can be an alias.
       tooltipEl.textContent = node.data("fullLabel");
       tooltipEl.style.display = "block";
       positionTooltip(evt);
@@ -183,13 +161,7 @@
     currentLayoutOptions = layoutOptions;
 
     if (cy) {
-      // Update the existing Cytoscape instance in place instead of
-      // destroying and recreating it. cy.destroy() tears down the whole
-      // rendering canvas, which blanks the entire graph view for a frame
-      // on every refresh -- visible as a whole-screen flash since the
-      // graph fills nearly the whole tab. Event handlers (layoutstop,
-      // hover) are bound once below, at creation, so they must not be
-      // re-attached here.
+      // Update in place: cy.destroy() blanks the canvas for a frame. Handlers stay bound.
       cy.style(style);
       cy.elements().remove();
       cy.add(elements);
@@ -197,9 +169,7 @@
       cy.layout(layoutOptions).run();
       return;
     }
-    // No `layout` in the constructor -- elements must be sized (see
-    // fitNodeLabel) before fcose runs, since its layout decisions depend
-    // on each node's final box dimensions.
+    // No constructor layout: nodes must be label-fitted before fcose runs.
     cy = cytoscape({
       container: document.getElementById("cy"),
       elements: elements,
@@ -207,11 +177,7 @@
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
-      // Nodes/compounds are draggable by default. With hundreds of
-      // densely-packed pills covering most of the canvas, a click-drag
-      // meant to pan the viewport almost always lands on a node instead
-      // and repositions it rather than panning -- this is the read-only
-      // layout view, not an editor, so lock every element in place.
+      // Read-only view: lock nodes so a drag pans instead of moving a node.
       autoungrabify: true,
     });
     applyFitNodeLabel(cy.nodes("[parent]"));
@@ -223,17 +189,18 @@
     cy.layout(layoutOptions).run();
   };
 
+  window.clearGraph = function () {
+    if (cy) cy.elements().remove();
+    hideTooltip();
+  };
+
   window.fitView = function () {
     if (cy) {
       cy.fit(undefined, 40);
     }
   };
 
-  // Driven by the toolbar's "Find artist" field (InfluenceGraphView.
-  // focus_artist_by_name): center/zoom on one node and pulse a colored
-  // halo behind it via the same underlay-* properties the hover style
-  // uses, so "found" reads as a stronger version of "hovered" rather than
-  // an unrelated effect.
+  // Center on one node and pulse its underlay (a stronger "hovered" look).
   window.focusNode = function (id) {
     if (!cy) return;
     const ele = cy.getElementById(id);
@@ -252,15 +219,11 @@
       );
   };
 
-  // Used both for renaming a community's compound label and for
-  // refreshing a single artist node's label in place.
+  // Renames a community compound, or refits an artist node's label.
   window.setLabel = function (elementId, label) {
     if (!cy) return;
     const ele = cy.getElementById(elementId);
     if (ele && ele.length) {
-      // Only leaf artist nodes are sized-to-label; compound community
-      // nodes (no `parent` data) auto-size to their children instead and
-      // have no fullLabel/alias concept.
       if (ele.data("parent")) {
         ele.data("fullLabel", label);
         fitNodeLabel(ele);
@@ -272,8 +235,8 @@
 
   window.addElements = function (elements) {
     if (!cy) return;
-    cy.add(elements);
-    applyFitNodeLabel(cy.nodes("[parent]"));
+    const added = cy.add(elements);
+    applyFitNodeLabel(added.filter("node[parent]"));
     if (currentLayoutOptions) {
       const opts = Object.assign({}, currentLayoutOptions, {
         fit: false,

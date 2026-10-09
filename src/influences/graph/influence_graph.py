@@ -15,28 +15,12 @@ _WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
 class InfluenceGraphView(InfluenceGraphDataMixin, InfluenceGraphWorkerMixin, InfluenceGraphRenderMixin, InfluenceGraphLegendMixin, QWidget):
-    """
-    Influence graph rendered by Cytoscape.js (in an embedded QWebEngineView)
-    using its fcose layout: a compound-node-aware force-directed algorithm
-    that groups each Louvain community into an (invisible) parent node and
-    lays the whole graph out without overlap. This replaces an earlier
-    hand-rolled per-tick Python physics simulation (repulsion/attraction/
-    collision), which repeatedly fought itself under hand-tuning.
+    """Influence graph widget: Cytoscape.js with fcose in a QWebEngineView, composed from four mixins."""
 
-    DB extraction/scoring lives in InfluenceGraphDataMixin
-    (influence_graph_data.py). Background-worker orchestration for
-    display_global_network lives in InfluenceGraphWorkerMixin
-    (influence_graph_worker.py). Cytoscape element/style/layout building,
-    the JS bridge, and theming live in InfluenceGraphRenderMixin
-    (influence_graph_render.py). Community-color/naming and the legend
-    panel live in InfluenceGraphLegendMixin (influence_graph_legend.py).
-    This class owns widget setup and composes the other four.
-    """
-
-    # Emitted whenever node_names changes (a fresh display_global_network
-    # result, or a single artist added incrementally) -- lets InfluencesView
-    # keep its "Find artist" completer in sync without polling.
+    # Emitted when node_names changes, so the "Find artist" completer stays in sync.
     graph_updated = Signal()
+    # Emitted with True when a background recompute starts and False when it ends.
+    busy_changed = Signal(bool)
 
     def __init__(self, controller):
         super().__init__()
@@ -66,6 +50,8 @@ class InfluenceGraphView(InfluenceGraphDataMixin, InfluenceGraphWorkerMixin, Inf
         self.community_names = {}  # community_index -> user-given name, for the active level
         self.community_names_by_level = {}  # level -> {community_index: name}, every eligible level
         self.influence_scores = {}  # node_id -> influence_score
+        self.page_rank_scores = {}  # node_id -> decayed PageRank
+        self.combined_scores = {}  # node_id -> (influence_score, PageRank)
 
         self.legend_enabled = app_config.get_influence_legend_visible()
         self._graph_worker = None

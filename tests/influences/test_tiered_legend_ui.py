@@ -89,9 +89,7 @@ def test_level_change_recolors_without_recompute(isolated_app_config, isolated_i
     assert host.push_graph_calls == 1
 
 
-def test_legend_rows_before_first_compute_is_empty_not_a_crash(
-    isolated_app_config, isolated_identity_path
-):
+def test_legend_rows_before_first_compute_is_empty_not_a_crash(isolated_app_config, isolated_identity_path):
     # active_level is still None here -- e.g. legend toggled before the
     # first background compute finishes.
     host = _Host([], active_level=None)
@@ -107,9 +105,7 @@ def test_level_change_to_same_level_is_noop(isolated_app_config, isolated_identi
     assert host.push_graph_calls == 0
 
 
-def test_level_change_shows_loading_scrim_before_relayout(
-    isolated_app_config, isolated_identity_path
-):
+def test_level_change_shows_loading_scrim_before_relayout(isolated_app_config, isolated_identity_path):
     # Switching granularity re-runs fcose in the web process; the scrim must
     # go up before _push_graph so the stall isn't silent.
     levels = _fine_and_coarse_levels()
@@ -154,9 +150,7 @@ def test_rename_persists_and_survives_new_session(isolated_app_config, isolated_
     assert new_host.community_names == {0: "Bebop", 1: "Arena Rock"}
 
 
-def test_open_rename_dialog_rows_span_every_eligible_level(
-    isolated_app_config, isolated_identity_path
-):
+def test_open_rename_dialog_rows_span_every_eligible_level(isolated_app_config, isolated_identity_path):
     levels = _fine_and_coarse_levels()
     host = _Host(levels, active_level=0)
     host._resolve_community_names()
@@ -173,10 +167,7 @@ def test_open_rename_dialog_rows_span_every_eligible_level(
 
 
 def test_dialog_preserves_edits_across_level_toggle(qapp):
-    rows_by_level = {
-        0: [(0, _fake_color(), 2, "", []), (1, _fake_color(), 2, "", [])],
-        1: [(0, _fake_color(), 3, "", []), (1, _fake_color(), 1, "", [])],
-    }
+    rows_by_level = {0: [(0, _fake_color(), 2, "", []), (1, _fake_color(), 2, "", [])], 1: [(0, _fake_color(), 3, "", []), (1, _fake_color(), 1, "", [])]}
     dialog = ClusterNamesDialog(rows_by_level, active_level=0)
 
     dialog._edits[0][0].setText("Bebop")
@@ -218,3 +209,44 @@ def _fake_color():
     from PySide6.QtGui import QColor
 
     return QColor("#336699")
+
+
+def test_dialog_refuses_duplicate_names_in_one_level(qapp):
+    rows_by_level = {0: [(0, _fake_color(), 2, "", []), (1, _fake_color(), 2, "", [])], 1: [(0, _fake_color(), 4, "", [])]}
+    dialog = ClusterNamesDialog(rows_by_level, active_level=1)
+    dialog._edits[0][0].setText("Bebop")
+    dialog._edits[0][1].setText(" bebop ")
+
+    dialog.accept()
+
+    assert dialog.result() != ClusterNamesDialog.Accepted
+    assert dialog._active_level == 0
+    assert "bebop" in dialog._error_label.text().lower()
+
+
+def test_dialog_allows_same_name_on_different_levels(qapp):
+    rows_by_level = {0: [(0, _fake_color(), 2, "", [])], 1: [(0, _fake_color(), 2, "", [])]}
+    dialog = ClusterNamesDialog(rows_by_level, active_level=0)
+    dialog._edits[0][0].setText("Jazz")
+    dialog._edits[1][0].setText("Jazz")
+
+    dialog.accept()
+
+    assert dialog.result() == ClusterNamesDialog.Accepted
+
+
+def test_rename_skips_unchanged_names(isolated_app_config, isolated_identity_path, monkeypatch):
+    import src.influences.graph.community_identity as identity_module
+
+    levels = _fine_and_coarse_levels()
+    host = _Host(levels, active_level=0)
+    host._resolve_community_names()
+    host.rename_communities({0: {0: "Bebop", 1: ""}})
+
+    calls = []
+    monkeypatch.setattr(identity_module, "persist_renames", lambda renames, path=None: calls.append(renames))
+    host.js_calls.clear()
+    host.rename_communities({0: {0: "Bebop", 1: ""}})
+
+    assert calls == [{0: []}]
+    assert host.js_calls == []
