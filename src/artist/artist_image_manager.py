@@ -1,13 +1,11 @@
 """Manages moving picked artist profile pictures into the managed images directory."""
 
 from pathlib import Path
-import re
 import shutil
 
 from src.foundation.asset_paths import ARTIST_IMAGES_DIR
 from src.foundation.logger_config import logger
-
-_INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
+from src.image.image_cleanup import managed_image_name
 
 
 def move_to_artist_images_dir(artist_id, artist_name: str, source_path: str) -> str:
@@ -24,9 +22,7 @@ def move_to_artist_images_dir(artist_id, artist_name: str, source_path: str) -> 
     if src.resolve().parent == ARTIST_IMAGES_DIR.resolve():
         return str(src)
 
-    sanitized_name = _INVALID_CHARS.sub("_", artist_name or "")
-    filename = f"{artist_id}_{sanitized_name}{src.suffix}"
-    dest = ARTIST_IMAGES_DIR / filename
+    dest = ARTIST_IMAGES_DIR / managed_image_name(artist_id, artist_name, src.suffix)
 
     shutil.move(str(src), str(dest))
     logger.info(f"Moved artist image for {artist_id} to {dest}")

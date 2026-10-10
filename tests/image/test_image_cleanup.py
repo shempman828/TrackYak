@@ -137,3 +137,45 @@ def test_prune_reports_reference_to_missing_file(managed_dirs, session):
 
     assert present.exists()
     assert result["missing_refs"] == ["2_Ghost.jpg"]
+
+
+# ---- finalize audit regressions -------------------------------------------
+
+
+def test_rename_managed_image_overwrites_existing_destination(managed_dirs):
+    src = managed_dirs / "9_Old.jpg"
+    src.write_bytes(b"new")
+    dest = managed_dirs / "5_Miles Davis.jpg"
+    dest.write_bytes(b"old")
+
+    assert rename_managed_image(str(src), 5, "Miles Davis") == str(dest)
+    assert dest.read_bytes() == b"new"
+    assert not src.exists()
+
+
+def test_prune_skips_unlistable_directory(session, managed_dirs, monkeypatch):
+    from pathlib import Path
+
+    (managed_dirs / "1_a.jpg").write_bytes(b"x")
+    real_iterdir = Path.iterdir
+
+    def _iterdir(self):
+        if self == managed_dirs:
+            raise PermissionError("denied")
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", _iterdir)
+
+    assert prune_orphaned_images(session) == {"removed": [], "missing_refs": []}
+
+
+def test_artist_image_manager_uses_shared_sanitized_name(managed_dirs, tmp_path, monkeypatch):
+    from src.artist import artist_image_manager
+
+    monkeypatch.setattr(artist_image_manager, "ARTIST_IMAGES_DIR", managed_dirs)
+    picked = tmp_path / "pick.png"
+    picked.write_bytes(b"x")
+
+    out = artist_image_manager.move_to_artist_images_dir(3, 'AC/DC: "Live"', str(picked))
+
+    assert out == str(managed_dirs / image_cleanup.managed_image_name(3, 'AC/DC: "Live"', ".png"))

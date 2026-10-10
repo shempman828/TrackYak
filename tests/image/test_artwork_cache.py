@@ -1,6 +1,6 @@
 """Regression coverage for artwork_cache.all_album_tracks
 (src/image/artwork_cache.py): the album-art embed pass
-(AlbumCoverArtMixin._start_cover_embed) and _pick_representative_track must
+(AlbumCoverArtMixin._start_cover_embed) and pick_representative_track must
 see every track that belongs to an album, including any reachable only
 through Album.discs -> Disc.tracks -- a track detached from its album but
 left sitting on one of its discs. If such a track is skipped, "Remove album
@@ -206,3 +206,84 @@ def _png_1x1():
     buf = io.BytesIO()
     Image.new("RGB", (1, 1), (10, 20, 30)).save(buf, format="PNG")
     return buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+#  Finalize audit regressions                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_undecodable_embedded_art_is_cached_as_no_art(cache, tmp_path, monkeypatch):
+    album = _album_with_track(tmp_path)
+    calls = {"n": 0}
+
+    def _extract(*_a, **_k):
+        calls["n"] += 1
+        return {"front": {"data": b"not an image"}}
+
+    monkeypatch.setattr(cache._extractor, "extract_artwork_by_role", _extract)
+
+    assert cache.get_dimensions(album, "front") is None
+    assert cache.get_dimensions(album, "front") is None
+    assert calls["n"] == 1  # second lookup is a cache hit, not a re-read
+    assert cache.peek_has_art(album, "front") is False
+
+
+def test_store_with_bad_bytes_does_not_raise_and_drops_row(cache, tmp_path):
+    album = _album_with_track(tmp_path)
+    cache.store(album, "front", _png_1x1())
+    assert cache._select(42, "front") is not None
+
+    cache.store(album, "front", b"garbage")
+
+    assert cache._select(42, "front") is None
+
+
+def test_transparent_art_is_flattened_onto_white():
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(buf, format="PNG")
+    thumb, _w, _h = ac_mod._build_thumbnail(buf.getvalue())
+
+    pixel = Image.open(io.BytesIO(thumb)).convert("RGB").getpixel((1, 1))
+    assert min(pixel) > 240
+
+
+def test_corrupt_cache_file_is_recreated(tmp_path):
+    db = tmp_path / "artwork_cache.db"
+    db.write_bytes(b"this is not a sqlite database" * 100)
+
+    c = ArtworkCache(db_path=str(db))
+    try:
+        assert c._select(1, "front") is None
+        assert not c.is_degraded()
+        c._upsert(1, "front", "/x.flac", 1.0, 1, 1, b"x")
+        assert c._select(1, "front") is not None
+    finally:
+        c.close()
+
+
+def test_unopenable_cache_falls_back_to_memory(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    def _boom(*_a, **_k):
+        raise PermissionError("read-only home")
+
+    monkeypatch.setattr(Path, "mkdir", _boom)
+    c = ArtworkCache(db_path=str(tmp_path / "sub" / "artwork_cache.db"))
+    try:
+        c._upsert(1, "front", "/x.flac", 1.0, 1, 1, b"x")
+        assert c._select(1, "front") is not None
+    finally:
+        c.close()
+
+
+def test_lookup_after_close_returns_none_instead_of_raising(tmp_path):
+    album = _album_with_track(tmp_path)
+    c = ArtworkCache(db_path=str(tmp_path / "artwork_cache.db"))
+    c.close()
+
+    assert c.peek_has_art(album, "front") is None

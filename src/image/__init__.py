@@ -1,1 +1,1 @@
-"""Image search utilities."""
+"""Album art caching, blurring, and managed image files."""

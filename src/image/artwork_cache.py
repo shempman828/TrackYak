@@ -1,28 +1,10 @@
-"""
-artwork_cache.py
+"""Disposable SQLite thumbnail cache for embedded album art, validated by source-file mtime."""
 
-Disk-backed thumbnail cache for embedded album art. Reading embedded art
-straight from an audio file (ArtworkExtractor.extract_artwork_by_role) is
-expensive - it reads the whole file into memory just to reach the tag -
-so every UI surface that shows album art goes through this cache instead
-of touching audio files directly on every repaint.
-
-Storage is a single SQLite file (cache/imagecache/artwork_cache.db), not
-a directory of loose thumbnails - it's fully disposable/regenerable, so
-"reset the cache" is just deleting one file. A row is valid as long as
-its source_track_path/source_mtime still match the album's current
-representative track; if the file changes (edited, re-embedded,
-migrated) the next read just sees a stale mtime and regenerates - no
-explicit invalidation required for correctness.
-
-Picking "the album's representative track" (any single embeddable track
-whose embedded art speaks for the whole album) assumes every track in an
-album agrees on its embedded art per role. Nothing enforces that
-invariant here; it is checked only on demand, by the Tools -> "Artwork
-Conflicts…" tool (src/library/artwork/library_artwork_consistency.py +
-artwork_consistency_dialog.py), which also lets the user re-embed one
-version into every track to fix an album that has drifted.
-"""
+# Every UI surface reads album art through this cache instead of reading audio
+# tags on each repaint. A row stays valid while its source_track_path and
+# source_mtime match the album's representative track, so a changed file just
+# misses and regenerates. Agreement between tracks is checked only on demand by
+# Tools -> "Artwork Conflicts…" (src/library/artwork/).
 
 import contextlib
 import io
@@ -38,32 +20,25 @@ from PySide6.QtWidgets import QApplication
 
 from src.foundation.asset_paths import IMAGECACHE_DIR
 from src.foundation.logger_config import logger
-from src.image.image_blur import _blur_enabled, blur_pixmap
+from src.image.image_blur import blur_enabled, blur_pixmap
 from src.metadata.readers.metadata_artwork import ArtworkExtractor
 
 DEFAULT_MAX_DIMENSION = 1024
 DEFAULT_JPEG_QUALITY = 95
 
-# When a cache write fails (the SQLite file or its filesystem briefly went
-# read-only - an external `rm` of the cache db under the open handle, an
-# ext4 emergency remount, a backup/restore swap), stop attempting the
-# expensive extract+decode+write on every lookup for this long and just
-# serve whatever rows are already cached. Without this a sustained
-# read-only window turns every art lookup into a full audio-file read + PIL
-# decode that ends in a failed write, logged once per NowPlaying repaint
-# tick and once per album across the whole warmer queue - forever, with no
-# recovery short of an app restart.
+# After a failed write (cache file removed under the open handle, read-only
+# remount), serve cached rows only for this long instead of re-reading and
+# re-decoding art on every lookup just to fail the write again.
 _DEGRADED_BACKOFF_SEC = 60.0
+
+# PIL raises any of these for truncated, malformed or oversized image data.
+_DECODE_ERRORS = (OSError, ValueError, SyntaxError, Image.DecompressionBombError)
 
 
 def all_album_tracks(album) -> list:
-    """Every track that belongs to `album` - those linked directly via
-    Track.album_id (Album.tracks) plus any reachable only through one of
-    its discs (Album.discs -> Disc.tracks). The two sets diverge when a
-    track is detached from its album but left sitting on a disc; artwork
-    reads and the "Clear"/"Choose" embed pass must still see those files
-    or their embedded picture is silently left in place (and later bleeds
-    onto whatever album the track is next added to)."""
+    """Return every track of `album`, from Album.tracks plus any reachable only through its discs."""
+    # A track detached from its album but left on a disc still carries this
+    # album's picture; the embed/clear pass must reach it too.
     by_id: dict = {}
     for t in getattr(album, "tracks", None) or []:
         tid = getattr(t, "track_id", None)
@@ -77,43 +52,16 @@ def all_album_tracks(album) -> list:
     return list(by_id.values())
 
 
-def _pick_representative_track(album):
-    """Return the album's canonical embeddable track (or None), used as
-    the single source of truth for that album's embedded art. Any
-    embeddable track works as long as they all agree on their embedded
-    art (verified on demand by the "Artwork Conflicts…" tool, not here) -
-    this just needs to be deterministic."""
-    tracks = [
-        t
-        for t in all_album_tracks(album)
-        if getattr(t, "track_file_path", None)
-        and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS
-    ]
+def pick_representative_track(album):
+    """Return the album's deterministic embeddable track whose art speaks for the album, or None."""
+    tracks = [t for t in all_album_tracks(album) if getattr(t, "track_file_path", None) and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS]
     if not tracks:
         return None
-    return min(
-        tracks,
-        key=lambda t: (
-            getattr(t, "disc_id", None) or 0,
-            getattr(t, "track_number", None) or 0,
-            t.track_id,
-        ),
-    )
+    return min(tracks, key=lambda t: (getattr(t, "disc_id", None) or 0, getattr(t, "track_number", None) or 0, t.track_id))
 
 
-def _build_thumbnail(
-    image_bytes: bytes,
-    max_dimension: int = DEFAULT_MAX_DIMENSION,
-    quality: int = DEFAULT_JPEG_QUALITY,
-) -> tuple[bytes, int, int]:
-    """Decode image_bytes, downscale if it exceeds max_dimension, and
-    re-encode as JPEG at a high quality level. Quality 95 is close to
-    visually lossless while staying far smaller than PNG for photographic
-    album art - the visible softness reported at quality 85 was from
-    over-compression, not from JPEG itself, so this keeps a single
-    consistent encoding path rather than branching on image size (which
-    made the cache larger than the original loose-file directory).
-    Returns (thumb_bytes, original_width, original_height)."""
+def _build_thumbnail(image_bytes: bytes, max_dimension: int = DEFAULT_MAX_DIMENSION, quality: int = DEFAULT_JPEG_QUALITY) -> tuple[bytes, int, int]:
+    """Downscale image_bytes to max_dimension as JPEG; return (thumb_bytes, original_width, original_height)."""
     image = Image.open(io.BytesIO(image_bytes))
     image.load()
     orig_width, orig_height = image.width, image.height
@@ -121,7 +69,12 @@ def _build_thumbnail(
     if max(orig_width, orig_height) > max_dimension:
         image.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
-    if image.mode != "RGB":
+    if image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info):
+        # JPEG has no alpha; a plain convert("RGB") turns transparent areas black.
+        rgba = image.convert("RGBA")
+        image = Image.new("RGB", rgba.size, (255, 255, 255))
+        image.paste(rgba, mask=rgba.getchannel("A"))
+    elif image.mode != "RGB":
         image = image.convert("RGB")
 
     buf = io.BytesIO()
@@ -148,41 +101,32 @@ class ArtworkCache:
 
     def __init__(self, db_path: str | None = None):
         self.db_path = Path(db_path) if db_path else (IMAGECACHE_DIR / "artwork_cache.db")
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
         self._extractor = ArtworkExtractor()
-        # 0.0 == healthy. Otherwise a time.monotonic() deadline: until then,
-        # writes are assumed to keep failing, so lookups skip _refresh and
-        # serve cached rows only. See _note_write_failure / _DEGRADED_BACKOFF_SEC.
+        # 0.0 == healthy; otherwise a time.monotonic() deadline until which
+        # writes are assumed to fail and lookups serve cached rows only.
         self._degraded_until = 0.0
-        # Set == background warmers may run; cleared == a foreground writer
-        # (the album editor embedding freshly-picked art into every track)
-        # has asked them to back off so the two threads aren't contending on
-        # this cache's single connection/lock. Starts runnable.
+        self._read_error_logged = False
+        # Set == background warmers may run; cleared while a foreground writer
+        # (the album editor's embed) needs this cache's single connection.
         self._warmers_runnable = threading.Event()
         self._warmers_runnable.set()
-        self._init_schema()
-
-    def _init_schema(self):
-        with self._lock:
-            try:
-                self._conn.execute(self._SCHEMA_SQL)
-                self._conn.commit()
-            except sqlite3.Error as exc:
-                # Constructed while the cache file/filesystem is read-only:
-                # degrade instead of crashing the app at startup.
-                self._note_write_failure(exc)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = self._connect_file()
+        except (OSError, sqlite3.Error) as exc:
+            # Unwritable cache folder or file: keep art working for this session.
+            logger.warning(f"ArtworkCache: cannot open {self.db_path} ({exc}); caching in memory for this session")
+            self._conn = self._new_conn(":memory:")
+            self._conn.execute(self._SCHEMA_SQL)
+            self._conn.commit()
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
     def get_pixmap(self, album, role: str, is_explicit: bool = False) -> QPixmap:
-        """Return a QPixmap for album/role, or a null QPixmap if there's
-        no art for that role. Mirrors load_art_pixmap's null-on-missing
-        and explicit-art-blur behavior."""
+        """Return the cached art for album/role, blurred if explicit, or a null QPixmap if none."""
         row = self._lookup_or_refresh(album, role)
         if row is None or row["thumb_data"] is None:
             return QPixmap()
@@ -191,72 +135,35 @@ class ArtworkCache:
         if not pixmap.loadFromData(row["thumb_data"]):
             return QPixmap()
 
-        if is_explicit and _blur_enabled():
+        if is_explicit and blur_enabled():
             return blur_pixmap(pixmap)
         return pixmap
 
     def get_dimensions(self, album, role: str) -> tuple[int, int] | None:
-        """Return (width, height) of the original (pre-resize) embedded
-        image for album/role, or None if there's no art for that role."""
+        """Return the original (width, height) of the embedded art for album/role, or None."""
         row = self._lookup_or_refresh(album, role)
         if row is None or row["width"] is None:
             return None
         return (row["width"], row["height"])
 
     def has_art(self, album, role: str = "front") -> bool:
+        """Return True if the album has embedded art for role (may read the audio file)."""
         row = self._lookup_or_refresh(album, role)
         return row is not None and row["thumb_data"] is not None
 
     def is_degraded(self) -> bool:
-        """True while the cache is in a post-write-failure read-only window
-        (see _DEGRADED_BACKOFF_SEC). Background warmers check this to stop
-        grinding a whole album list on a database that can't be written."""
+        """Return True while the cache is in its post-write-failure read-only window."""
         return time.monotonic() < self._degraded_until
 
-    def _peek_row(self, album, role: str) -> tuple[bool, sqlite3.Row | None]:
-        """Shared lookup for peek_has_art/peek_dimensions: consults only
-        the cache row and a cheap stat, never the audio file itself.
-        Returns (known, row). known=False means the answer requires a real
-        _refresh() (cache miss or stale mtime) - callers should hand the
-        album to a background has_art()/get_dimensions() call instead of
-        calling it inline. When known=True, row may still be None, which is
-        a confirmed "no art" (e.g. no embeddable track at all)."""
-        track = _pick_representative_track(album)
-        if track is None:
-            return True, None
-
-        try:
-            current_mtime = Path(track.track_file_path).stat().st_mtime
-        except OSError:
-            return True, None
-
-        row = self._select(album.album_id, role)
-        if (
-            row is not None
-            and row["source_track_path"] == track.track_file_path
-            and row["source_mtime"] == current_mtime
-        ):
-            return True, row
-        return False, None
-
     def peek_has_art(self, album, role: str = "front") -> bool | None:
-        """Like has_art, but never reads/decodes the audio file. Returns
-        True/False when the cached row is confirmed still valid, or None
-        when the answer would require a real _refresh(). Callers on the UI
-        thread should use this to avoid blocking on extraction, and hand
-        anything that comes back None off to a background has_art()/
-        get_dimensions() call instead."""
+        """Like has_art, but never reads the audio file; None means the answer needs a refresh."""
         known, row = self._peek_row(album, role)
         if not known:
             return None
         return row is not None and row["thumb_data"] is not None
 
     def peek_dimensions(self, album, role: str = "front") -> tuple[bool, tuple[int, int] | None]:
-        """Like get_dimensions, but never reads/decodes the audio file.
-        Returns (known, dims). known=False means resolving this requires a
-        real get_dimensions() call off the UI thread; when known=True,
-        dims is (width, height) or None if there's confirmed to be no art
-        for this role."""
+        """Like get_dimensions, but never reads the audio file; returns (known, dims)."""
         known, row = self._peek_row(album, role)
         if not known:
             return False, None
@@ -265,65 +172,55 @@ class ArtworkCache:
         return True, (row["width"], row["height"])
 
     def store(self, album, role: str, image_bytes: bytes | None) -> None:
-        """Directly populate the cache for album/role from image_bytes the
-        caller already has in hand (e.g. right after the editor embeds new
-        art into every track) - skips the redundant re-read/re-extract
-        that _lookup_or_refresh would otherwise do on the next read."""
-        track = _pick_representative_track(album)
-        if track is None:
+        """Populate the cache row for album/role from image bytes the caller already holds."""
+        source = self._current_source(album)
+        if source is None:
             return
-        try:
-            mtime = Path(track.track_file_path).stat().st_mtime
-        except OSError:
-            return
+        track, mtime = source
 
         if image_bytes is None:
             self._upsert(album.album_id, role, track.track_file_path, mtime, None, None, None)
             return
 
-        thumb_bytes, width, height = _build_thumbnail(image_bytes)
+        try:
+            thumb_bytes, width, height = _build_thumbnail(image_bytes)
+        except _DECODE_ERRORS as e:
+            # The files already hold these bytes; drop the row so the next read
+            # re-derives it from the file instead of failing the whole embed.
+            logger.error(f"ArtworkCache: cannot build thumbnail for album {album.album_id} ({role}): {e}")
+            self.invalidate(album.album_id, role)
+            return
         self._upsert(album.album_id, role, track.track_file_path, mtime, width, height, thumb_bytes)
 
     def pause_warmers(self) -> None:
-        """Ask background cache-warming workers (ArtCacheWorker) to stop
-        starting new albums until resume_warmers() is called. Used by the
-        album editor while it embeds new art into every track, so a
-        full-library Art-filter warm pass isn't queued ahead of the
-        editor's own writes on this cache's single connection."""
+        """Ask background cache warmers to stop starting new albums until resume_warmers()."""
         self._warmers_runnable.clear()
 
     def resume_warmers(self) -> None:
-        """Undo pause_warmers(). Safe to call when not paused."""
+        """Undo pause_warmers(); safe to call when not paused."""
         self._warmers_runnable.set()
 
     def warmers_wait_if_paused(self, stop, poll: float = 0.2) -> None:
-        """Called by background warmers between albums: while paused, blocks
-        in `poll`-second slices, re-checking the caller's `stop()` predicate
-        each slice so a cancel still takes effect promptly. Returns at once
-        when runnable."""
+        """Block while warmers are paused, returning early once the caller's stop() is true."""
         while not self._warmers_runnable.wait(poll):
             if stop():
                 return
 
     def invalidate(self, album_id: int, role: str | None = None) -> None:
+        """Delete the cached rows for album_id (one role, or all roles)."""
         with self._lock:
             try:
                 if role is None:
-                    self._conn.execute(
-                        "DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,)
-                    )
+                    self._conn.execute("DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,))
                 else:
-                    self._conn.execute(
-                        "DELETE FROM artwork_thumbnails WHERE album_id = ? AND role = ?",
-                        (album_id, role),
-                    )
+                    self._conn.execute("DELETE FROM artwork_thumbnails WHERE album_id = ? AND role = ?", (album_id, role))
                 self._conn.commit()
             except sqlite3.Error as exc:
-                # Stale rows surviving is harmless - the source_mtime check
-                # in _lookup_or_refresh catches a changed file anyway.
+                # A surviving stale row is harmless: the mtime check catches a changed file.
                 self._note_write_failure(exc)
 
     def close(self) -> None:
+        """Close the cache connection; later lookups return no art."""
         with self._lock:
             self._conn.close()
 
@@ -331,48 +228,56 @@ class ArtworkCache:
     #  Internal                                                            #
     # ------------------------------------------------------------------ #
 
-    def _lookup_or_refresh(self, album, role: str) -> sqlite3.Row | None:
-        track = _pick_representative_track(album)
+    def _current_source(self, album) -> tuple[object, float] | None:
+        """Return (representative_track, its mtime), or None if no readable embeddable track exists."""
+        track = pick_representative_track(album)
         if track is None:
             return None
-
         try:
-            current_mtime = Path(track.track_file_path).stat().st_mtime
+            return track, Path(track.track_file_path).stat().st_mtime
         except OSError:
             return None
 
+    @staticmethod
+    def _row_is_current(row, track, mtime: float) -> bool:
+        """Return True if row was built from track at mtime."""
+        return row is not None and row["source_track_path"] == track.track_file_path and row["source_mtime"] == mtime
+
+    def _peek_row(self, album, role: str) -> tuple[bool, sqlite3.Row | None]:
+        """Return (known, row) from the cache and a stat only; known=False means a refresh is needed."""
+        source = self._current_source(album)
+        if source is None:
+            return True, None  # confirmed "no art"
+        track, mtime = source
         row = self._select(album.album_id, role)
-        if (
-            row is not None
-            and row["source_track_path"] == track.track_file_path
-            and row["source_mtime"] == current_mtime
-        ):
+        if self._row_is_current(row, track, mtime):
+            return True, row
+        return False, None
+
+    def _lookup_or_refresh(self, album, role: str) -> sqlite3.Row | None:
+        """Return the current row for album/role, re-reading the audio file on a miss."""
+        source = self._current_source(album)
+        if source is None:
+            return None
+        track, mtime = source
+
+        row = self._select(album.album_id, role)
+        if self._row_is_current(row, track, mtime):
             return row
 
         if self.is_degraded():
-            # Writes are failing; _refresh would read+decode the whole audio
-            # file only to fail again at _upsert. Serve the cached row as-is
-            # (possibly stale, possibly None) until the window expires.
+            # Writes are failing; serve the cached row as-is (maybe stale or None).
             return row
 
-        return self._refresh(album.album_id, role, track, current_mtime)
+        return self._refresh(album.album_id, role, track, mtime)
 
     def _refresh(self, album_id: int, role: str, track, mtime: float) -> sqlite3.Row | None:
-        """
-        Reads track.track_file_path once and populates the cache row for
-        every role (front/rear/liner), not just the one that was asked
-        for - extract_artwork_by_role already returns all roles present
-        in one pass, and the read of the whole file is the expensive
-        part, so a miss on any one role should save the other two from
-        also missing on their next lookup.
-        """
+        """Read track's embedded art once and cache every role from that single read."""
         ext = Path(track.track_file_path).suffix.lower()
         try:
             embedded = self._extractor.extract_artwork_by_role(track.track_file_path, ext)
         except (OSError, struct.error) as e:
-            logger.error(
-                f"ArtworkCache: error extracting artwork from {track.track_file_path}: {e}"
-            )
+            logger.error(f"ArtworkCache: error extracting artwork from {track.track_file_path}: {e}")
             return None
 
         for r in ArtworkExtractor.PICTURE_TYPE_ROLES.values():
@@ -382,21 +287,28 @@ class ArtworkCache:
                 continue
             try:
                 thumb_bytes, width, height = _build_thumbnail(picture["data"])
-            except (OSError, Image.DecompressionBombError) as e:
-                logger.error(
-                    f"ArtworkCache: error building thumbnail for {track.track_file_path} ({r}): {e}"
-                )
+            except _DECODE_ERRORS as e:
+                # Cache as "no art" so later lookups don't re-read the file for undecodable data.
+                logger.error(f"ArtworkCache: error building thumbnail for {track.track_file_path} ({r}): {e}")
+                self._upsert(album_id, r, track.track_file_path, mtime, None, None, None)
                 continue
             self._upsert(album_id, r, track.track_file_path, mtime, width, height, thumb_bytes)
 
         return self._select(album_id, role)
 
     def _select(self, album_id: int, role: str) -> sqlite3.Row | None:
+        """Return the cached row for album_id/role, or None if absent or unreadable."""
         with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM artwork_thumbnails WHERE album_id = ? AND role = ?", (album_id, role)
-            )
-            return cur.fetchone()
+            try:
+                row = self._conn.execute("SELECT * FROM artwork_thumbnails WHERE album_id = ? AND role = ?", (album_id, role)).fetchone()
+            except sqlite3.Error as exc:
+                # Corrupt or closed db: callers run on the GUI thread, so never raise.
+                if not self._read_error_logged:
+                    logger.warning(f"ArtworkCache: read from {self.db_path} failed ({exc}); showing no cached art")
+                    self._read_error_logged = True
+                return None
+            self._read_error_logged = False
+            return row
 
     _UPSERT_SQL = """
         INSERT INTO artwork_thumbnails
@@ -412,48 +324,24 @@ class ArtworkCache:
             updated_at = excluded.updated_at
         """
 
-    def _upsert(
-        self,
-        album_id: int,
-        role: str,
-        source_track_path: str,
-        source_mtime: float,
-        width: int | None,
-        height: int | None,
-        thumb_data: bytes | None,
-    ) -> None:
-        params = (
-            album_id,
-            role,
-            source_track_path,
-            source_mtime,
-            width,
-            height,
-            thumb_data,
-            time.strftime("%Y-%m-%d %H:%M:%S"),
-        )
+    def _upsert(self, album_id: int, role: str, source_track_path: str, source_mtime: float, width: int | None, height: int | None, thumb_data: bytes | None) -> None:
+        """Write one cache row; on failure reconnect once, then enter the read-only window."""
+        params = (album_id, role, source_track_path, source_mtime, width, height, thumb_data, time.strftime("%Y-%m-%d %H:%M:%S"))
         with self._lock:
             if time.monotonic() < self._degraded_until:
-                # Known read-only window - don't retry per write, just per
-                # window expiry (a caller past the _lookup_or_refresh guard,
-                # e.g. store(), still lands here).
-                return
+                return  # retry only once the window expires, not per write
             try:
                 self._conn.execute(self._UPSERT_SQL, params)
                 self._conn.commit()
             except sqlite3.Error as exc:
-                # One reconnect + retry: recovers SQLITE_READONLY_DBMOVED
-                # (cache file swapped/removed under the open handle). If it
-                # still fails, drop into the read-only window instead of
-                # raising - this is called from NowPlayingView.updateUI and
-                # the whole-library warmer, both of which would otherwise
-                # spam a traceback / warning per lookup.
+                # The reconnect recovers SQLITE_READONLY_DBMOVED (file swapped under the handle).
                 if not (self._reconnect_locked() and self._retry_write_locked(params)):
                     self._note_write_failure(exc)
                     return
             self._clear_degraded_locked()
 
     def _retry_write_locked(self, params: tuple) -> bool:
+        """Retry one upsert on the fresh connection; caller holds self._lock."""
         try:
             self._conn.execute(self._UPSERT_SQL, params)
             self._conn.commit()
@@ -462,45 +350,60 @@ class ArtworkCache:
             logger.debug(f"ArtworkCache: write retry after reconnect failed: {exc}")
             return False
 
+    @staticmethod
+    def _new_conn(target: str) -> sqlite3.Connection:
+        """Open a row-factory connection usable from any thread."""
+        conn = sqlite3.connect(target, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _connect_file(self) -> sqlite3.Connection:
+        """Open the cache file with its schema, deleting and recreating it once if it is corrupt."""
+        conn = self._new_conn(str(self.db_path))
+        try:
+            conn.execute(self._SCHEMA_SQL)
+            conn.commit()
+            return conn
+        except sqlite3.OperationalError:
+            conn.close()
+            raise  # locked / read-only: not corruption
+        except sqlite3.DatabaseError as exc:
+            conn.close()
+            logger.warning(f"ArtworkCache: {self.db_path} is corrupt ({exc}); recreating it")
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            Path(f"{self.db_path}{suffix}").unlink(missing_ok=True)
+        conn = self._new_conn(str(self.db_path))
+        conn.execute(self._SCHEMA_SQL)
+        conn.commit()
+        return conn
+
     def _reconnect_locked(self) -> bool:
-        """Close and reopen the connection. Recovers a connection latched
-        read-only because its backing file was moved/removed. Caller holds
-        self._lock. Returns True if a fresh, schema-ready connection opened."""
+        """Close and reopen the cache file; caller holds self._lock. Return True on success."""
         with contextlib.suppress(sqlite3.Error):
             self._conn.close()
         try:
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute(self._SCHEMA_SQL)
-            self._conn.commit()
+            self._conn = self._connect_file()
             return True
-        except sqlite3.Error as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.debug(f"ArtworkCache: reconnect to {self.db_path} failed: {exc}")
             return False
 
     def _note_write_failure(self, exc: Exception) -> None:
-        """Enter (or extend) the read-only window after a failed write.
-        Logs once on the transition into a degraded state, not per failure.
-        Caller holds self._lock."""
+        """Enter or extend the read-only window, logging only on entry; caller holds self._lock."""
         now = time.monotonic()
         already_degraded = now < self._degraded_until
         self._degraded_until = now + _DEGRADED_BACKOFF_SEC
         if not already_degraded:
-            logger.warning(
-                f"ArtworkCache: write to {self.db_path} failed ({exc}); serving "
-                f"cached art read-only, retrying in {_DEGRADED_BACKOFF_SEC:.0f}s"
-            )
+            logger.warning(f"ArtworkCache: write to {self.db_path} failed ({exc}); serving cached art read-only, retrying in {_DEGRADED_BACKOFF_SEC:.0f}s")
 
     def _clear_degraded_locked(self) -> None:
-        """A write just succeeded - leave the read-only window if we were in
-        one. Caller holds self._lock."""
+        """Leave the read-only window after a successful write; caller holds self._lock."""
         if self._degraded_until:
             self._degraded_until = 0.0
             logger.info(f"ArtworkCache: {self.db_path} writable again, caching resumed")
 
 
 def get_artwork_cache() -> ArtworkCache | None:
-    """Resolve the app-wide ArtworkCache instance, same convention as
-    app.display_settings (see run.py / image_blur.py's _blur_enabled)."""
+    """Return the app-wide ArtworkCache attached to the QApplication, if any."""
     app = QApplication.instance()
     return getattr(app, "artwork_cache", None)

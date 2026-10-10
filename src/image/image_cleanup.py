@@ -1,17 +1,7 @@
-"""Lifecycle management for files under the managed images directories.
+"""Delete, rename and prune files in the managed image folders (artist pictures)."""
 
-Artist profile pictures (images/artist_images/) are copied in with
-deterministic ``{entity_id}_{sanitized_name}{suffix}`` names by
-:mod:`src.artist.artist_image_manager`. Nothing else in the app ever removed
-them, so deleting or merging the owning entity left the file behind forever.
-
-This module is the single place that unlinks or renames those files. It is
-called from :meth:`DeleteDB.delete_entity` (row + file removed together) and
-:meth:`MergeDB.merge_entities` (the surviving entity's picture is renamed to
-its own id, the discarded one is unlinked). :func:`prune_orphaned_images`
-does a one-time sweep of files that were already orphaned before any of this
-existed.
-"""
+# Called from DeleteDB.delete_entity and MergeDB.merge_entities so files leave
+# with their rows; prune_orphaned_images sweeps files orphaned before that.
 
 from pathlib import Path
 import re
@@ -19,19 +9,23 @@ import re
 from src.foundation import asset_paths
 from src.foundation.logger_config import logger
 
-# Same set the image managers sanitize entity names against.
+# Characters not allowed in file names on Windows; artist_image_manager uses this too.
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 # model name -> (image-path column on the model, managed-dir attr on asset_paths)
 IMAGE_PATH_COLUMNS: dict[str, tuple[str, str]] = {"Artist": ("profile_pic_path", "ARTIST_IMAGES_DIR")}
 
 
-def _managed_dirs() -> list[Path]:
-    """Resolved paths of every directory this module is allowed to touch.
+def _model_for(model_name: str):
+    """Return the ORM model class that owns the image column for model_name."""
+    from src.db.db_tables.artist import Artist
 
-    Read at call time (not import time) so tests can monkeypatch the
-    ``asset_paths`` constants.
-    """
+    return {"Artist": Artist}[model_name]
+
+
+def _managed_dirs() -> list[Path]:
+    """Return the resolved folders this module may touch."""
+    # Read at call time so tests can monkeypatch the asset_paths constants.
     out = []
     for _col, dir_attr in IMAGE_PATH_COLUMNS.values():
         try:
@@ -42,7 +36,7 @@ def _managed_dirs() -> list[Path]:
 
 
 def _is_managed(path: Path) -> bool:
-    """True iff ``path`` sits directly inside one of the managed dirs."""
+    """Return True if ``path`` sits directly inside one of the managed folders."""
     try:
         resolved = path.resolve()
     except OSError:
@@ -51,18 +45,13 @@ def _is_managed(path: Path) -> bool:
 
 
 def managed_image_name(entity_id, entity_name: str, suffix: str) -> str:
-    """The deterministic filename the image managers would give this entity."""
+    """Return the deterministic filename the image managers give this entity."""
     sanitized = _INVALID_CHARS.sub("_", entity_name or "")
     return f"{entity_id}_{sanitized}{suffix}"
 
 
 def delete_managed_image(path: str | None) -> bool:
-    """Unlink ``path`` iff it lives directly inside a managed images dir.
-
-    No-ops (returning False) on an empty path, a path outside the managed
-    dirs, or an already-missing file. Returns True only when a file was
-    actually removed.
-    """
+    """Unlink ``path`` if it is inside a managed folder; return True only if a file was removed."""
     if not path:
         return False
     p = Path(path)
@@ -81,13 +70,7 @@ def delete_managed_image(path: str | None) -> bool:
 
 
 def rename_managed_image(old_path: str | None, entity_id, entity_name: str) -> str | None:
-    """Rename a managed image file to ``{entity_id}_{name}{suffix}``.
-
-    Used after a merge, when the surviving entity inherited the merged-away
-    entity's picture and the file is still named for the deleted id. Returns
-    the new path, or None when nothing was renamed (path empty/unmanaged/
-    missing, or the file is already named correctly).
-    """
+    """Rename a managed image to ``{entity_id}_{name}{suffix}`` after a merge; return the new path or None."""
     if not old_path:
         return None
     src = Path(old_path)
@@ -97,9 +80,8 @@ def rename_managed_image(old_path: str | None, entity_id, entity_name: str) -> s
     if dest == src:
         return None
     try:
-        if dest.exists():
-            dest.unlink()
-        src.rename(dest)
+        # Atomic overwrite: an unlink-then-rename loses dest if the rename fails.
+        src.replace(dest)
     except OSError as e:
         logger.error(f"rename_managed_image: {old_path!r} -> {dest}: {e}")
         return None
@@ -108,48 +90,22 @@ def rename_managed_image(old_path: str | None, entity_id, entity_name: str) -> s
 
 
 def discard_replaced_image(session, model_name: str, old_path: str | None, new_path) -> bool:
-    """Unlink ``old_path`` after an entity's image column was changed to
-    ``new_path`` (cleared, or re-picked with a different extension/name).
-
-    No-ops -- returning False -- when the path is unchanged, empty,
-    unmanaged, or still referenced by some other row. Returns True only when
-    a file was actually removed.
-    """
+    """Unlink ``old_path`` after an image column changed to ``new_path``, unless another row still uses it."""
     if not old_path or old_path == new_path:
         return False
     col = IMAGE_PATH_COLUMNS.get(model_name)
     if not col:
         return False
 
-    from src.db.db_tables.artist import Artist
-    from src.db.db_tables.publisher import Publisher
-
-    column = getattr({"Artist": Artist, "Publisher": Publisher}[model_name], col[0])
+    column = getattr(_model_for(model_name), col[0])
     if session.query(column).filter(column == old_path).first() is not None:
         return False
     return delete_managed_image(old_path)
 
 
 def prune_orphaned_images(session, *, dry_run: bool = False) -> dict[str, list[str]]:
-    """Delete every file in the managed image dirs that no row references.
-
-    One-time / maintenance sweep for files orphaned before the delete- and
-    merge-time hooks existed (e.g. a picture cleared or re-picked with a
-    different extension in an editor). With ``dry_run=True`` nothing is
-    unlinked -- the returned ``removed`` list is what *would* be removed.
-
-    Guard: if a model's image column has zero non-empty values but its
-    directory holds files, that directory is skipped -- a half-loaded or
-    empty database must not be read as "every image is an orphan".
-
-    Returns ``{"removed": [paths], "missing_refs": [filenames]}`` where
-    ``missing_refs`` are files a row points at that are not on disk (logged,
-    never mutated).
-    """
-    from src.db.db_tables.artist import Artist
-    from src.db.db_tables.publisher import Publisher
-
-    models = {"Artist": Artist, "Publisher": Publisher}
+    """Delete unreferenced files in the managed folders; return {"removed": paths, "missing_refs": names}."""
+    # dry_run=True unlinks nothing; "removed" then lists what would go.
     removed: list[str] = []
     missing_refs: list[str] = []
 
@@ -158,11 +114,15 @@ def prune_orphaned_images(session, *, dry_run: bool = False) -> dict[str, list[s
         if not directory.is_dir():
             continue
 
-        model = models[model_name]
-        column = getattr(model, col)
+        column = getattr(_model_for(model_name), col)
         referenced = {Path(value).name for (value,) in session.query(column).filter(column.isnot(None), column != "")}
 
-        files = [p for p in directory.iterdir() if p.is_file()]
+        try:
+            files = [p for p in directory.iterdir() if p.is_file()]
+        except OSError as e:
+            logger.error(f"prune_orphaned_images: cannot list {directory}: {e}")
+            continue
+        # A half-loaded or empty DB must not read as "every image is an orphan".
         if not referenced and files:
             logger.warning(f"prune_orphaned_images: {model_name} has no referenced images but {len(files)} file(s) in {directory}; skipping (partial DB load?).")
             continue

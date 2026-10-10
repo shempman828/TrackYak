@@ -303,7 +303,10 @@ On the Artwork tab, choosing or clearing a cover embeds the image into every
 track file on the album. That now happens in the background — the cover
 buttons and Save/Cancel grey out with a wait cursor and an "Embedding
 artwork…" note while it runs, then the preview updates — so a big image or a
-long tracklist no longer freezes the editor while it works.
+long tracklist no longer freezes the editor while it works. If some files
+cannot be written, a warning lists them; the album's thumbnail then keeps
+showing what the files actually hold. Art with transparent areas shows on a
+white background, not black.
 
 **Other things you can do**: right-click a cover (or empty grid space) for
 New Album, Add to Queue, Merge into another album, Delete, Delete Empty
