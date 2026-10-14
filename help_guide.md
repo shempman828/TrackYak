@@ -454,6 +454,12 @@ not moved). Deleting a genre promotes its children to top-level rather than
 deleting them too, and offers to add the name to your Excluded Genres list so
 future auto-tagging skips it.
 
+**Numbered MP3 genres**: older MP3 taggers store a genre as a number from the
+old ID3v1 list, like "(17)" or "(17)Rock". Import turns these into the genre's
+name ("Rock"), and "(RX)" / "(CR)" into Remix / Cover, so you won't get a
+genre literally named "(17)". Numbers outside the list are skipped. Files
+imported before this change may still have such genres — merge or delete them.
+
 **Exporting**: right-click anywhere in the tree (an item or empty space) and
 choose Export Hierarchy... to save the whole tree as a plain-text or
 Markdown file, laid out with box-drawing connectors (`├──`, `└──`) like the

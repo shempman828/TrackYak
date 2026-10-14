@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import decode_id3_string, id3_frames_offset, is_valid_frame_id, parse_id3_lang_frame, split_id3_string, syncsafe_to_int
+from src.metadata.metadata_id3_genres import resolve_tcon_value
 from src.metadata.metadata_ogg_pages import iter_packets
 from src.metadata.readers.metadata_mp4_atoms import find_atom, iter_atoms
 
@@ -195,7 +196,10 @@ class RawTagExtractor:
             raw_tags.setdefault(frame_id, []).append(text)
             return
         # v2.4 stores multiple values separated by NUL.
-        raw_tags.setdefault(frame_id, []).extend(part for part in text.split("\x00") if part)
+        parts = [part for part in text.split("\x00") if part]
+        if frame_id == "TCON":
+            parts = [genre for part in parts for genre in resolve_tcon_value(part)]
+        raw_tags.setdefault(frame_id, []).extend(parts)
 
     def _parse_id3v1_tags(self, tag_data):
         """Parse a 128-byte ID3v1 tag."""
