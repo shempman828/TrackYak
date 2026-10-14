@@ -1,4 +1,4 @@
-"""Flow layout for the album grid view.
+"""Wrapping flow layout and the container widgets that size themselves from it.
 
 Arranges child widgets in left-to-right rows that wrap onto the next line
 when the available width is exhausted, similar to CSS flexbox wrap.
@@ -118,7 +118,11 @@ class FlowLayout(QLayout):
 
         for item in self._item_list:
             widget = item.widget()
-            if widget is not None and not widget.isVisible():
+            # Skip only widgets hidden on purpose. isVisible() is also False
+            # before a parent is shown and while a newly added child's show is
+            # still queued, and skipping those collapses heightForWidth() to the
+            # margins and leaves the widget stacked on slot (0, 0).
+            if widget is not None and widget.isHidden() and widget.testAttribute(Qt.WidgetAttribute.WA_WState_ExplicitShowHide):
                 continue
 
             hint = item.sizeHint()
@@ -184,3 +188,30 @@ class ChipArea(QWidget):
         height = layout.heightForWidth(self.width())
         if height != self.minimumHeight():
             self.setMinimumHeight(height)
+
+
+class ChipCell(QWidget):
+    """Table cell that holds a FlowLayout and reports its height at its real width."""
+
+    # QWidget.sizeHint() evaluates heightForWidth() at the layout's minimum width
+    # (one chip), which makes rows far too tall; resizeRowsToContents() cannot fix that.
+
+    def _hint(self) -> QSize:
+        """Return the size hint at the cell's current width."""
+        lay = self.layout()
+        width = self.width()
+        if lay is not None and lay.hasHeightForWidth() and width > 0:
+            return QSize(width, lay.heightForWidth(width))
+        return super().sizeHint()
+
+    def sizeHint(self) -> QSize:
+        return self._hint()
+
+    def minimumSizeHint(self) -> QSize:
+        return self._hint()
+
+    def resizeEvent(self, event):
+        # A stretched column changing width changes how many chip lines fit,
+        # hence this cell's preferred height -- let Qt know the hint is stale.
+        super().resizeEvent(event)
+        self.updateGeometry()

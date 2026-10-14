@@ -81,17 +81,7 @@ def _make_view_fp(monkeypatch, albums, fake_config):
 
 
 def test_restores_filters_from_previous_session(qapp, monkeypatch):
-    fake_config = FakeAppConfig(
-        {
-            "search": "alpha",
-            "year_from": 1990,
-            "year_to": 1999,
-            "min_tracks": 5,
-            "incomplete_mode": "Possibly Incomplete",
-            "fixed_mode": "Second Pass",
-            "art_mode": "Has Art",
-        }
-    )
+    fake_config = FakeAppConfig({"search": "alpha", "year_from": 1990, "year_to": 1999, "min_tracks": 5, "incomplete_mode": "Possibly Incomplete", "fixed_mode": "Second Pass", "art_mode": "Has Art"})
     albums = [StubAlbum_fp(1, "Alpha")]
     view = _make_view_fp(monkeypatch, albums, fake_config)
     try:
@@ -394,11 +384,11 @@ def test_removal_that_fills_viewport_does_not_strand_remaining_albums(qapp, monk
 #
 # Root cause: a freshly reparented widget's "show" is deferred to the next
 # event-loop turn, so QWidget.isVisible() is still False if a layout pass runs
-# synchronously right after addWidget(). FlowLayout._do_layout() skips
-# positioning any item whose widget reports isVisible() == False, so such a
-# widget is left stuck at its default geometry -- overlapping whatever sits at
-# slot (0, 0) -- until some later, fully-settled layout pass (e.g. the one
-# triggered by scrolling) recomputes every widget's position from scratch.
+# synchronously right after addWidget(). Qt's QWidgetItem.setGeometry() ignores
+# a widget while isHidden() is True, so FlowLayout cannot position it and it is
+# left stuck at its default geometry -- overlapping whatever sits at slot
+# (0, 0) -- until some later, fully-settled layout pass (e.g. the one triggered
+# by scrolling) recomputes every widget's position from scratch.
 def test_flow_layout_skips_unshown_widget_on_synchronous_layout_pass(qapp):
     """Documents the underlying FlowLayout hazard the fix works around."""
     parent = QWidget()
@@ -420,8 +410,8 @@ def test_flow_layout_skips_unshown_widget_on_synchronous_layout_pass(qapp):
 
     layout.setGeometry(parent.rect())
 
-    # The unshown widget was skipped by _do_layout()'s isVisible() check, so
-    # it never received a real geometry and is left overlapping the first
+    # QWidgetItem.setGeometry() ignored the unshown widget, so it never
+    # received a real geometry and is left overlapping the first
     # slot instead of taking its rightful second-in-row position -- this is
     # the "two albums in one grid slot" symptom from bug #235.
     assert unshown.geometry() == shown.geometry()
@@ -511,14 +501,7 @@ def _populate(session, n_albums=20, artists_per=2, tracks_per=5):
             artist = Artist(artist_name=f"Artist {i:03d}-{j}")
             session.add(artist)
             session.flush()
-            session.add(
-                AlbumRoleAssociation(
-                    album_id=album.album_id,
-                    artist_id=artist.artist_id,
-                    role_id=role.role_id,
-                    sort_order=j,
-                )
-            )
+            session.add(AlbumRoleAssociation(album_id=album.album_id, artist_id=artist.artist_id, role_id=role.role_id, sort_order=j))
         for t in range(tracks_per):
             session.add(Track(track_name=f"T{t}", album_id=album.album_id))
     session.commit()
@@ -592,11 +575,7 @@ def _combo_items(combo):
 
 
 def test_type_filter_restricts_grid_to_matching_release_type(qapp, monkeypatch):
-    albums = [
-        StubAlbum_tm(1, "Live One", release_type="Live"),
-        StubAlbum_tm(2, "Studio One", release_type="Album"),
-        StubAlbum_tm(3, "Live Two", release_type="Live"),
-    ]
+    albums = [StubAlbum_tm(1, "Live One", release_type="Live"), StubAlbum_tm(2, "Studio One", release_type="Album"), StubAlbum_tm(3, "Live Two", release_type="Live")]
     view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
     try:
         view.type_combo.setCurrentText("Live")
@@ -609,11 +588,7 @@ def test_type_filter_restricts_grid_to_matching_release_type(qapp, monkeypatch):
 
 
 def test_media_filter_restricts_grid_to_matching_media_format(qapp, monkeypatch):
-    albums = [
-        StubAlbum_tm(1, "A", media_format="CD"),
-        StubAlbum_tm(2, "B", media_format='12" Vinyl'),
-        StubAlbum_tm(3, "C", media_format="CD"),
-    ]
+    albums = [StubAlbum_tm(1, "A", media_format="CD"), StubAlbum_tm(2, "B", media_format='12" Vinyl'), StubAlbum_tm(3, "C", media_format="CD")]
     view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
     try:
         view.media_combo.setCurrentText("CD")
@@ -642,10 +617,7 @@ def test_type_media_combos_populated_sorted_deduped_no_blanks(qapp, monkeypatch)
 
 def test_type_media_selection_persisted_and_restored(qapp, monkeypatch):
     fake_config = FakeAppConfig()
-    albums = [
-        StubAlbum_tm(1, "A", release_type="Live", media_format="CD"),
-        StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette"),
-    ]
+    albums = [StubAlbum_tm(1, "A", release_type="Live", media_format="CD"), StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette")]
     view = _make_view_fp(monkeypatch, albums, fake_config)
     try:
         view.type_combo.setCurrentText("Live")
@@ -680,10 +652,7 @@ def test_restored_type_value_absent_from_library_falls_back_to_any(qapp, monkeyp
 
 
 def test_clear_filters_resets_type_and_media_combos(qapp, monkeypatch):
-    albums = [
-        StubAlbum_tm(1, "A", release_type="Live", media_format="CD"),
-        StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette"),
-    ]
+    albums = [StubAlbum_tm(1, "A", release_type="Live", media_format="CD"), StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette")]
     view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
     try:
         view.type_combo.setCurrentText("Live")

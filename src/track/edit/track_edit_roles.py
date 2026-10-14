@@ -3,14 +3,15 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLayout, QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy import select
 
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.dialogs.credited_as_dialog import CreditedAsDialog
 from src.common.widgets.entity_completer_context import artist_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget, register_cached_entity
+from src.common.widgets.flow_layout import ChipCell, FlowLayout
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
@@ -105,116 +106,6 @@ class _RolesLoaderWorker(QObject):
         finally:
             # Each load uses a new thread with its own scoped session; release it or the pool runs dry.
             self.controller.SessionFactory.remove()
-
-
-class _FlowLayout(QLayout):
-    """Lay out child widgets left to right, wrapping to a new line when a line is full."""
-
-    def __init__(self, parent=None, margin: int = 0, h_spacing: int = 6, v_spacing: int = 4):
-        super().__init__(parent)
-        self._h_spacing = h_spacing
-        self._v_spacing = v_spacing
-        self._items: list = []
-        self.setContentsMargins(margin, margin, margin, margin)
-
-    def __del__(self):
-        while self.count():
-            self.takeAt(0)
-
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int):
-        if 0 <= index < len(self._items):
-            return self._items[index]
-        return None
-
-    def takeAt(self, index: int):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def expandingDirections(self):
-        return Qt.Orientations(Qt.Orientation(0))
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._do_layout(rect, test_only=False)
-
-    def sizeHint(self):
-        return self.minimumSize()
-
-    def minimumSize(self):
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        margins = self.contentsMargins()
-        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
-        return size
-
-    def _do_layout(self, rect, test_only: bool) -> int:
-        """Place the items in wrapped lines inside `rect`; return the height used."""
-        left, top, right, bottom = self.getContentsMargins()
-        effective_rect = rect.adjusted(left, top, -right, -bottom)
-        x = effective_rect.x()
-        y = effective_rect.y()
-        line_height = 0
-
-        for item in self._items:
-            hint = item.sizeHint()
-            next_x = x + hint.width() + self._h_spacing
-
-            # Wrap to a new line once the current one is full, unless this
-            # is the first item on the line (nothing left to shrink).
-            if next_x - self._h_spacing > effective_rect.right() and line_height > 0:
-                x = effective_rect.x()
-                y = y + line_height + self._v_spacing
-                next_x = x + hint.width() + self._h_spacing
-                line_height = 0
-
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-
-            x = next_x
-            line_height = max(line_height, hint.height())
-
-        return y + line_height - rect.y() + bottom
-
-
-class _ChipCell(QWidget):
-    """Table cell that holds a role-chip _FlowLayout and reports its height at its real width."""
-
-    # QWidget.sizeHint() evaluates heightForWidth() at the layout's minimum width
-    # (one chip), which makes rows far too tall; resizeRowsToContents() cannot fix that.
-
-    def _hint(self) -> QSize:
-        """Return the size hint at the cell's current width."""
-        lay = self.layout()
-        width = self.width()
-        if lay is not None and lay.hasHeightForWidth() and width > 0:
-            return QSize(width, lay.heightForWidth(width))
-        return super().sizeHint()
-
-    def sizeHint(self) -> QSize:
-        return self._hint()
-
-    def minimumSizeHint(self) -> QSize:
-        return self._hint()
-
-    def resizeEvent(self, event):
-        # A stretched column changing width changes how many chip lines fit,
-        # hence this cell's preferred height -- let Qt know the hint is stale.
-        super().resizeEvent(event)
-        self.updateGeometry()
 
 
 class _RolesTable(QTableWidget):
@@ -414,7 +305,7 @@ class RolesTab(_BaseTab):
         # loop pass -- otherwise setValue clamps to the stale (pre-rebuild)
         # range and silently resets to the top.
         # Chip cells only know their real (stretched-column) width once Qt has
-        # laid the table out, and their height depends on it (see _ChipCell) --
+        # laid the table out, and their height depends on it (see ChipCell) --
         # re-fit every row on the next pass so rows that wrap don't stay sized
         # for the pre-layout, one-chip-wide hint.
         QTimer.singleShot(0, self._table.resizeRowsToContents)
@@ -539,8 +430,8 @@ class RolesTab(_BaseTab):
 
     def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
         """Return the wrapped chip cell for one artist's roles."""
-        cell = _ChipCell()
-        row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
+        cell = ChipCell()
+        row_layout = FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
             chip = self._build_role_chip(artist_id, artist_name, role_id, role_name)
