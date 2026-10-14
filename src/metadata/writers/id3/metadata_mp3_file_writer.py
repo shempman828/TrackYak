@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import struct
 from typing import Any
+import zlib
 
 from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import id3_frames_offset, id3_tag_end, is_valid_frame_id, syncsafe_to_int
@@ -90,8 +91,19 @@ class MP3FileWriter:
         return write_artwork_with_backup(file_path, role, image_bytes, Id3PictureWriter.ROLE_TO_TYPE, mutate, "MP3 artwork")
 
     def _existing_frames(self, file_data: bytes) -> list[tuple[str, bytes]]:
-        """Return (frame_id, v2.3-headered frame bytes) for each frame of a v2.3/2.4 tag in file_data."""
-        return [(frame_id, self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size])) for frame_id, pos, size in self._parse_frames(file_data)]
+        """Return (frame_id, v2.3-headered frame bytes) for each decodable frame of a v2.3/2.4 tag in file_data."""
+        parsed = self._parse_frames(file_data)
+        if not parsed:
+            return []
+        version_major = file_data[3]
+        # A v2.4 tag-level unsync flag means every frame is unsynchronised.
+        tag_unsync = version_major == 4 and bool(file_data[5] & 0x80)
+        frames = []
+        for frame_id, pos, size in parsed:
+            body = self._decode_frame_body(frame_id, file_data[pos + 9], file_data[pos + 10 : pos + size], version_major, tag_unsync)
+            if body is not None:
+                frames.append((frame_id, self._rewrap_frame_as_v3(frame_id, body)))
+        return frames
 
     def _parse_frames(self, file_data: bytes) -> list[tuple[str, int, int]]:
         """Return (frame_id, start, whole-frame size) for each v2.3/2.4 frame; [] for no tag or a v2.2 tag."""
@@ -119,8 +131,32 @@ class MP3FileWriter:
 
         return frames
 
+    def _decode_frame_body(self, frame_id: str, format_flags: int, body: bytes, version_major: int, tag_unsync: bool) -> bytes | None:
+        """Undo a frame's unsync/compression and strip its flag-prefixed bytes; None for a frame that cannot be decoded."""
+        if version_major == 4:
+            compressed, encrypted, grouped = format_flags & 0x08, format_flags & 0x04, format_flags & 0x40
+            # v2.4 unsync covers everything after the frame header, so undo it before stripping the prefixes.
+            if format_flags & 0x02 or tag_unsync:
+                body = body.replace(b"\xff\x00", b"\xff")
+            prefix_len = (1 if grouped else 0) + (1 if encrypted else 0) + (4 if format_flags & 0x01 else 0)
+        else:
+            compressed, encrypted, grouped = format_flags & 0x80, format_flags & 0x40, format_flags & 0x20
+            prefix_len = (4 if compressed else 0) + (1 if encrypted else 0) + (1 if grouped else 0)
+
+        if encrypted:
+            logger.warning(f"Dropping encrypted ID3 frame {frame_id}: it cannot be decoded for the rewrite")
+            return None
+        body = body[prefix_len:]
+        if compressed:
+            try:
+                body = zlib.decompress(body)
+            except zlib.error as e:
+                logger.warning(f"Dropping compressed ID3 frame {frame_id}: {e}")
+                return None
+        return body
+
     def _rewrap_frame_as_v3(self, frame_id: str, frame_body: bytes) -> bytes:
-        """Rebuild a frame header with v2.3 plain sizing, since build_id3_tag always writes a v2.3 tag."""
+        """Rebuild a frame header with v2.3 plain sizing and no flags; frame_body must already be decoded."""
         # A v2.4 syncsafe size kept as-is would desync every later frame boundary.
         return frame_id.encode("ascii") + struct.pack(">I", len(frame_body)) + b"\x00\x00" + frame_body
 
