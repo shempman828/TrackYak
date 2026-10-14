@@ -5,14 +5,16 @@ from __future__ import annotations
 import sqlite3
 import webbrowser
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_series_import import import_awards_for_entity
+from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.entity_completer_context import album_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget, find_or_create_by_name, get_cached_entities, register_cached_entity
+from src.common.widgets.style_utils import set_style_property
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.musicbrainz.musicbrainz_artist import suggest_artist_names
@@ -22,6 +24,102 @@ from src.musicbrainz.musicbrainz_recording import search_canonical_album_for_rec
 from src.track.edit.track_edit_basetab import _BaseTab
 
 _ART_SIZE = 96
+_ROW_ART_SIZE = 36
+
+
+def _show_album_art(label: QLabel, album, size: int, fallback: str) -> None:
+    """Show the album's front cover in `label` at `size`, else the `fallback` text."""
+    pixmap = None
+    try:
+        cache = get_artwork_cache()
+        if cache:
+            pixmap = cache.get_pixmap(album, "front", bool(getattr(album, "art_is_explicit", False)))
+    except (OSError, sqlite3.Error) as e:
+        logger.warning(f"Failed to load album art for tab display: {e}")
+        pixmap = None
+
+    if pixmap and not pixmap.isNull():
+        label.setText("")
+        label.setPixmap(pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    else:
+        label.setPixmap(QPixmap())
+        label.setText(fallback)
+
+
+class _ClickableLabel(QLabel):
+    """QLabel that emits `clicked` on a left click while it is marked clickable."""
+
+    clicked = Signal()
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._clickable = False
+
+    def set_clickable(self, clickable: bool, tooltip: str = "") -> None:
+        """Turn the click, hand cursor, tooltip and the [clickable] QSS state on or off."""
+        self._clickable = clickable
+        self.setCursor(Qt.PointingHandCursor if clickable else Qt.ArrowCursor)
+        self.setToolTip(tooltip if clickable else "")
+        set_style_property(self, "clickable", clickable)
+
+    def mouseReleaseEvent(self, event):
+        if self._clickable and event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
+class _VirtualAppearanceRow(QFrame):
+    """One virtual appearance: art thumbnail, album name, "Disc · Track · Side", and Open/Remove."""
+
+    open_requested = Signal(int)  # album_id
+    remove_requested = Signal(int)  # virtual_id
+
+    def __init__(self, link, parent=None):
+        super().__init__(parent)
+        self.setObjectName("VirtualAppearanceRow")
+        album = link.album
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(10)
+
+        art = QLabel()
+        art.setObjectName("VirtualAppearanceArt")
+        art.setFixedSize(_ROW_ART_SIZE, _ROW_ART_SIZE)
+        art.setAlignment(Qt.AlignCenter)
+        _show_album_art(art, album, _ROW_ART_SIZE, "♪")
+        layout.addWidget(art)
+
+        name = _ClickableLabel(album.album_name or "Untitled")
+        name.setObjectName("VirtualAppearanceName")
+        name.setWordWrap(True)
+        name.set_clickable(True, "Open the album editor")
+        name.clicked.connect(lambda: self.open_requested.emit(album.album_id))
+        layout.addWidget(name, stretch=1)
+
+        bits = []
+        if link.virtual_disc_number:
+            bits.append(f"Disc {link.virtual_disc_number}")
+        if link.virtual_track_number:
+            bits.append(f"Track {link.virtual_track_number}")
+        if link.virtual_side:
+            bits.append(f"Side {link.virtual_side}")
+        meta = QLabel(" · ".join(bits))
+        meta.setObjectName("VirtualAppearanceMeta")
+        layout.addWidget(meta)
+
+        open_btn = QPushButton("Open")
+        open_btn.setProperty("rowAction", True)
+        open_btn.setToolTip("Open the album editor")
+        open_btn.clicked.connect(lambda: self.open_requested.emit(album.album_id))
+        layout.addWidget(open_btn)
+
+        remove_btn = QPushButton("Remove")
+        remove_btn.setProperty("rowAction", True)
+        remove_btn.setProperty("danger", True)
+        remove_btn.setToolTip("Remove this track from the album's virtual tracks")
+        remove_btn.clicked.connect(lambda: self.remove_requested.emit(link.virtual_id))
+        layout.addWidget(remove_btn)
 
 
 class AlbumsTab(_BaseTab):
@@ -45,158 +143,272 @@ class AlbumsTab(_BaseTab):
     # ── UI ────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        """Build the current-album, change-album and virtual-appearance groups."""
-        layout = QVBoxLayout(self)
+        """Build the current-album and virtual-appearance cards."""
+        # Same scroll area and margins as FieldFormTab, so all tabs line up.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
 
-        # ── Current album group ─────────────────────────────────────────
-        current_group = QGroupBox("Current Album")
-        current_layout = QVBoxLayout(current_group)
+        scroll = QScrollArea()
+        scroll.setObjectName("FieldFormScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        body.setProperty("bgTransparent", True)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setSpacing(12)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
+        layout.addWidget(self._build_current_card())
+        layout.addWidget(self._build_virtual_card())
+        layout.addStretch(1)
+
+    def _build_current_card(self) -> DetailCard:
+        """Build the Current Album card: art, name, links, and the view/change action rows."""
+        card = DetailCard("Current Album")
+
+        # ── Header: external links and the rare actions menu ──
+        self._wiki_open_btn = self._link_button("Wikipedia", "Open the album's Wikipedia page in your browser", self._open_wiki_link)
+        card.add_header_action(self._wiki_open_btn)
+        self._mb_open_btn = self._link_button("MusicBrainz", "Open the album's MusicBrainz page in your browser", self._open_mb_link)
+        card.add_header_action(self._mb_open_btn)
+
+        self._more_btn = QToolButton()
+        self._more_btn.setObjectName("AlbumTabMore")
+        self._more_btn.setText("⋯")
+        self._more_btn.setToolTip("More album actions")
+        self._more_btn.setPopupMode(QToolButton.InstantPopup)
+        more_menu = QMenu(self._more_btn)
+        more_menu.setToolTipsVisible(True)
+        self._find_canonical_action = more_menu.addAction("Find Canonical Album (MusicBrainz)…")
+        self._find_canonical_action.triggered.connect(self._find_canonical_album)
+        if self.is_multi:
+            self._find_canonical_action.setEnabled(False)
+            self._find_canonical_action.setToolTip("Works on one track at a time")
+        else:
+            self._find_canonical_action.setToolTip("Search MusicBrainz for the earliest release of this recording by its primary artist, and link or create the matching local album")
+        self._more_btn.setMenu(more_menu)
+        card.add_header_action(self._more_btn)
+
+        # ── Album identity: art + name + "artist · year" ──
         info_row = QHBoxLayout()
-        info_row.setSpacing(12)
+        info_row.setSpacing(14)
 
-        self._art_label = QLabel()
+        self._art_label = _ClickableLabel()
+        self._art_label.setObjectName("AlbumTabArt")
         self._art_label.setFixedSize(_ART_SIZE, _ART_SIZE)
         self._art_label.setAlignment(Qt.AlignCenter)
         self._art_label.setProperty("textRole", "note")
-        info_row.addWidget(self._art_label)
+        self._art_label.clicked.connect(self._open_primary_album)
+        info_row.addWidget(self._art_label, alignment=Qt.AlignTop)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(2)
+        text_col.setSpacing(4)
 
-        self._primary_label = QLabel("—")
-        primary_font = self._primary_label.font()
-        primary_font.setBold(True)
-        primary_font.setPointSize(primary_font.pointSize() + 2)
-        self._primary_label.setFont(primary_font)
+        self._primary_label = _ClickableLabel("—")
+        self._primary_label.setObjectName("AlbumTabTitle")
         self._primary_label.setWordWrap(True)
+        self._primary_label.clicked.connect(self._open_primary_album)
         text_col.addWidget(self._primary_label)
 
-        self._primary_artist_label = QLabel("—")
-        self._primary_artist_label.setProperty("textRole", "note")
-        self._primary_artist_label.setWordWrap(True)
-        text_col.addWidget(self._primary_artist_label)
-
-        self._primary_year_label = QLabel("—")
-        self._primary_year_label.setProperty("textRole", "note")
-        text_col.addWidget(self._primary_year_label)
-
+        self._primary_meta_label = QLabel()
+        self._primary_meta_label.setObjectName("AlbumTabMeta")
+        self._primary_meta_label.setWordWrap(True)
+        text_col.addWidget(self._primary_meta_label)
         text_col.addStretch(1)
         info_row.addLayout(text_col, stretch=1)
-        current_layout.addLayout(info_row)
+        card.body.addLayout(info_row)
 
-        btn_row = QHBoxLayout()
-        self._open_primary_btn = QPushButton("Edit Album")
+        # ── View mode: Open / Change … Remove ──
+        self._view_row = QWidget()
+        self._view_row.setProperty("bgTransparent", True)
+        view_layout = QHBoxLayout(self._view_row)
+        view_layout.setContentsMargins(0, 4, 0, 0)
+
+        self._open_primary_btn = QPushButton("Open Album")
         self._open_primary_btn.setEnabled(False)
         self._open_primary_btn.clicked.connect(self._open_primary_album)
-        btn_row.addWidget(self._open_primary_btn)
+        view_layout.addWidget(self._open_primary_btn)
 
-        self._remove_primary_btn = QPushButton("Remove Relationship")
+        self._change_album_btn = QPushButton("Change…")
+        self._change_album_btn.setToolTip("Search for a different album, or create a new one")
+        self._change_album_btn.clicked.connect(lambda: self._set_change_mode(True))
+        view_layout.addWidget(self._change_album_btn)
+        view_layout.addStretch(1)
+
+        self._remove_primary_btn = QPushButton("Remove from Album")
+        self._remove_primary_btn.setProperty("danger", True)
         self._remove_primary_btn.setEnabled(False)
-        self._remove_primary_btn.setToolTip("Detaches this track from its album (track stays in library)")
+        self._remove_primary_btn.setToolTip("Detaches the track from its album (the track stays in the library)")
         self._remove_primary_btn.clicked.connect(self._remove_primary_album)
-        btn_row.addWidget(self._remove_primary_btn)
+        view_layout.addWidget(self._remove_primary_btn)
+        card.body.addWidget(self._view_row)
 
-        self._change_album_btn = QPushButton("Change Album")
-        self._change_album_btn.setCheckable(True)
-        self._change_album_btn.setToolTip("Search for a different album, or manage virtual appearances")
-        self._change_album_btn.toggled.connect(self._on_change_album_toggled)
-        btn_row.addWidget(self._change_album_btn)
+        # ── Change mode: search + Set / Cancel (replaces the view row) ──
+        self._change_row = QWidget()
+        self._change_row.setProperty("bgTransparent", True)
+        change_layout = QHBoxLayout(self._change_row)
+        change_layout.setContentsMargins(0, 4, 0, 0)
 
-        self._wiki_open_btn = QPushButton("🌐 Wikipedia")
-        self._wiki_open_btn.setToolTip("Open the album's Wikipedia page in your browser")
-        self._wiki_open_btn.clicked.connect(self._open_wiki_link)
-        self._wiki_open_btn.setVisible(False)
-        btn_row.addWidget(self._wiki_open_btn)
-
-        self._mb_open_btn = QPushButton("🎵 MusicBrainz")
-        self._mb_open_btn.setToolTip("Open the album's MusicBrainz page in your browser")
-        self._mb_open_btn.clicked.connect(self._open_mb_link)
-        self._mb_open_btn.setVisible(False)
-        btn_row.addWidget(self._mb_open_btn)
-
-        self._find_canonical_btn = QPushButton("🎵 Find Canonical Album")
-        self._find_canonical_btn.setToolTip("Search MusicBrainz for the earliest release(s) of this recording by its primary artist, and link or create the matching local album")
-        self._find_canonical_btn.setEnabled(not self.is_multi)
-        self._find_canonical_btn.clicked.connect(self._find_canonical_album)
-        btn_row.addWidget(self._find_canonical_btn)
-
-        btn_row.addStretch(1)
-        current_layout.addLayout(btn_row)
-        layout.addWidget(current_group)
-
-        # ── Set current album group (revealed by "Change Album") ────────
-        set_group = QGroupBox("Set Current Album (search existing or create new)")
-        set_layout = QVBoxLayout(set_group)
-
-        add_row = QHBoxLayout()
-        self._album_search = build_entity_search_widget(self.controller, "Album", "album_name", "album_id", "Search albums…", context_builder=album_context_map, allow_create_new=True)
+        self._album_search = build_entity_search_widget(
+            self.controller, "Album", "album_name", "album_id", "Search albums, or type a new name to create one…", context_builder=album_context_map, allow_create_new=True
+        )
         self._album_search.textChanged.connect(self._on_album_search_changed)
         self._album_search.returnPressed.connect(self._set_primary_album)
-        add_row.addWidget(self._album_search)
+        change_layout.addWidget(self._album_search, stretch=1)
 
-        self._set_primary_btn = QPushButton("Set as Current Album")
+        self._set_primary_btn = QPushButton("Set Album")
+        self._set_primary_btn.setProperty("class", "primary")
         self._set_primary_btn.setEnabled(False)
         self._set_primary_btn.clicked.connect(self._set_primary_album)
-        add_row.addWidget(self._set_primary_btn)
-        set_layout.addLayout(add_row)
-        set_group.setVisible(False)
-        self._set_group = set_group
-        layout.addWidget(set_group)
+        change_layout.addWidget(self._set_primary_btn)
 
-        # ── Virtual appearances group ─────────────────────────────────────
-        virtual_group = QGroupBox("Virtual Appearances (track borrowed by other albums)")
-        virtual_layout = QVBoxLayout(virtual_group)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(lambda: self._set_change_mode(False))
+        change_layout.addWidget(cancel_btn)
+        self._cancel_shortcut(self._album_search, lambda: self._set_change_mode(False))
+        self._change_row.setVisible(False)
+        card.body.addWidget(self._change_row)
 
-        self._virtual_table = QTableWidget(0, 5)
-        self._virtual_table.setHorizontalHeaderLabels(["Album", "Track #", "Disc #", "Side", ""])
-        self._virtual_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self._virtual_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self._virtual_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self._virtual_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self._virtual_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self._virtual_table.verticalHeader().setVisible(False)
-        # Sized by row count (see _update_virtual_table_height) rather than
-        # expanding to fill the tab — this section is empty for most tracks.
-        self._virtual_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        virtual_layout.addWidget(self._virtual_table)
+        self._album_error = self._error_label()
+        card.body.addWidget(self._album_error)
+        return card
 
-        # ── Add virtual appearance ────────────────────────────────────────
-        virt_add_row = QHBoxLayout()
+    def _build_virtual_card(self) -> DetailCard:
+        """Build the Virtual Appearances card: rich rows, empty state, and the inline add form."""
+        card = DetailCard("Virtual Appearances")
+        self._virtual_group = card
+
+        self._virt_show_add_btn = QPushButton("+ Add")
+        self._virt_show_add_btn.setProperty("rowAction", True)
+        self._virt_show_add_btn.setToolTip("Add this track to another album as a virtual appearance")
+        self._virt_show_add_btn.clicked.connect(lambda: self._set_virtual_add_mode(True))
+        self._virt_show_add_btn.setEnabled(not self.is_multi)
+        card.add_header_action(self._virt_show_add_btn)
+
+        card.body.addWidget(self._note_label("Other albums that borrow this track."))
+
+        self._virtual_rows = QVBoxLayout()
+        self._virtual_rows.setSpacing(6)
+        card.body.addLayout(self._virtual_rows)
+
+        self._virtual_empty = QLabel()
+        self._virtual_empty.setObjectName("VirtualAppearanceEmpty")
+        self._virtual_empty.setWordWrap(True)
+        card.body.addWidget(self._virtual_empty)
+
+        # ── Inline add form (revealed by "+ Add") ──
+        self._virt_add_row = QWidget()
+        self._virt_add_row.setProperty("bgTransparent", True)
+        add_layout = QHBoxLayout(self._virt_add_row)
+        add_layout.setContentsMargins(0, 4, 0, 0)
+
         self._virt_search = build_entity_search_widget(self.controller, "Album", "album_name", "album_id", "Search albums…", context_builder=album_context_map, allow_create_new=True)
         self._virt_search.textChanged.connect(self._on_virt_search_changed)
         self._virt_search.returnPressed.connect(self._add_virtual)
-        virt_add_row.addWidget(self._virt_search)
-
-        self._virt_track_num = QSpinBox()
-        self._virt_track_num.setRange(0, 999)
-        self._virt_track_num.setSpecialValueText("Track #")
-        self._virt_track_num.setToolTip("Track number in this virtual appearance")
-        virt_add_row.addWidget(self._virt_track_num)
+        add_layout.addWidget(self._virt_search, stretch=1)
 
         self._virt_disc_num = QSpinBox()
         self._virt_disc_num.setRange(0, 99)
-        self._virt_disc_num.setSpecialValueText("Disc #")
+        self._virt_disc_num.setSpecialValueText("Disc")
         self._virt_disc_num.setToolTip("Disc number in this virtual appearance")
-        virt_add_row.addWidget(self._virt_disc_num)
+        add_layout.addWidget(self._virt_disc_num)
 
-        self._virt_add_btn = QPushButton("Add Virtual Appearance")
+        self._virt_track_num = QSpinBox()
+        self._virt_track_num.setRange(0, 999)
+        self._virt_track_num.setSpecialValueText("Track")
+        self._virt_track_num.setToolTip("Track number in this virtual appearance")
+        add_layout.addWidget(self._virt_track_num)
+
+        self._virt_side = QLineEdit()
+        self._virt_side.setPlaceholderText("Side")
+        self._virt_side.setMaxLength(4)
+        self._virt_side.setFixedWidth(56)
+        self._virt_side.setToolTip("Vinyl side in this virtual appearance, e.g. A")
+        self._virt_side.returnPressed.connect(self._add_virtual)
+        add_layout.addWidget(self._virt_side)
+
+        self._virt_add_btn = QPushButton("Add")
+        self._virt_add_btn.setProperty("class", "primary")
         self._virt_add_btn.setEnabled(False)
         self._virt_add_btn.clicked.connect(self._add_virtual)
-        virt_add_row.addWidget(self._virt_add_btn)
-        virtual_layout.addLayout(virt_add_row)
-        virtual_group.setVisible(False)
-        self._virtual_group = virtual_group
-        layout.addWidget(virtual_group)
+        add_layout.addWidget(self._virt_add_btn)
 
-        layout.addStretch(1)
-        self._update_virtual_table_height()
+        virt_cancel_btn = QPushButton("Cancel")
+        virt_cancel_btn.clicked.connect(lambda: self._set_virtual_add_mode(False))
+        add_layout.addWidget(virt_cancel_btn)
+        for widget in (self._virt_search, self._virt_side):
+            self._cancel_shortcut(widget, lambda: self._set_virtual_add_mode(False))
+        self._virt_add_row.setVisible(False)
+        card.body.addWidget(self._virt_add_row)
 
-    def _on_change_album_toggled(self, checked: bool) -> None:
-        """Show or hide the album search groups."""
-        self._set_group.setVisible(checked)
-        self._virtual_group.setVisible(checked)
-        self._change_album_btn.setText("Hide Album Search" if checked else "Change Album")
+        self._virt_error = self._error_label()
+        card.body.addWidget(self._virt_error)
+        return card
+
+    @staticmethod
+    def _note_label(text: str) -> QLabel:
+        """Return a muted, word-wrapped hint label for a card body."""
+        label = QLabel(text)
+        label.setProperty("textRole", "note")
+        label.setWordWrap(True)
+        return label
+
+    @staticmethod
+    def _error_label() -> QLabel:
+        """Return a hidden inline error label for a card body."""
+        label = QLabel()
+        label.setProperty("textRole", "error")
+        label.setWordWrap(True)
+        label.setVisible(False)
+        return label
+
+    @staticmethod
+    def _link_button(text: str, tooltip: str, slot) -> QPushButton:
+        """Return a small, hidden link-style header button."""
+        btn = QPushButton(text)
+        btn.setObjectName("AlbumTabLink")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        btn.clicked.connect(slot)
+        btn.setVisible(False)
+        return btn
+
+    @staticmethod
+    def _cancel_shortcut(widget: QWidget, slot) -> None:
+        """Run `slot` when Esc is pressed in `widget` (so Esc closes the form, not the dialog)."""
+        QShortcut(QKeySequence.Cancel, widget, slot, context=Qt.WidgetShortcut)
+
+    @staticmethod
+    def _show_error(label: QLabel, text: str = "") -> None:
+        """Show `text` in an inline error label, or hide the label when `text` is empty."""
+        label.setText(text)
+        label.setVisible(bool(text))
+
+    def _set_change_mode(self, active: bool) -> None:
+        """Swap the view row for the album search row, or back."""
+        self._view_row.setVisible(not active)
+        self._change_row.setVisible(active)
+        self._show_error(self._album_error)
+        if active:
+            self._album_search.setFocus()
+        else:
+            self._album_search.reset()
+            self._change_album_btn.setFocus()
+
+    def _set_virtual_add_mode(self, active: bool) -> None:
+        """Show or hide the inline add-virtual-appearance form."""
+        self._virt_add_row.setVisible(active)
+        self._virt_show_add_btn.setVisible(not active)
+        self._show_error(self._virt_error)
+        if active:
+            self._virt_search.setFocus()
+        else:
+            self._virt_search.reset()
+            self._virt_disc_num.setValue(0)
+            self._virt_track_num.setValue(0)
+            self._virt_side.clear()
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -212,56 +424,65 @@ class AlbumsTab(_BaseTab):
                 self._set_primary_display(album)
                 self._remove_primary_btn.setEnabled(bool(album))
             else:
-                self._primary_label.setText(f"(multiple albums across {len(self.tracks)} tracks)")
-                self._primary_artist_label.setText("")
-                self._primary_year_label.setText("")
-                self._art_label.clear()
-                self._wiki_link = ""
-                self._mb_link = ""
-                self._wiki_open_btn.setVisible(False)
-                self._mb_open_btn.setVisible(False)
+                self._set_mixed_display()
                 self._remove_primary_btn.setEnabled(True)
-            self._open_primary_btn.setEnabled(False)
+            # The album editor reloads a single track, so opening is single-track only.
+            self._set_open_enabled(False)
             self._set_primary_btn.setEnabled(bool(self._album_search.text().strip()))
-            self._virt_add_btn.setEnabled(False)
-            self._virtual_table.setRowCount(0)
-            self._update_virtual_table_height()
+            self._set_virtual_rows([])
             return
 
         # Primary album
         album = getattr(self.track, "album", None)
         self._set_primary_display(album)
-        self._open_primary_btn.setEnabled(bool(album))
+        self._set_open_enabled(bool(album))
         self._remove_primary_btn.setEnabled(bool(album))
 
-        # Virtual appearances
-        self._virtual_table.setRowCount(0)
-        for link in getattr(self.track, "virtual_appearances", []):
-            alb = getattr(link, "album", None)
-            if alb:
-                self._add_virtual_row(
-                    virtual_id=link.virtual_id, album_name=alb.album_name, album_id=alb.album_id, track_num=link.virtual_track_number, disc_num=link.virtual_disc_number, side=link.virtual_side
-                )
-        self._update_virtual_table_height()
+        links = [link for link in getattr(self.track, "virtual_appearances", []) if getattr(link, "album", None)]
+        self._set_virtual_rows(links)
+
+    def _set_open_enabled(self, enabled: bool) -> None:
+        """Enable or disable every way to open the primary album (button, name, art)."""
+        self._open_primary_btn.setEnabled(enabled)
+        self._primary_label.set_clickable(enabled, "Open the album editor")
+        self._art_label.set_clickable(enabled, "Open the album editor")
+
+    def _set_title_mixed(self, mixed: bool) -> None:
+        """Toggle the muted "mixed albums" style of the album title."""
+        set_style_property(self._primary_label, "mixed", mixed)
+
+    def _clear_links(self) -> None:
+        self._wiki_link = ""
+        self._mb_link = ""
+        self._wiki_open_btn.setVisible(False)
+        self._mb_open_btn.setVisible(False)
+
+    def _set_mixed_display(self) -> None:
+        """Show the header for a multi-track selection whose tracks are on different albums."""
+        self._set_title_mixed(True)
+        self._primary_label.setText("Multiple albums")
+        self._primary_meta_label.setText(f"The {len(self.tracks)} selected tracks are on different albums.")
+        self._art_label.setPixmap(QPixmap())
+        self._art_label.setText("—")
+        self._clear_links()
 
     def _set_primary_display(self, album) -> None:
-        """Populate the Current Album header (art, name, artist, year)."""
+        """Populate the Current Album header (art, name, artist · year, links)."""
         if not album:
-            self._primary_label.setText("— (none)")
-            self._primary_artist_label.setText("")
-            self._primary_year_label.setText("")
-            self._art_label.clear()
-            self._wiki_link = ""
-            self._mb_link = ""
-            self._wiki_open_btn.setVisible(False)
-            self._mb_open_btn.setVisible(False)
+            self._set_title_mixed(True)
+            self._primary_label.setText("No album")
+            self._primary_meta_label.setText("Use Change… to put this track on an album.")
+            self._art_label.setPixmap(QPixmap())
+            self._art_label.setText("—")
+            self._clear_links()
             return
 
-        self._primary_label.setText(album.album_name or "—")
-        self._primary_artist_label.setText(getattr(album, "album_artist_names", None) or "Unknown Artist")
+        self._set_title_mixed(False)
+        self._primary_label.setText(album.album_name or "Untitled")
+        artist = getattr(album, "album_artist_names", None) or "Unknown Artist"
         year = getattr(album, "release_year", None)
-        self._primary_year_label.setText(str(year) if year else "Year unknown")
-        self._load_album_art(album)
+        self._primary_meta_label.setText(f"{artist} · {year}" if year else artist)
+        _show_album_art(self._art_label, album, _ART_SIZE, "No Art")
 
         self._wiki_link = getattr(album, "album_wikipedia_link", None) or ""
         self._wiki_open_btn.setVisible(bool(self._wiki_link))
@@ -270,69 +491,29 @@ class AlbumsTab(_BaseTab):
         self._mb_link = f"https://musicbrainz.org/release/{mbid}" if mbid else ""
         self._mb_open_btn.setVisible(bool(self._mb_link))
 
-    def _load_album_art(self, album) -> None:
-        """Show the album's front cover, else a "No Art" text."""
-        pixmap = None
-        try:
-            cache = get_artwork_cache()
-            if cache:
-                is_explicit = bool(getattr(album, "art_is_explicit", False))
-                pixmap = cache.get_pixmap(album, "front", is_explicit)
-        except (OSError, sqlite3.Error) as e:
-            logger.warning(f"Failed to load album art for tab display: {e}")
-            pixmap = None
+    def _set_virtual_rows(self, links: list) -> None:
+        """Rebuild the virtual-appearance rows, the count badge and the empty state."""
+        while self._virtual_rows.count():
+            item = self._virtual_rows.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for link in links:
+            row = _VirtualAppearanceRow(link)
+            row.open_requested.connect(lambda aid: self._open_album_by_id(aid, self._virt_error))
+            row.remove_requested.connect(self._remove_virtual)
+            self._virtual_rows.addWidget(row)
 
-        if pixmap and not pixmap.isNull():
-            self._art_label.setText("")
-            self._art_label.setPixmap(pixmap.scaled(_ART_SIZE, _ART_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._virtual_group.set_count(len(links), "appearance")
+        if self.is_multi:
+            self._virtual_empty.setText("Edit virtual appearances one track at a time.")
         else:
-            self._art_label.setPixmap(QPixmap())
-            self._art_label.setText("No Art")
-
-    def _update_virtual_table_height(self) -> None:
-        """Size the virtual-appearance table to its rows (1 to 4 visible)."""
-        header_height = self._virtual_table.horizontalHeader().height()
-        row_height = self._virtual_table.verticalHeader().defaultSectionSize()
-        row_count = self._virtual_table.rowCount()
-        visible_rows = max(row_count, 1)  # room for the "no rows" empty state
-        visible_rows = min(visible_rows, 4)  # cap height; extra rows scroll
-        frame = 2 * self._virtual_table.frameWidth()
-        height = header_height + visible_rows * row_height + frame
-        self._virtual_table.setFixedHeight(height)
-
-    def _add_virtual_row(self, virtual_id, album_name, album_id, track_num, disc_num, side):
-        """Append one virtual appearance row with Edit and Remove buttons."""
-        row = self._virtual_table.rowCount()
-        self._virtual_table.insertRow(row)
-
-        alb_item = QTableWidgetItem(album_name)
-        alb_item.setData(Qt.UserRole, album_id)
-        alb_item.setData(Qt.UserRole + 1, virtual_id)
-        alb_item.setFlags(alb_item.flags() & ~Qt.ItemIsEditable)
-        self._virtual_table.setItem(row, 0, alb_item)
-
-        self._virtual_table.setItem(row, 1, QTableWidgetItem(str(track_num) if track_num else ""))
-        self._virtual_table.setItem(row, 2, QTableWidgetItem(str(disc_num) if disc_num else ""))
-        self._virtual_table.setItem(row, 3, QTableWidgetItem(side or ""))
-
-        btn_widget = QWidget()
-        btn_layout = QHBoxLayout(btn_widget)
-        btn_layout.setContentsMargins(2, 2, 2, 2)
-
-        edit_btn = QPushButton("Edit Album")
-        edit_btn.clicked.connect(lambda _c, aid=album_id: self._open_album_by_id(aid))
-        btn_layout.addWidget(edit_btn)
-
-        rm_btn = QPushButton("Remove")
-        rm_btn.clicked.connect(lambda _c, vid=virtual_id: self._remove_virtual(vid))
-        btn_layout.addWidget(rm_btn)
-
-        self._virtual_table.setCellWidget(row, 4, btn_widget)
+            self._virtual_empty.setText("This track is not on any other album.")
+        self._virtual_empty.setVisible(not links)
 
     # ── Primary album search / set / remove ──────────────────────────────
 
     def _on_album_search_changed(self, text: str):
-        """Enable "Set as Current Album" when the search has text."""
+        """Enable "Set Album" when the search has text."""
         self._set_primary_btn.setEnabled(bool(text.strip()))
 
     def _known_albums(self, widget) -> list:
@@ -390,10 +571,11 @@ class AlbumsTab(_BaseTab):
 
     def _set_primary_album(self):
         """Make the searched album the primary album of every track."""
+        self._show_error(self._album_error)
         album = self._resolve_album(self._album_search)
         if not album:
             if self._album_search.text().strip():
-                QMessageBox.warning(self, "Error", "Could not resolve or create album.")
+                self._show_error(self._album_error, "Could not find or create that album.")
             return
 
         if self.is_multi:
@@ -402,10 +584,10 @@ class AlbumsTab(_BaseTab):
                 return
 
         if not self._apply_primary_album(album.album_id):
-            QMessageBox.warning(self, "Error", "Failed to set album for the selected track(s).")
+            self._show_error(self._album_error, "Could not set the album. See the log for details.")
             return
 
-        self._album_search.reset()
+        self._set_change_mode(False)
         self._refresh_tracks()
         self.load(self.tracks)
 
@@ -420,8 +602,9 @@ class AlbumsTab(_BaseTab):
             return
 
         if not self._apply_primary_album(None):
-            QMessageBox.warning(self, "Error", "Failed to remove album for the selected track(s).")
+            self._show_error(self._album_error, "Could not remove the album. See the log for details.")
             return
+        self._show_error(self._album_error)
 
         self._refresh_tracks()
         self.load(self.tracks)
@@ -441,7 +624,7 @@ class AlbumsTab(_BaseTab):
         """Open the album editor for the primary album."""
         album = getattr(self.track, "album", None)
         if album:
-            self._open_album_by_id(album.album_id)
+            self._open_album_by_id(album.album_id, self._album_error)
 
     def _open_wiki_link(self):
         """Open the album's Wikipedia page."""
@@ -490,8 +673,9 @@ class AlbumsTab(_BaseTab):
         # update_entity catches its own DB errors and returns False.
         if not self.controller.update.update_entity("Track", self.track.track_id, **update_kwargs):
             logger.error(f"Failed to set canonical album {album.album_id} on track {self.track.track_id}")
-            QMessageBox.warning(self, "Error", "Could not set the album on this track. See the log for details.")
+            self._show_error(self._album_error, "Could not set the album on this track. See the log for details.")
             return
+        self._show_error(self._album_error)
 
         if "MBID" in update_kwargs:
             award_jobs.append(("Track", self.track.track_id, update_kwargs["MBID"]))
@@ -643,36 +827,43 @@ class AlbumsTab(_BaseTab):
     # ── Virtual appearance search / add / remove ──────────────────────────
 
     def _on_virt_search_changed(self, text: str):
-        """Enable "Add Virtual Appearance" when the search has text (single track only)."""
+        """Enable "Add" when the search has text (single track only)."""
         self._virt_add_btn.setEnabled(bool(text.strip()) and not self.is_multi)
 
     def _add_virtual(self):
         """Add the searched album as a virtual appearance of this track."""
         if self.is_multi:
             return  # a virtual appearance names one track
+        self._show_error(self._virt_error)
         album = self._resolve_album(self._virt_search)
         if not album:
             if self._virt_search.text().strip():
-                QMessageBox.warning(self, "Error", "Could not resolve or create album.")
+                self._show_error(self._virt_error, "Could not find or create that album.")
             return
         track_num = self._virt_track_num.value() or None
         disc_num = self._virt_disc_num.value() or None
-        link = self.controller.add.add_entity("AlbumVirtualTrack", album_id=album.album_id, track_id=self.track.track_id, virtual_track_number=track_num, virtual_disc_number=disc_num)
+        side = self._virt_side.text().strip() or None
+        link = self.controller.add.add_entity(
+            "AlbumVirtualTrack", album_id=album.album_id, track_id=self.track.track_id, virtual_track_number=track_num, virtual_disc_number=disc_num, virtual_side=side
+        )
         if link is None:
             logger.error(f"Failed to add virtual appearance on album {album.album_id} for track {self.track.track_id}")
-            QMessageBox.warning(self, "Error", "Could not add the virtual appearance. See the log for details.")
+            self._show_error(self._virt_error, "Could not add the virtual appearance. See the log for details.")
             return
-        self._virt_search.reset()
-        self._virt_track_num.setValue(0)
-        self._virt_disc_num.setValue(0)
+        self._set_virtual_add_mode(False)
         self._reload_virtual_appearances()
 
     def _remove_virtual(self, virtual_id: int):
-        """Remove one virtual appearance."""
+        """Remove one virtual appearance after confirmation."""
+        question = "Remove this track from the album's virtual tracks?\nThe album and the track stay in the library."
+        confirm = QMessageBox.question(self, "Remove Virtual Appearance", question, QMessageBox.Yes | QMessageBox.No)
+        if confirm != QMessageBox.Yes:
+            return
         if not self.controller.delete.delete_entity("AlbumVirtualTrack", virtual_id=virtual_id):
             logger.error(f"Failed to remove virtual appearance {virtual_id}")
-            QMessageBox.warning(self, "Error", "Could not remove the virtual appearance. See the log for details.")
+            self._show_error(self._virt_error, "Could not remove the virtual appearance. See the log for details.")
             return
+        self._show_error(self._virt_error)
         self._reload_virtual_appearances()
 
     def _reload_virtual_appearances(self) -> None:
@@ -686,8 +877,8 @@ class AlbumsTab(_BaseTab):
 
     # ── Open album editor ─────────────────────────────────────────────────
 
-    def _open_album_by_id(self, album_id: int):
-        """Open the album editor, then reload the track."""
+    def _open_album_by_id(self, album_id: int, error_label: QLabel):
+        """Open the album editor, then reload the track; show a failure in `error_label`."""
         try:
             from src.album.edit.base_album_edit import AlbumEditor
 
@@ -704,4 +895,4 @@ class AlbumsTab(_BaseTab):
                 self.load(self.tracks)
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Failed to open album editor: {e}")
-            QMessageBox.warning(self, "Error", f"Could not open album editor:\n{e}")
+            self._show_error(error_label, f"Could not open the album editor: {e}")

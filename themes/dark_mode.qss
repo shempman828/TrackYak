@@ -1395,6 +1395,11 @@ QPushButton[danger="true"]:hover {
     background-color: rgba(234, 133, 153, 0.12);
 }
 
+QPushButton[danger="true"]:disabled {
+    color: #555e7a;
+    background-color: transparent;
+}
+
 QLabel[danger="true"] {
     color: #EA8599;
     font-weight: bold;
@@ -1824,6 +1829,92 @@ QFrame#DetailCard QLabel#DetailCardTitle {
     font-weight: 700;
     color: #8599ea;
     letter-spacing: 0.08em;
+}
+
+/* ── SPECIAL: Track editor Album tab (AlbumsTab) ─────────────────────────────── */
+QLabel#AlbumTabArt,
+QLabel#VirtualAppearanceArt {
+    background-color: #11121a;
+    border: 1px solid #1e1f2b;
+    border-radius: 6px;
+    color: #555e7a;
+}
+
+QLabel#AlbumTabArt[clickable="true"]:hover {
+    border-color: #8599ea;
+}
+
+QLabel#AlbumTabTitle {
+    font-size: 17px;
+    font-weight: 700;
+    color: #c8cbe0;
+}
+
+QLabel#AlbumTabTitle[clickable="true"]:hover,
+QLabel#VirtualAppearanceName[clickable="true"]:hover {
+    color: #8599ea;
+}
+
+QLabel#AlbumTabTitle[mixed="true"] {
+    font-weight: 400;
+    font-style: italic;
+    color: #555e7a;
+}
+
+QLabel#AlbumTabMeta {
+    color: #7a82a8;
+}
+
+QPushButton#AlbumTabLink {
+    background: transparent;
+    border: none;
+    color: #8599ea;
+    padding: 0 4px;
+    font-size: 12px;
+}
+
+QPushButton#AlbumTabLink:hover {
+    text-decoration: underline;
+}
+
+QToolButton#AlbumTabMore {
+    font-size: 14px;
+    padding: 0 8px;
+    border: 1px solid rgba(133, 153, 234, 0.35);
+    border-radius: 6px;
+}
+
+QToolButton#AlbumTabMore::menu-indicator {
+    image: none;
+}
+
+QFrame#VirtualAppearanceRow {
+    background: rgba(17, 18, 26, 0.5);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QFrame#VirtualAppearanceRow:hover {
+    background: rgba(133, 153, 234, 0.08);
+    border-color: rgba(133, 153, 234, 0.3);
+}
+
+QFrame#VirtualAppearanceRow QLabel {
+    background: transparent;
+}
+
+QLabel#VirtualAppearanceName {
+    font-weight: 600;
+}
+
+QLabel#VirtualAppearanceMeta {
+    color: #555e7a;
+    font-size: 12px;
+}
+
+QLabel#VirtualAppearanceEmpty {
+    color: #555e7a;
+    font-style: italic;
 }
 
 /* ── SPECIAL: Publisher detail pane (PublisherDetailTab) ─────────────────────── */
