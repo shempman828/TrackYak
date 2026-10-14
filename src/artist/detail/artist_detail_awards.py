@@ -1,7 +1,5 @@
 # file: artist_detail_awards.py
-"""
-AwardsWidget for displaying artist awards in a badge-style format.
-"""
+"""AwardsWidget for displaying artist awards in a badge-style format."""
 
 from typing import Any
 
@@ -139,6 +137,8 @@ class AwardsWidget(QWidget):
 
         if self.controller:
             self.load_awards()
+        else:
+            self.setVisible(False)
 
     def init_ui(self):
         """Initialize the widget UI"""
@@ -172,9 +172,6 @@ class AwardsWidget(QWidget):
 
         self.layout.addWidget(scroll_area)
 
-        # Initially hide the entire widget
-        self.setVisible(False)
-
     def load_awards(self):
         """Load awards data from the database"""
         if not self.controller:
@@ -185,9 +182,7 @@ class AwardsWidget(QWidget):
             self.awards_data = []
 
             # Get awards associated with this artist
-            award_associations = self.controller.get.get_all_entities(
-                "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
-            )
+            award_associations = self.controller.get.get_all_entities("AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist")
 
             if not award_associations:
                 # No awards found
@@ -216,8 +211,10 @@ class AwardsWidget(QWidget):
             # Display awards
             self.display_awards()
 
-            # Show widget since we have awards
-            if self.awards_data:
+            # Un-hide only once parented (see CreditsWidget.load_role_counts)
+            if not self.awards_data:
+                self.setVisible(False)
+            elif not self.isWindow():
                 self.setVisible(True)
 
         except SQLAlchemyError as e:

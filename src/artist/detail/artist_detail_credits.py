@@ -2,19 +2,7 @@
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QPushButton,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.layout_utils import clear_layout
@@ -110,26 +98,17 @@ class RoleSection(QGroupBox):
             return
         try:
             # Fetch track roles for this artist and role
-            track_roles = self.controller.get.get_all_entities(
-                "TrackArtistRole", artist_id=self.artist_id
-            )
+            track_roles = self.controller.get.get_all_entities("TrackArtistRole", artist_id=self.artist_id)
 
             # Fetch album roles for this artist and role
-            album_roles = self.controller.get.get_all_entities(
-                "AlbumRoleAssociation", artist_id=self.artist_id
-            )
+            album_roles = self.controller.get.get_all_entities("AlbumRoleAssociation", artist_id=self.artist_id)
 
             # Filter by role name and prepare data
             credits_data = []
 
             # Process track roles
             for tr in track_roles:
-                if (
-                    hasattr(tr, "role")
-                    and tr.role.role_name == self.role_name
-                    and hasattr(tr, "track")
-                    and tr.track
-                ):
+                if hasattr(tr, "role") and tr.role.role_name == self.role_name and hasattr(tr, "track") and tr.track:
                     track_name = getattr(tr.track, "track_name", "Unknown Track")
                     album_name = "Unknown Album"
                     year = None
@@ -139,24 +118,11 @@ class RoleSection(QGroupBox):
                         album_name = getattr(tr.track.album, "album_name", "Unknown Album")
                         year = getattr(tr.track.album, "release_year", None)
 
-                    credits_data.append(
-                        {
-                            "type": "track",
-                            "track": track_name,
-                            "album": album_name,
-                            "year": year,
-                            "sort_key": (year or 9999, album_name, track_name),
-                        }
-                    )
+                    credits_data.append({"type": "track", "track": track_name, "album": album_name, "year": year, "sort_key": (year or 9999, album_name, track_name)})
 
             # Process album roles
             for ar in album_roles:
-                if (
-                    hasattr(ar, "role")
-                    and ar.role.role_name == self.role_name
-                    and hasattr(ar, "album")
-                    and ar.album
-                ):
+                if hasattr(ar, "role") and ar.role.role_name == self.role_name and hasattr(ar, "album") and ar.album:
                     album_name = getattr(ar.album, "album_name", "Unknown Album")
                     year = getattr(ar.album, "release_year", None)
 
@@ -272,6 +238,8 @@ class CreditsWidget(QWidget):
 
         if self.controller:
             self.load_role_counts()
+        else:
+            self.setVisible(False)
 
     def init_ui(self):
         self.layout = QVBoxLayout(self)
@@ -294,9 +262,6 @@ class CreditsWidget(QWidget):
 
         self.layout.addWidget(self.sections_container)
 
-        # Initially hide the entire widget
-        self.setVisible(False)
-
     def load_role_counts(self):
         """Load role counts for the artist"""
         if not self.controller:
@@ -308,14 +273,10 @@ class CreditsWidget(QWidget):
             # We'll query track_roles and album_roles separately and combine
 
             # Get track roles
-            track_roles = self.controller.get.get_all_entities(
-                "TrackArtistRole", artist_id=self.artist.artist_id
-            )
+            track_roles = self.controller.get.get_all_entities("TrackArtistRole", artist_id=self.artist.artist_id)
 
             # Get album roles
-            album_roles = self.controller.get.get_all_entities(
-                "AlbumRoleAssociation", artist_id=self.artist.artist_id
-            )
+            album_roles = self.controller.get.get_all_entities("AlbumRoleAssociation", artist_id=self.artist.artist_id)
 
             self.role_sections = {}
             clear_layout(self.sections_layout)
@@ -344,8 +305,11 @@ class CreditsWidget(QWidget):
                     self.sections_layout.addWidget(section)
                     self.role_sections[role_name] = section
 
-                # Show the widget since we have credits
-                self.setVisible(True)
+                # Un-hide only once parented: showing a parentless widget maps a
+                # throwaway top-level window, which on Wayland requests an
+                # activation token GNOME shows as a busy cursor until it times out.
+                if not self.isWindow():
+                    self.setVisible(True)
             else:
                 # No credits, keep widget hidden
                 self.setVisible(False)

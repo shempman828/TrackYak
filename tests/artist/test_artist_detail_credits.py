@@ -13,15 +13,16 @@ from Album.release_year (the old code read a non-existent `year`
 attribute, so it was always blank).
 """
 
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.artist.detail.artist_detail import ArtistDetailTab
+from src.artist.detail.artist_detail_awards import AwardsWidget
 from src.artist.detail.artist_detail_credits import CreditsWidget, RoleSection
 from src.db.db_helpers.get import GetFromDB
-from src.db.db_tables import Album, AlbumRoleAssociation, Artist, Role, Track, TrackArtistRole
+from src.db.db_tables import Album, AlbumRoleAssociation, Artist, Award, AwardAssociation, Role, Track, TrackArtistRole
 from src.db.db_tables.base import Base
 
 
@@ -53,14 +54,8 @@ def _artist_with_credits(session, n_track_credits=6):
     session.add_all([artist, guitar, producer, album, *tracks])
     session.flush()
     for t in tracks:
-        session.add(
-            TrackArtistRole(track_id=t.track_id, artist_id=artist.artist_id, role_id=guitar.role_id)
-        )
-    session.add(
-        AlbumRoleAssociation(
-            album_id=album.album_id, artist_id=artist.artist_id, role_id=producer.role_id
-        )
-    )
+        session.add(TrackArtistRole(track_id=t.track_id, artist_id=artist.artist_id, role_id=guitar.role_id))
+    session.add(AlbumRoleAssociation(album_id=album.album_id, artist_id=artist.artist_id, role_id=producer.role_id))
     session.commit()
     return session.get(Artist, artist.artist_id)
 
@@ -68,6 +63,8 @@ def _artist_with_credits(session, n_track_credits=6):
 def test_credits_render_inline_without_nested_scroll_area(qapp, controller):
     artist = _artist_with_credits(controller.get.session)
     widget = CreditsWidget(artist, controller)
+    holder = QWidget()
+    QVBoxLayout(holder).addWidget(widget)
 
     assert not widget.isHidden()
     # The self-contained nested scroll area (the root cause) is gone.
@@ -143,3 +140,39 @@ def test_widget_hidden_when_artist_has_no_credits(qapp, controller):
 
     widget = CreditsWidget(artist, controller)
     assert widget.isHidden()
+
+
+def test_building_detail_tab_never_shows_a_top_level_window(qapp, controller):
+    """Credits and Awards used to call setVisible(True) on themselves before
+    ArtistDetailTab parented them, briefly mapping a throwaway top-level
+    window. On Wayland that requests an xdg-activation token which is never
+    used, so GNOME kept a busy cursor up after every artist click."""
+    session = controller.get.session
+    artist = _artist_with_credits(session)
+    award = Award(award_name="Test Award", award_year=1972)
+    session.add(award)
+    session.flush()
+    session.add(AwardAssociation(award_id=award.award_id, entity_id=artist.artist_id, entity_type="Artist"))
+    session.commit()
+
+    shown = []
+
+    class _Spy(QWidget):
+        def eventFilter(self, obj, event):
+            if event.type() == event.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+                shown.append(type(obj).__name__)
+            return False
+
+    spy = _Spy()
+    QApplication.instance().installEventFilter(spy)
+    try:
+        tab = ArtistDetailTab(artist, controller)
+    finally:
+        QApplication.instance().removeEventFilter(spy)
+
+    assert shown == []
+    # Both sections still made it into the article.
+    assert tab.findChild(CreditsWidget) is not None
+    assert not tab.findChild(CreditsWidget).isHidden()
+    assert not tab.findChild(AwardsWidget).isHidden()
+    tab.deleteLater()
