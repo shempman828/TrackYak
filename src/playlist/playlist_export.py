@@ -8,10 +8,10 @@ from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
+from src.core.status_widget import show_status_message
 from src.db.db_tables import PlaylistTracks
 from src.foundation.asset_paths import playlist_path
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # Characters that are illegal (or path separators) in a file name on common file systems.
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')

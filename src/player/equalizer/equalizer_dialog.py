@@ -4,9 +4,9 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QComboBox, QDialog, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 
+from src.core.status_widget import show_status_message
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.player.equalizer.equalizer_utility import EqualizerUtility
 
 _AXIS_MARGIN_LEFT = 34
@@ -30,12 +30,7 @@ class FrequencyResponseCurve(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = self.rect()
-        plot_rect = QRectF(
-            _AXIS_MARGIN_LEFT,
-            6,
-            rect.width() - _AXIS_MARGIN_LEFT - _AXIS_MARGIN_RIGHT,
-            rect.height() - 12,
-        )
+        plot_rect = QRectF(_AXIS_MARGIN_LEFT, 6, rect.width() - _AXIS_MARGIN_LEFT - _AXIS_MARGIN_RIGHT, rect.height() - 12)
 
         active = self.equalizer.is_enabled()
         line_color = QColor("#8599ea") if active else QColor("#555e7a")
@@ -54,11 +49,7 @@ class FrequencyResponseCurve(QWidget):
                 font = painter.font()
                 font.setPointSizeF(7.5)
                 painter.setFont(font)
-                painter.drawText(
-                    QRectF(0, y - 7, _AXIS_MARGIN_LEFT - 6, 14),
-                    Qt.AlignRight | Qt.AlignVCenter,
-                    f"{db:+d}" if db else "0",
-                )
+                painter.drawText(QRectF(0, y - 7, _AXIS_MARGIN_LEFT - 6, 14), Qt.AlignRight | Qt.AlignVCenter, f"{db:+d}" if db else "0")
 
         for band in self.equalizer.bands:
             x = self._x_for_freq(band["freq"], plot_rect)
@@ -211,19 +202,12 @@ class EqualizerDialog(QDialog):
             return
 
         # Get preset name from user
-        preset_name, ok = QInputDialog.getText(
-            self,
-            "Save Custom EQ Preset",
-            "Enter preset name:",
-            text=self.config.get_equalizer_custom_preset_name(),
-        )
+        preset_name, ok = QInputDialog.getText(self, "Save Custom EQ Preset", "Enter preset name:", text=self.config.get_equalizer_custom_preset_name())
 
         if ok and preset_name:
             # Save to config
             band_gains = self.equalizer.get_band_gains()
-            self.config.save_equalizer_settings(
-                self.equalizer.is_enabled(), band_gains, preset_name
-            )
+            self.config.save_equalizer_settings(self.equalizer.is_enabled(), band_gains, preset_name)
 
             # Update preset combo if this is a new named preset
             if preset_name != "Custom" and preset_name not in self.equalizer.presets:
@@ -242,13 +226,7 @@ class EqualizerDialog(QDialog):
             show_status_message(self, "Configuration not available")
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Load EQ Settings",
-            "Load equalizer settings from configuration? This will overwrite current settings.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = QMessageBox.question(self, "Load EQ Settings", "Load equalizer settings from configuration? This will overwrite current settings.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
         if reply == QMessageBox.Yes:
             logger.info("Loaded equalizer settings from configuration")
@@ -280,9 +258,7 @@ class EqualizerDialog(QDialog):
             slider.setTickInterval(60)  # 6 dB intervals
             slider.setMinimumHeight(160)
             slider.setToolTip(self._band_tooltip(band))
-            slider.valueChanged.connect(
-                lambda value, idx=band_idx: self.on_slider_changed(idx, value)
-            )
+            slider.valueChanged.connect(lambda value, idx=band_idx: self.on_slider_changed(idx, value))
             self.sliders.append(slider)
             h_layout.addWidget(slider, stretch=1, alignment=Qt.AlignHCenter)
 
@@ -320,9 +296,7 @@ class EqualizerDialog(QDialog):
                 # Get the custom preset name from config
                 custom_name = self.config.get_equalizer_custom_preset_name()
                 band_gains = self.equalizer.get_band_gains()
-                self.config.save_equalizer_settings(
-                    self.equalizer.is_enabled(), band_gains, custom_name
-                )
+                self.config.save_equalizer_settings(self.equalizer.is_enabled(), band_gains, custom_name)
 
         self.last_was_custom = preset_name == "Custom"
 
@@ -368,8 +342,6 @@ class EqualizerDialog(QDialog):
             if current_preset != "Custom":
                 preset_name = current_preset
 
-            self.config.save_equalizer_settings(
-                self.equalizer.is_enabled(), band_gains, preset_name
-            )
+            self.config.save_equalizer_settings(self.equalizer.is_enabled(), band_gains, preset_name)
 
         super().accept()

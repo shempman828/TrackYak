@@ -13,9 +13,9 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton, QVB
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.segmented_control import SegmentedControl
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.place.map.place_map_filter import MultiSelectWidget
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_types import merge_type_selection, order_types_by_hierarchy, type_color, type_label

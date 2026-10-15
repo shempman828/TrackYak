@@ -4,8 +4,8 @@ import copy
 
 from PySide6.QtWidgets import QMessageBox
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.sync.device_card import plural
 from src.sync.sync_selection_mixin import selection_description
 from src.sync.sync_worker import SyncWorker

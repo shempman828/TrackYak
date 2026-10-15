@@ -11,9 +11,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from src.common.widgets.hierarchy_tree_style import configure_hierarchy_tree, icon_for_depth
+from src.core.status_widget import show_status_message
 from src.db.db_tables import Playlist
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog

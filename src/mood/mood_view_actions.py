@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QDialog, QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.hierarchy_tree_style import handle_insert_as_new_relative
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tracks import MoodTracksWindow
 from src.track.track_shuffle import shuffle_and_play
@@ -47,15 +47,11 @@ class MoodActionsMixin:
         if len(real_selected) > 1:
             menu.addSeparator()
             view_tracks_action = QAction(f"View Tracks ({len(real_selected)} moods)", self)
-            view_tracks_action.triggered.connect(
-                lambda: self.view_tracks_for_selected_moods(real_selected)
-            )
+            view_tracks_action.triggered.connect(lambda: self.view_tracks_for_selected_moods(real_selected))
             menu.addAction(view_tracks_action)
 
             shuffle_action = QAction(f"Shuffle ({len(real_selected)} moods)", self)
-            shuffle_action.triggered.connect(
-                lambda: self.shuffle_selected_moods(real_selected)
-            )
+            shuffle_action.triggered.connect(lambda: self.shuffle_selected_moods(real_selected))
             menu.addAction(shuffle_action)
 
             menu.addSeparator()
@@ -125,15 +121,9 @@ class MoodActionsMixin:
     def _load_tracks_for_moods(self, mood_ids: list) -> list | None:
         """Fetch the deduplicated tracks directly associated with one or more moods, or None on error."""
         try:
-            associations = self.controller.get.get_all_entities(
-                "MoodTrackAssociation", mood_id__in=mood_ids
-            )
+            associations = self.controller.get.get_all_entities("MoodTrackAssociation", mood_id__in=mood_ids)
             track_ids = list({a.track_id for a in associations})
-            return (
-                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
-                if track_ids
-                else []
-            )
+            return self.controller.get.get_all_entities("Track", track_id__in=track_ids) if track_ids else []
         except SQLAlchemyError as e:
             logger.error(f"Error loading tracks for moods {mood_ids}: {e}")
             QMessageBox.critical(self, "Error", "Failed to load tracks for moods")
@@ -147,11 +137,7 @@ class MoodActionsMixin:
             return
 
         names = ", ".join(it.text(0) for it in items)
-        tracks_window = BaseTrackView(
-            controller=self.controller,
-            tracks=tracks,
-            title=f"Tracks in {len(mood_ids)} moods: {names}",
-        )
+        tracks_window = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks in {len(mood_ids)} moods: {names}")
         tracks_window.exec_()
 
     def shuffle_selected_mood(self):
@@ -277,13 +263,7 @@ class MoodActionsMixin:
         if not self.current_mood_id:
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            "Are you sure you want to delete this mood and all its associations?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = QMessageBox.question(self, "Confirm Delete", "Are you sure you want to delete this mood and all its associations?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
         if reply == QMessageBox.Yes:
             try:
@@ -301,13 +281,7 @@ class MoodActionsMixin:
         if not mood_ids:
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Are you sure you want to delete {len(mood_ids)} moods and all their associations?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete {len(mood_ids)} moods and all their associations?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 
@@ -324,6 +298,4 @@ class MoodActionsMixin:
         if deleted == len(mood_ids):
             show_status_message(self, f"Deleted {deleted} moods successfully.")
         else:
-            show_status_message(
-                self, f"Deleted {deleted} of {len(mood_ids)} moods; see log for details."
-            )
+            show_status_message(self, f"Deleted {deleted} of {len(mood_ids)} moods; see log for details.")

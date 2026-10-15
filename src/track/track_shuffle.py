@@ -6,8 +6,8 @@
 from pathlib import Path
 import random
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # Above this many tracks the queue is filled on a background thread (the
 # same threshold TrackView's "Add/Shuffle to Queue" actions use), so

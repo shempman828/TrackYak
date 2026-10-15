@@ -2,11 +2,12 @@
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
+from PySide6.QtWidgets import QDialog, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
 from src.common.widgets.style_utils import set_style_property
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager
 
 _MARGIN = 12
 _MIN_WIDTH = 260
@@ -151,3 +152,18 @@ class StatusBarWidget(QWidget):
         if watched is self.parent() and self.isVisible() and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
             self._position()
         return super().eventFilter(watched, event)
+
+
+def show_status_message(widget, message: str, duration: int = 4000):
+    """Show a non-blocking toast on the dialog that holds `widget`, else on the main status bar."""
+    # A modal dialog gets its own StatusBarWidget, so the toast is not hidden behind the dialog.
+    window = widget.window()
+    if not isinstance(window, QDialog):
+        StatusManager.show_message(message, duration)
+        return
+
+    status_widget = getattr(window, "_local_status_widget", None)
+    if status_widget is None:
+        status_widget = StatusBarWidget(window)
+        window._local_status_widget = status_widget
+    status_widget.show_message(message, duration)

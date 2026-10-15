@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QHBo
 from src.common.cancellable_worker import CancellableWorker
 from src.common.dialogs.fuzzy_match_dialog import BaseFuzzyMatchDialog
 from src.common.widgets.qt_text import esc_amp
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # Longest a publisher name is allowed to render in the match list before
 # being elided, so one very long name can't blow out the column width

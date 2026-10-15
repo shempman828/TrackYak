@@ -8,8 +8,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.layout_utils import clear_layout
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.view.base_track_view import BaseTrackView
 
 
@@ -266,18 +266,10 @@ class RoleDetailTab(QWidget):
             role_name = self._get_role_name()
 
             # Create and show the BaseTrackView
-            track_view = BaseTrackView(
-                controller=self.controller,
-                tracks=tracks,
-                title=f"Tracks by {artist_name} as {role_name}",
-                enable_drag=True,
-                enable_drop=False,
-            )
+            track_view = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks by {artist_name} as {role_name}", enable_drag=True, enable_drop=False)
             track_view.exec_()
 
-            logger.info(
-                f"Showing {len(tracks)} tracks for artist {artist_name} in role {role_name}"
-            )
+            logger.info(f"Showing {len(tracks)} tracks for artist {artist_name} in role {role_name}")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error showing tracks for artist {artist_id}: {e}", exc_info=True)
@@ -300,13 +292,7 @@ class RoleDetailTab(QWidget):
                 return
 
             role_name = self._get_role_name()
-            track_view = BaseTrackView(
-                controller=self.controller,
-                tracks=tracks,
-                title=f"Tracks - {role_name}",
-                enable_drag=True,
-                enable_drop=False,
-            )
+            track_view = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks - {role_name}", enable_drag=True, enable_drop=False)
             track_view.exec_()
 
         except (SQLAlchemyError, RuntimeError) as e:
@@ -319,36 +305,21 @@ class RoleDetailTab(QWidget):
 
         try:
             # Album roles: get albums where artist has this role, then get tracks from those albums
-            album_links = (
-                self.controller.get.get_all_entities(
-                    "AlbumRoleAssociation", role_id=self.role_id, artist_id=artist_id
-                )
-                or []
-            )
+            album_links = self.controller.get.get_all_entities("AlbumRoleAssociation", role_id=self.role_id, artist_id=artist_id) or []
 
             for link in album_links:
-                album_tracks = (
-                    self.controller.get.get_entity_links("AlbumTracks", album_id=link.album_id)
-                    or []
-                )
+                album_tracks = self.controller.get.get_entity_links("AlbumTracks", album_id=link.album_id) or []
 
                 for album_track in album_tracks:
                     if album_track.track_id in seen_track_ids:
                         continue
-                    track = self.controller.get.get_entity_object(
-                        "Track", track_id=album_track.track_id
-                    )
+                    track = self.controller.get.get_entity_object("Track", track_id=album_track.track_id)
                     if track:
                         tracks.append(track)
                         seen_track_ids.add(album_track.track_id)
 
             # Track roles: directly get tracks where artist has this role
-            track_links = (
-                self.controller.get.get_all_entities(
-                    "TrackArtistRole", role_id=self.role_id, artist_id=artist_id
-                )
-                or []
-            )
+            track_links = self.controller.get.get_all_entities("TrackArtistRole", role_id=self.role_id, artist_id=artist_id) or []
 
             for link in track_links:
                 if link.track_id in seen_track_ids:
@@ -386,12 +357,8 @@ class RoleDetailTab(QWidget):
         self.artist_filter.clear()
 
         try:
-            album_links = (
-                self.controller.get.get_all_entities("AlbumRoleAssociation", role_id=role_id) or []
-            )
-            track_links = (
-                self.controller.get.get_all_entities("TrackArtistRole", role_id=role_id) or []
-            )
+            album_links = self.controller.get.get_all_entities("AlbumRoleAssociation", role_id=role_id) or []
+            track_links = self.controller.get.get_all_entities("TrackArtistRole", role_id=role_id) or []
 
             album_count = len(album_links)
             track_count = len(track_links)
@@ -428,15 +395,7 @@ class RoleDetailTab(QWidget):
                 if artist:
                     a_count = album_counts.get(artist_id, 0)
                     t_count = track_counts.get(artist_id, 0)
-                    artists_display.append(
-                        {
-                            "artist": artist,
-                            "artist_id": artist_id,
-                            "album_count": a_count,
-                            "track_count": t_count,
-                            "total": a_count + t_count,
-                        }
-                    )
+                    artists_display.append({"artist": artist, "artist_id": artist_id, "album_count": a_count, "track_count": t_count, "total": a_count + t_count})
 
             # Sort by total appearances descending
             sorted_artists = sorted(artists_display, key=lambda x: x["total"], reverse=True)
@@ -461,12 +420,8 @@ class RoleDetailTab(QWidget):
                 # Also store in map for quick access if needed
                 self.artist_data_map[data["artist_id"]] = data
 
-            self.artist_count_label.setText(
-                f"{len(sorted_artists)} artist{'s' if len(sorted_artists) != 1 else ''}"
-            )
-            self.meta_label.setText(
-                f"{len(sorted_artists)} artists · {track_count} tracks · {album_count} albums"
-            )
+            self.artist_count_label.setText(f"{len(sorted_artists)} artist{'s' if len(sorted_artists) != 1 else ''}")
+            self.meta_label.setText(f"{len(sorted_artists)} artists · {track_count} tracks · {album_count} albums")
 
             logger.info(f"Loaded {len(sorted_artists)} artists for role {role_id}")
 

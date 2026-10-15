@@ -75,10 +75,10 @@ from sqlalchemy.orm import selectinload
 from src.analysis.batch_analysis_scheduler import recommended_worker_count
 from src.common.cancellable_worker import CancellableWorker
 from src.common.eta_estimator import estimate_remaining
+from src.core.status_widget import show_status_message
 from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.library.duplicates.fingerprint_matching import score_fingerprint_batch
 from src.track.view.base_track_view import BaseTrackView
 

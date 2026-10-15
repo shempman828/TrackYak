@@ -6,8 +6,8 @@ from src.album.album_merge import AlbumMerge
 from src.album.edit.album_new import NewAlbumDialog
 from src.album.edit.base_album_widget import AlbumWidget
 from src.common.widgets.qt_text import esc_amp
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class AlbumContextMenuMixin:
@@ -40,23 +40,17 @@ class AlbumContextMenuMixin:
         if target_album_widget is not None:
             album = target_album_widget.album
 
-            queue_action = menu.addAction(
-                f"▶ Add to Queue: {esc_amp(getattr(album, 'album_name', 'Album'))}"
-            )
+            queue_action = menu.addAction(f"▶ Add to Queue: {esc_amp(getattr(album, 'album_name', 'Album'))}")
             queue_action.triggered.connect(lambda: self._add_album_to_queue(album))
 
             menu.addSeparator()
 
-            merge_action = menu.addAction(
-                f"🔀 Merge {esc_amp(getattr(album, 'album_name', 'Album'))}…"
-            )
+            merge_action = menu.addAction(f"🔀 Merge {esc_amp(getattr(album, 'album_name', 'Album'))}…")
             merge_action.triggered.connect(lambda: self._merge_album(album))
 
             menu.addSeparator()
 
-            delete_action = menu.addAction(
-                f"🗑 Delete {esc_amp(getattr(album, 'album_name', 'Album'))}"
-            )
+            delete_action = menu.addAction(f"🗑 Delete {esc_amp(getattr(album, 'album_name', 'Album'))}")
             delete_action.triggered.connect(lambda: self._delete_album(album))
             menu.addSeparator()
 
@@ -99,9 +93,7 @@ class AlbumContextMenuMixin:
         """Retrieve the queue manager from the controller or media player."""
         if hasattr(self.controller, "queue_manager"):
             return self.controller.queue_manager
-        if hasattr(self.controller, "mediaplayer") and hasattr(
-            self.controller.mediaplayer, "queue_manager"
-        ):
+        if hasattr(self.controller, "mediaplayer") and hasattr(self.controller.mediaplayer, "queue_manager"):
             return self.controller.mediaplayer.queue_manager
         logger.warning("Queue manager not found in controller")
         return None
@@ -158,22 +150,13 @@ class AlbumContextMenuMixin:
         # whole operation as failed when the album itself was created fine.
         if dlg.artist_name:
             try:
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_name=dlg.artist_name
-                )
+                artist = self.controller.get.get_entity_object("Artist", artist_name=dlg.artist_name)
                 if not artist:
                     artist = self.controller.add.add_entity("Artist", artist_name=dlg.artist_name)
-                self.controller.add.add_entity(
-                    "AlbumRoleAssociation",
-                    album_id=new_album.album_id,
-                    artist_id=artist.artist_id,
-                    role_id=1,
-                )
+                self.controller.add.add_entity("AlbumRoleAssociation", album_id=new_album.album_id, artist_id=artist.artist_id, role_id=1)
             except SQLAlchemyError as e:
                 logger.exception("Failed to link artist to new album")
-                QMessageBox.critical(
-                    self, "Error", f"Album created, but could not link artist:\n{e}"
-                )
+                QMessageBox.critical(self, "Error", f"Album created, but could not link artist:\n{e}")
 
         self.load_albums()
 
@@ -187,15 +170,10 @@ class AlbumContextMenuMixin:
 
         msg = f'Delete "{name}"?'
         if track_count:
-            msg += (
-                f"\n\nThis album has {track_count} track(s). "
-                "Tracks will be disassociated but not removed from your library."
-            )
+            msg += f"\n\nThis album has {track_count} track(s). Tracks will be disassociated but not removed from your library."
         msg += "\n\nThis action cannot be undone."
 
-        reply = QMessageBox.question(
-            self, "Confirm Delete", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        reply = QMessageBox.question(self, "Confirm Delete", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 

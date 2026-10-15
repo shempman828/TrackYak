@@ -6,10 +6,10 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTree
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.status_widget import show_status_message
 from src.db.db_tables import AlbumPublisher
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
 
 # Filter keys shared with PublisherView's combo boxes (stored as their item data).

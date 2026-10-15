@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMessageBox, QP
 
 from src.analysis.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.metadata.writers.metadata_writer import MetadataWriter
 from src.track.edit.track_edit_basetab import _BaseTab
 from src.track.edit.track_edit_fieldform import FieldFormTab

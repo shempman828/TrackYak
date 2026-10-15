@@ -23,12 +23,9 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 
 
 def _make_table(headers, editable=True):
@@ -152,15 +149,10 @@ class PlacesAwardsTab(QWidget):
         # ── Places ──────────────────────────────────────────────────────────
         places_grp = QGroupBox("Associated Places")
         pl_layout = QVBoxLayout(places_grp)
-        self.places_table = _make_table(
-            ["Place Name", "Association Type", "Place Type", "Region/Country"], editable=False
-        )
+        self.places_table = _make_table(["Place Name", "Association Type", "Place Type", "Region/Country"], editable=False)
         self.places_table.cellDoubleClicked.connect(lambda row, _col: self._edit_place(row))
         pl_layout.addWidget(self.places_table)
-        place_help = QLabel(
-            "You can type a new place name — it will be created automatically if it "
-            "doesn't exist yet."
-        )
+        place_help = QLabel("You can type a new place name — it will be created automatically if it doesn't exist yet.")
         place_help.setWordWrap(True)
         place_help.setProperty("textRole", "muted")
         pl_layout.addWidget(place_help)
@@ -181,9 +173,7 @@ class PlacesAwardsTab(QWidget):
 
         self.new_place_assoc_edit = QLineEdit()
         self.new_place_assoc_edit.setPlaceholderText("Relationship (e.g. Birthplace, Hometown)")
-        self._assoc_type_completer = QCompleter(
-            [t.type_name for t in fetch_association_types(self.controller)]
-        )
+        self._assoc_type_completer = QCompleter([t.type_name for t in fetch_association_types(self.controller)])
         self._assoc_type_completer.setCaseSensitivity(Qt.CaseInsensitive)
         self._assoc_type_completer.setFilterMode(Qt.MatchContains)
         self.new_place_assoc_edit.setCompleter(self._assoc_type_completer)
@@ -192,13 +182,9 @@ class PlacesAwardsTab(QWidget):
         add_place_btn.clicked.connect(self._add_place)
         edit_place_btn = QPushButton("Edit Selected")
         edit_place_btn.setToolTip("Edit the relationship type of the selected place link")
-        edit_place_btn.clicked.connect(
-            lambda: _with_selected_row(self, self.places_table, self._edit_place)
-        )
+        edit_place_btn.clicked.connect(lambda: _with_selected_row(self, self.places_table, self._edit_place))
         rm_place_btn = QPushButton("Unlink Selected")
-        rm_place_btn.clicked.connect(
-            lambda: _with_selected_row(self, self.places_table, self._remove_place)
-        )
+        rm_place_btn.clicked.connect(lambda: _with_selected_row(self, self.places_table, self._remove_place))
 
         pl_add_row.addWidget(self.new_place_edit, 3)
         pl_add_row.addWidget(self.new_place_assoc_edit, 2)
@@ -213,10 +199,7 @@ class PlacesAwardsTab(QWidget):
         aw_layout = QVBoxLayout(awards_grp)
         self.awards_table = _make_table(["Award Name", "Category", "Year"], editable=False)
         aw_layout.addWidget(self.awards_table)
-        award_help = QLabel(
-            "You can type a new award name — it will be created automatically if it "
-            "doesn't exist yet."
-        )
+        award_help = QLabel("You can type a new award name — it will be created automatically if it doesn't exist yet.")
         award_help.setWordWrap(True)
         award_help.setProperty("textRole", "muted")
         aw_layout.addWidget(award_help)
@@ -227,9 +210,7 @@ class PlacesAwardsTab(QWidget):
         add_award_btn = QPushButton("Link Award")
         add_award_btn.clicked.connect(self._add_award)
         rm_award_btn = QPushButton("Unlink Selected")
-        rm_award_btn.clicked.connect(
-            lambda: _with_selected_row(self, self.awards_table, self._remove_award)
-        )
+        rm_award_btn.clicked.connect(lambda: _with_selected_row(self, self.awards_table, self._remove_award))
         aw_add_row.addWidget(self.new_award_edit, 3)
         aw_add_row.addWidget(add_award_btn)
         aw_add_row.addWidget(rm_award_btn)
@@ -248,40 +229,23 @@ class PlacesAwardsTab(QWidget):
         # returns [] on failure rather than raising, so there is exactly one
         # source of truth here -- no dead-except fallback to artist.places.
         self.places_table.setRowCount(0)
-        place_assocs = self.controller.get.get_all_entities(
-            "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
-        )
+        place_assocs = self.controller.get.get_all_entities("PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist")
         for assoc in place_assocs or []:
             if assoc.place is None:
                 continue
             _append_row(
                 self.places_table,
-                [
-                    assoc.place.place_name,
-                    assoc.association_type.type_name if assoc.association_type else "",
-                    assoc.place.place_type or "",
-                    _parent_place_name(assoc.place),
-                ],
+                [assoc.place.place_name, assoc.association_type.type_name if assoc.association_type else "", assoc.place.place_type or "", _parent_place_name(assoc.place)],
                 user_data=assoc.association_id,
             )
 
     def _load_awards(self):
         self.awards_table.setRowCount(0)
-        award_assocs = self.controller.get.get_all_entities(
-            "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
-        )
+        award_assocs = self.controller.get.get_all_entities("AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist")
         for assoc in award_assocs or []:
             if assoc.award is None:
                 continue
-            _append_row(
-                self.awards_table,
-                [
-                    assoc.award.award_name,
-                    assoc.award.award_category or "",
-                    assoc.award.award_year or "",
-                ],
-                user_data=assoc.association_id,
-            )
+            _append_row(self.awards_table, [assoc.award.award_name, assoc.award.award_category or "", assoc.award.award_year or ""], user_data=assoc.association_id)
 
     def _add_place(self):
         name = self.new_place_edit.text().strip()
@@ -290,16 +254,12 @@ class PlacesAwardsTab(QWidget):
             return
         association_type = self.new_place_assoc_edit.text().strip()
         if not association_type:
-            show_status_message(
-                self, "Please enter the relationship type (e.g. Birthplace, Hometown)."
-            )
+            show_status_message(self, "Please enter the relationship type (e.g. Birthplace, Hometown).")
             return
 
         try:
             if self._selected_place_id is not None:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=self._selected_place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=self._selected_place_id)
                 if place is None:
                     # The place picked from the completer no longer exists
                     # (e.g. deleted elsewhere since); fall back to a
@@ -320,17 +280,11 @@ class PlacesAwardsTab(QWidget):
             return
 
         known_types = fetch_association_types(self.controller)
-        assoc_type_obj = find_or_create_association_type(
-            self.controller, association_type, known_types
-        )
+        assoc_type_obj = find_or_create_association_type(self.controller, association_type, known_types)
 
         try:
             self.controller.add.add_entity(
-                "PlaceAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
-                place_id=place.place_id,
-                association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
+                "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist", place_id=place.place_id, association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None
             )
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")
@@ -357,14 +311,8 @@ class PlacesAwardsTab(QWidget):
             show_status_message(self, "Please enter the relationship type.")
             return
 
-        assoc_type_obj = find_or_create_association_type(
-            self.controller, new_type_name, fetch_association_types(self.controller)
-        )
-        success = self.controller.update.update_entity(
-            "PlaceAssociation",
-            assoc_id,
-            association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
-        )
+        assoc_type_obj = find_or_create_association_type(self.controller, new_type_name, fetch_association_types(self.controller))
+        success = self.controller.update.update_entity("PlaceAssociation", assoc_id, association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None)
         if not success:
             QMessageBox.critical(self, "Error", "Could not update relationship type.")
             return
@@ -397,12 +345,7 @@ class PlacesAwardsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Could not find/create award:\n{e}")
             return
         try:
-            self.controller.add.add_entity(
-                "AwardAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
-                award_id=award.award_id,
-            )
+            self.controller.add.add_entity("AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist", award_id=award.award_id)
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not link award:\n{e}")
             return
@@ -438,9 +381,7 @@ class PlacesAwardsTab(QWidget):
 
     def _reload_and_refresh(self):
         try:
-            refreshed = self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
+            refreshed = self.controller.get.get_entity_object("Artist", artist_id=self.artist.artist_id)
             if refreshed:
                 self.artist = refreshed
         except SQLAlchemyError as e:
@@ -458,6 +399,4 @@ class PlacesAwardsTab(QWidget):
         self._place_completer.setModel(_build_place_completer_model(self.controller))
         assoc_model = self._assoc_type_completer.model()
         if isinstance(assoc_model, QStringListModel):
-            assoc_model.setStringList(
-                [t.type_name for t in fetch_association_types(self.controller)]
-            )
+            assoc_model.setStringList([t.type_name for t in fetch_association_types(self.controller)])

@@ -25,8 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.award.award_detail import AwardDetailTab
 from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
 from src.common.widgets.multi_select_filter_button import MultiSelectFilterButton
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class AwardView(QWidget):
@@ -146,11 +146,7 @@ class AwardView(QWidget):
         # Only show delete action if one or more items are selected
         selected_items = self.award_tree.selectedItems()
         if selected_items:
-            label = (
-                f"Delete {len(selected_items)} Awards"
-                if len(selected_items) > 1
-                else "Delete Award"
-            )
+            label = f"Delete {len(selected_items)} Awards" if len(selected_items) > 1 else "Delete Award"
             delete_action = menu.addAction(label)
             delete_action.triggered.connect(self._delete_selected_award)
 
@@ -203,13 +199,9 @@ class AwardView(QWidget):
             self.name_filter.set_values(sorted({a.award_name for a in awards}))
 
             # Restore selections if possible
-            if current_year in [
-                self.year_filter.itemText(i) for i in range(self.year_filter.count())
-            ]:
+            if current_year in [self.year_filter.itemText(i) for i in range(self.year_filter.count())]:
                 self.year_filter.setCurrentText(current_year)
-            if current_category in [
-                self.category_filter.itemText(i) for i in range(self.category_filter.count())
-            ]:
+            if current_category in [self.category_filter.itemText(i) for i in range(self.category_filter.count())]:
                 self.category_filter.setCurrentText(current_category)
 
         finally:
@@ -290,11 +282,7 @@ class AwardView(QWidget):
         # Apply text search
         if search_text:
             filtered = [
-                a
-                for a in filtered
-                if search_text in a.award_name.lower()
-                or (a.award_category and search_text in a.award_category.lower())
-                or (a.award_year and search_text in str(a.award_year))
+                a for a in filtered if search_text in a.award_name.lower() or (a.award_category and search_text in a.award_category.lower()) or (a.award_year and search_text in str(a.award_year))
             ]
 
         # Apply year filter
@@ -437,9 +425,7 @@ class AwardView(QWidget):
 
         if self._current_detail is not None and hasattr(self._current_detail, "award"):
             try:
-                updated_award = self.controller.get.get_entity_object(
-                    "Award", award_id=self._current_detail.award.award_id
-                )
+                updated_award = self.controller.get.get_entity_object("Award", award_id=self._current_detail.award.award_id)
                 if updated_award:
                     self._current_detail.award = updated_award
             except (SQLAlchemyError, RuntimeError) as e:
@@ -467,12 +453,8 @@ class AwardView(QWidget):
                 return
 
             # Prevent circular chains (dropping onto a descendant)
-            if new_parent_id is not None and is_hierarchy_descendant(
-                dragged_award_id, new_parent_id, self.all_awards, id_attr="award_id"
-            ):
-                logger.warning(
-                    f"Rejected drop: award {new_parent_id} is a descendant of {dragged_award_id}"
-                )
+            if new_parent_id is not None and is_hierarchy_descendant(dragged_award_id, new_parent_id, self.all_awards, id_attr="award_id"):
+                logger.warning(f"Rejected drop: award {new_parent_id} is a descendant of {dragged_award_id}")
                 event.ignore()
                 return
 
@@ -510,18 +492,12 @@ class AwardView(QWidget):
         all_ids_to_delete: list[int] = list(selected_ids)
 
         # Build confirmation message
-        has_children = any(
-            a.parent_id in selected_ids for a in self.all_awards if a.award_id not in selected_ids
-        )
+        has_children = any(a.parent_id in selected_ids for a in self.all_awards if a.award_id not in selected_ids)
 
         if len(awards_to_delete) == 1:
             award_name = awards_to_delete[0].award_name
             if has_children:
-                message = (
-                    f"'{award_name}' has child awards. Deleting it will make those "
-                    f"child awards top-level awards; they will not be deleted."
-                    f"\n\nAre you sure you want to continue?"
-                )
+                message = f"'{award_name}' has child awards. Deleting it will make those child awards top-level awards; they will not be deleted.\n\nAre you sure you want to continue?"
                 title = "Delete Award with Children"
             else:
                 message = f"Are you sure you want to delete '{award_name}'?"
@@ -530,15 +506,10 @@ class AwardView(QWidget):
             names = ", ".join(f"'{a.award_name}'" for a in awards_to_delete)
             message = f"Are you sure you want to delete {len(awards_to_delete)} awards: {names}?"
             if has_children:
-                message += (
-                    "\n\nSome of these have child awards, which will become "
-                    "top-level awards rather than being deleted."
-                )
+                message += "\n\nSome of these have child awards, which will become top-level awards rather than being deleted."
             title = "Delete Multiple Awards"
 
-        reply = QMessageBox.question(
-            self, title, message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        reply = QMessageBox.question(self, title, message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
         if reply != QMessageBox.Yes:
             return
@@ -548,11 +519,7 @@ class AwardView(QWidget):
             self._is_deleting = True
 
             # Clear the detail panel if it's showing an award being deleted
-            if (
-                self._current_detail is not None
-                and hasattr(self._current_detail, "award")
-                and self._current_detail.award.award_id in all_ids_to_delete
-            ):
+            if self._current_detail is not None and hasattr(self._current_detail, "award") and self._current_detail.award.award_id in all_ids_to_delete:
                 self._clear_detail()
 
             # Delete each award (delete associations first to avoid FK errors)
@@ -560,13 +527,9 @@ class AwardView(QWidget):
             for award_id in all_ids_to_delete:
                 try:
                     # Remove any AwardAssociation rows that reference this award
-                    associations = self.controller.get.get_all_entities(
-                        "AwardAssociation", award_id=award_id
-                    )
+                    associations = self.controller.get.get_all_entities("AwardAssociation", award_id=award_id)
                     for assoc in associations:
-                        self.controller.delete.delete_entity(
-                            "AwardAssociation", assoc.association_id
-                        )
+                        self.controller.delete.delete_entity("AwardAssociation", assoc.association_id)
                 except SQLAlchemyError as e:
                     logger.warning(f"Could not remove associations for award {award_id}: {e}")
 

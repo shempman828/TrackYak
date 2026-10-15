@@ -3,8 +3,8 @@ from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, Q
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 _INFLUENCE_ROLE = Qt.UserRole
 

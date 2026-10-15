@@ -9,9 +9,9 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
+from src.core.status_widget import show_status_message
 from src.db.db_tables import PlaylistTracks
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.view.base_track_view import BaseTrackView
 
 

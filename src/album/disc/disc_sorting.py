@@ -5,8 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.release_type_utils import is_single
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # Sentinel distinct from any real side value (including None, which means
 # "no side") so the first track in a group always triggers the group-start

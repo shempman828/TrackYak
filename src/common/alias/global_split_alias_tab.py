@@ -30,21 +30,15 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.entity_completer_edit import (
-    build_entity_search_widget,
-    find_or_create_by_name,
-    get_cached_entities,
-)
+from src.common.widgets.entity_completer_edit import build_entity_search_widget, find_or_create_by_name, get_cached_entities
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class _SplitAliasEditDialog(QDialog):
     """Popup for editing an existing split-alias rule's target set."""
 
-    def __init__(
-        self, controller, model_name, name_field, id_field, alias_name, target_names, parent=None
-    ):
+    def __init__(self, controller, model_name, name_field, id_field, alias_name, target_names, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Split Alias")
         self.setMinimumWidth(420)
@@ -56,11 +50,7 @@ class _SplitAliasEditDialog(QDialog):
         form.addRow("Combined Name:", self.name_label)
 
         self.targets_edit = build_entity_search_widget(
-            controller=controller,
-            model_name=model_name,
-            name_field=name_field,
-            id_field=id_field,
-            placeholder_text=f"Target {model_name.lower()}s, separated by ;",
+            controller=controller, model_name=model_name, name_field=name_field, id_field=id_field, placeholder_text=f"Target {model_name.lower()}s, separated by ;"
         )
         self.targets_edit.setText(";".join(target_names))
         form.addRow("Splits Into:", self.targets_edit)
@@ -103,12 +93,7 @@ class GlobalSplitAliasTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        layout.addWidget(
-            QLabel(
-                f"A combined name here auto-splits into every listed {self.model_name.lower()} "
-                "on import or manual add, instead of creating one combined entity."
-            )
-        )
+        layout.addWidget(QLabel(f"A combined name here auto-splits into every listed {self.model_name.lower()} on import or manual add, instead of creating one combined entity."))
 
         add_row = QHBoxLayout()
         self.name_edit = QLineEdit()
@@ -116,11 +101,7 @@ class GlobalSplitAliasTab(QWidget):
         add_row.addWidget(self.name_edit, 1)
 
         self.targets_edit = build_entity_search_widget(
-            controller=self.controller,
-            model_name=self.model_name,
-            name_field=self.name_field,
-            id_field=self.id_field,
-            placeholder_text="Splits into, e.g. Viola;Violin",
+            controller=self.controller, model_name=self.model_name, name_field=self.name_field, id_field=self.id_field, placeholder_text="Splits into, e.g. Viola;Violin"
         )
         add_row.addWidget(self.targets_edit, 1)
 
@@ -177,11 +158,7 @@ class GlobalSplitAliasTab(QWidget):
         actions_layout.setSpacing(4)
         edit_btn = QPushButton("Edit")
         edit_btn.setFlat(True)
-        edit_btn.clicked.connect(
-            lambda checked=False, name=alias_name, targets=target_names: self._edit_rule(
-                name, targets
-            )
-        )
+        edit_btn.clicked.connect(lambda checked=False, name=alias_name, targets=target_names: self._edit_rule(name, targets))
         delete_btn = QPushButton("✕")
         delete_btn.setFlat(True)
         delete_btn.setToolTip("Delete this rule")
@@ -209,9 +186,7 @@ class GlobalSplitAliasTab(QWidget):
                 self.name_field,
                 name,
                 known_entities,
-                extra_lookup=lambda name=name: self.controller.get.resolve_entity_or_alias(
-                    self.model_name, self.name_field, name
-                ),
+                extra_lookup=lambda name=name: self.controller.get.resolve_entity_or_alias(self.model_name, self.name_field, name),
             )
             if entity is None:
                 return None
@@ -248,15 +223,7 @@ class GlobalSplitAliasTab(QWidget):
         self.reload()
 
     def _edit_rule(self, alias_name: str, current_targets: list[str]):
-        dlg = _SplitAliasEditDialog(
-            self.controller,
-            self.model_name,
-            self.name_field,
-            self.id_field,
-            alias_name,
-            current_targets,
-            parent=self,
-        )
+        dlg = _SplitAliasEditDialog(self.controller, self.model_name, self.name_field, self.id_field, alias_name, current_targets, parent=self)
         if dlg.exec_() != QDialog.Accepted:
             return
 
@@ -274,13 +241,7 @@ class GlobalSplitAliasTab(QWidget):
         self.reload()
 
     def _delete_rule(self, alias_name: str):
-        reply = QMessageBox.question(
-            self,
-            "Delete Split Alias",
-            f"Delete the split rule for <b>{alias_name}</b>?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = QMessageBox.question(self, "Delete Split Alias", f"Delete the split rule for <b>{alias_name}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
         try:

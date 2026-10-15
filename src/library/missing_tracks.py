@@ -1,7 +1,7 @@
 from pathlib import Path
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.view.base_track_view import BaseTrackView
 
 

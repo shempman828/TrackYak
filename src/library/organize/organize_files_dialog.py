@@ -5,10 +5,10 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon, Qt
 from PySide6.QtWidgets import QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QVBoxLayout
 
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.library.organize.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.library.organize.file_organizer_preview_dialog import OrganizationPreviewDialog
 

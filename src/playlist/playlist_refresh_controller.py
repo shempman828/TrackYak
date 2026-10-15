@@ -5,8 +5,8 @@ from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.playlist.smart.playlist_smart_builder import SmartPlaylistBuilder
 
 

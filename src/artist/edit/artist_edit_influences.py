@@ -4,33 +4,13 @@
 from typing import ClassVar
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QMenu, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.edit.artist_edit_influences_widgets import (
-    _DIRECTION_COLOR,
-    DIR_INFLUENCED,
-    DIR_INFLUENCER,
-    _AddInfluenceBar,
-    _EditDescriptionDialog,
-    _FilterChips,
-    _relationship_sentence,
-)
+from src.artist.edit.artist_edit_influences_widgets import _DIRECTION_COLOR, DIR_INFLUENCED, DIR_INFLUENCER, _AddInfluenceBar, _EditDescriptionDialog, _FilterChips, _relationship_sentence
 from src.common.widgets.entity_completer_context import artist_context_map
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # ── artist lookup / completer plumbing ──────────────────────────────────────
 
@@ -135,9 +115,7 @@ class InfluencesTab(QWidget):
         self.table.cellDoubleClicked.connect(lambda row, _col: self._handle_edit_description(row))
         layout.addWidget(self.table, 1)
 
-        self.add_bar = _AddInfluenceBar(
-            on_add=self._handle_add, artist_name=getattr(self.artist, "artist_name", None)
-        )
+        self.add_bar = _AddInfluenceBar(on_add=self._handle_add, artist_name=getattr(self.artist, "artist_name", None))
         layout.addWidget(self.add_bar)
 
         remove_row = QHBoxLayout()
@@ -159,21 +137,11 @@ class InfluencesTab(QWidget):
         self.filter_chips.set_artist_name(artist_name)
         self.add_bar.set_artist_name(artist_name)
         self._rows = [
-            {
-                "direction": DIR_INFLUENCED,
-                "name": rel.influenced.artist_name,
-                "description": rel.description or "",
-                "other_id": rel.influenced.artist_id,
-            }
+            {"direction": DIR_INFLUENCED, "name": rel.influenced.artist_name, "description": rel.description or "", "other_id": rel.influenced.artist_id}
             for rel in getattr(artist, "influencer_relations", [])
             if rel.influenced is not None
         ] + [
-            {
-                "direction": DIR_INFLUENCER,
-                "name": rel.influencer.artist_name,
-                "description": rel.description or "",
-                "other_id": rel.influencer.artist_id,
-            }
+            {"direction": DIR_INFLUENCER, "name": rel.influencer.artist_name, "description": rel.description or "", "other_id": rel.influencer.artist_id}
             for rel in getattr(artist, "influenced_relations", [])
             if rel.influencer is not None
         ]
@@ -187,9 +155,7 @@ class InfluencesTab(QWidget):
 
     def _reload_and_refresh(self):
         try:
-            refreshed = self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
+            refreshed = self.controller.get.get_entity_object("Artist", artist_id=self.artist.artist_id)
             if refreshed:
                 self.artist = refreshed
         except SQLAlchemyError as e:
@@ -205,9 +171,7 @@ class InfluencesTab(QWidget):
 
     def _render(self):
         active_filter = self.filter_chips.current_filter()
-        visible = [
-            r for r in self._rows if active_filter is None or r["direction"] == active_filter
-        ]
+        visible = [r for r in self._rows if active_filter is None or r["direction"] == active_filter]
 
         artist_name = getattr(self.artist, "artist_name", None)
 
@@ -241,17 +205,13 @@ class InfluencesTab(QWidget):
         for name in names:
             try:
                 if matched_artist_id is not None:
-                    other = self.controller.get.get_entity_object(
-                        "Artist", artist_id=matched_artist_id
-                    )
+                    other = self.controller.get.get_entity_object("Artist", artist_id=matched_artist_id)
                     other = other[0] if isinstance(other, list) else other
                 else:
                     other = _find_or_create_artist(self.controller, name)
                     # newly created (or newly matched-by-name) artist: make it
                     # immediately available in the completer without a full reload
-                    self.add_bar.register_new_artist(
-                        _artist_display(other), getattr(other, "artist_id", None)
-                    )
+                    self.add_bar.register_new_artist(_artist_display(other), getattr(other, "artist_id", None))
             except SQLAlchemyError as e:
                 errors.append(f"{name}: could not find/create artist ({e})")
                 continue
@@ -267,9 +227,7 @@ class InfluencesTab(QWidget):
                 errors.append(f"{name}: could not add influence ({e})")
 
         if errors:
-            QMessageBox.critical(
-                self, "Error", "Could not add some influences:\n" + "\n".join(errors)
-            )
+            QMessageBox.critical(self, "Error", "Could not add some influences:\n" + "\n".join(errors))
 
         self._reload_and_refresh()
         self.add_bar.clear_inputs()
@@ -300,12 +258,7 @@ class InfluencesTab(QWidget):
             show_status_message(self, "Please select one or more rows first.")
             return
         if len(rows) > 1:
-            reply = QMessageBox.question(
-                self,
-                "Remove Influences",
-                f"Remove {len(rows)} selected influence relations?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
+            reply = QMessageBox.question(self, "Remove Influences", f"Remove {len(rows)} selected influence relations?", QMessageBox.Yes | QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return
         self._delete_influences(rows)
@@ -315,15 +268,11 @@ class InfluencesTab(QWidget):
         for r in rows:
             influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
             try:
-                self.controller.delete.delete_entity(
-                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
-                )
+                self.controller.delete.delete_entity("ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id)
             except SQLAlchemyError as e:
                 errors.append(str(e))
         if errors:
-            QMessageBox.critical(
-                self, "Error", "Could not remove some influences:\n" + "\n".join(errors)
-            )
+            QMessageBox.critical(self, "Error", "Could not remove some influences:\n" + "\n".join(errors))
         self._reload_and_refresh()
 
     def _handle_swap_selected(self):
@@ -349,22 +298,15 @@ class InfluencesTab(QWidget):
                 continue
             influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
             success = self.controller.update.update_entity_by_filter(
-                "ArtistInfluence",
-                {"influencer_id": influencer_id, "influenced_id": influenced_id},
-                influencer_id=influenced_id,
-                influenced_id=influencer_id,
+                "ArtistInfluence", {"influencer_id": influencer_id, "influenced_id": influenced_id}, influencer_id=influenced_id, influenced_id=influencer_id
             )
             if not success:
                 errors.append(r["name"])
 
         if skipped:
-            show_status_message(
-                self, "Skipped — the reverse relationship already exists:\n" + "\n".join(skipped)
-            )
+            show_status_message(self, "Skipped — the reverse relationship already exists:\n" + "\n".join(skipped))
         if errors:
-            QMessageBox.critical(
-                self, "Error", "Could not swap some influences:\n" + "\n".join(errors)
-            )
+            QMessageBox.critical(self, "Error", "Could not swap some influences:\n" + "\n".join(errors))
         self._reload_and_refresh()
 
     def _handle_edit_description(self, row):
@@ -381,11 +323,7 @@ class InfluencesTab(QWidget):
             return
 
         influencer_id, influenced_id = self._row_key(direction, other_id)
-        success = self.controller.update.update_entity_by_filter(
-            "ArtistInfluence",
-            {"influencer_id": influencer_id, "influenced_id": influenced_id},
-            description=dialog.value(),
-        )
+        success = self.controller.update.update_entity_by_filter("ArtistInfluence", {"influencer_id": influencer_id, "influenced_id": influenced_id}, description=dialog.value())
         if not success:
             QMessageBox.critical(self, "Error", "Could not update description.")
             return

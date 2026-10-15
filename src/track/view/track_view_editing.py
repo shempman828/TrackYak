@@ -6,8 +6,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.edit.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # ── Shared by TrackView and BaseTrackView ─────────────────────────────────────

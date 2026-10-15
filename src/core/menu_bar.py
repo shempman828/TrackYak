@@ -9,10 +9,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from src.analysis.analysis_dialog import AudioAnalysisDialog
 from src.common.dialogs.alias_management_dialog import AliasManagementDialog
 from src.core.startup_dialog import LICENSE_FILE
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import ASSETS_DIR, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.foundation.version import get_version
 from src.importing.import_dialog import ImportDialog
 from src.library.artwork.artwork_consistency_dialog import ArtworkConsistencyDialog

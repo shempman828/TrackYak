@@ -18,8 +18,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_context import _place_context, place_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.lyrics.autotag import place_song_about_store
 from src.lyrics.autotag.mood_autotag import SONG_ABOUT_TYPE_NAME
 from src.place.place_association_types import fetch_association_types, find_or_create_association_type

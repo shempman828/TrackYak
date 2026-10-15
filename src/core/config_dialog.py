@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.font_family_worker import FontFamilyWorker
+from src.core.status_widget import show_status_message
 from src.foundation.config_setup import Config
 from src.foundation.display_settings import DisplaySettings
 from src.foundation.logger_config import logger, reconfigure_logging
-from src.foundation.status_utility import show_status_message
 
 
 class ConfigDialog(QDialog):

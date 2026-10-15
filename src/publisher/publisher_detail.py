@@ -6,9 +6,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.layout_utils import clear_layout
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
 from src.publisher.publisher_hierarchy import get_publisher_albums
 from src.track.view.base_track_view import BaseTrackView

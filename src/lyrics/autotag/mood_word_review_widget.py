@@ -14,9 +14,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.common.widgets.flow_layout import FlowLayout
 from src.common.widgets.qt_text import esc_amp
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 _KEYWORDS_PATH = Path(asset("mood_keywords.json"))
 _DISMISSED_PATH = Path(asset("mood_dismissed_words.json"))
@@ -90,9 +90,7 @@ def load_dismissed_words(path: Path) -> set:
 
 
 def _write_dismissed_words(path: Path, words: set) -> None:
-    path.write_text(
-        json.dumps(sorted(words), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(sorted(words), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def dismiss_word(path: Path, word: str) -> bool:
@@ -172,9 +170,7 @@ class MoodWordReviewWidget(QWidget):
         self._word_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._word_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._word_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self._word_table.horizontalHeader().sectionResized.connect(
-            lambda *_args: self._word_table.resizeRowsToContents()
-        )
+        self._word_table.horizontalHeader().sectionResized.connect(lambda *_args: self._word_table.resizeRowsToContents())
         self._word_table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         # ScrollPerPixel alone still lets Qt derive the scrollbar's wheel-
         # notch step (singleStep) from row height, and these rows vary a lot
@@ -228,10 +224,7 @@ class MoodWordReviewWidget(QWidget):
         search = self._search_filter.text().strip().lower()
 
         if self._filter_combo.currentIndex() == self.FILTER_ASSIGNED:
-            rows = [
-                (word, kw_moods[word], False, None)
-                for word in sorted(kw_moods.keys(), key=str.lower)
-            ]
+            rows = [(word, kw_moods[word], False, None) for word in sorted(kw_moods.keys(), key=str.lower)]
         else:
             assigned = _assigned_words()
             existing_keywords = {k.lower() for k in kw_moods}
@@ -315,17 +308,13 @@ class MoodWordReviewWidget(QWidget):
             chip.setProperty("class", "moodChip")
             chip.setToolTip(f"Remove '{mood_name}' from '{word}'")
             chip.setAccessibleName(f"Remove {mood_name}")
-            chip.clicked.connect(
-                lambda _checked, w=word, m=mood_name: self._remove_mood_from_word(w, m)
-            )
+            chip.clicked.connect(lambda _checked, w=word, m=mood_name: self._remove_mood_from_word(w, m))
             flow.addWidget(chip)
 
         add_edit = EntityCompleterEdit("+ mood…")
         add_edit.setMaximumWidth(140)
         add_edit.set_index(self._mood_index)
-        add_edit.returnPressed.connect(
-            lambda w=word, edit=add_edit: self._add_moods_to_word(w, edit)
-        )
+        add_edit.returnPressed.connect(lambda w=word, edit=add_edit: self._add_moods_to_word(w, edit))
         flow.addWidget(add_edit)
         return cell
 
@@ -348,9 +337,7 @@ class MoodWordReviewWidget(QWidget):
                 if single_matched_id is not None:
                     mood = self.controller.get.get_entity_object("Mood", mood_id=single_matched_id)
                 else:
-                    mood = find_or_create_by_name(
-                        self.controller, "Mood", "mood_name", name, self._known_moods
-                    )
+                    mood = find_or_create_by_name(self.controller, "Mood", "mood_name", name, self._known_moods)
                 if mood:
                     moods.append(mood)
         except SQLAlchemyError as e:

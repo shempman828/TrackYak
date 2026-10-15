@@ -3,23 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.base_split_dialog import SplitDBDialog
@@ -33,8 +17,8 @@ from src.common.widgets.hierarchy_tree_style import (
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.role.role_detail_tab import RoleDetailTab
 from src.role.role_edit_dialog import RoleEditDialog
 from src.role.role_loader_worker import RoleLoaderWorker
@@ -116,9 +100,7 @@ class RoleView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         top_row.addWidget(self.flat_view_button)
 
@@ -234,9 +216,7 @@ class RoleView(QWidget):
         if is_loading:
             self.status_bar.setText("Loading…")
 
-    def _on_roles_loaded(
-        self, all_roles: list, album_counts: dict, track_counts: dict, recursive_counts: dict
-    ):
+    def _on_roles_loaded(self, all_roles: list, album_counts: dict, track_counts: dict, recursive_counts: dict):
         """
         Called on the MAIN thread once the background worker finishes.
         Safe to update UI here.
@@ -301,20 +281,9 @@ class RoleView(QWidget):
 
         # Build the tree — uses pre-fetched counts, zero extra queries
         if self.flat_view:
-            root_count = self.tree_builder.build_role_flat(
-                all_roles, role_map, self.role_tree, album_counts, track_counts, recursive_counts
-            )
+            root_count = self.tree_builder.build_role_flat(all_roles, role_map, self.role_tree, album_counts, track_counts, recursive_counts)
         else:
-            root_count = self.tree_builder.build_role_tree(
-                None,
-                children_map,
-                role_map,
-                0,
-                self.role_tree,
-                album_counts,
-                track_counts,
-                recursive_counts,
-            )
+            root_count = self.tree_builder.build_role_tree(None, children_map, role_map, 0, self.role_tree, album_counts, track_counts, recursive_counts)
 
         # Restore expansion state, or expand everything on first build
         restore_expanded_ids_or_expand_all(self.role_tree, expanded_ids, is_initial_load)
@@ -340,15 +309,9 @@ class RoleView(QWidget):
             else:
                 mixed += 1
 
-        self.status_bar.setText(
-            f"Showing {total} roles total: "
-            f"{mixed} mixed, {track_only} track-only, "
-            f"{album_only} album-only, {unassigned} unassigned"
-        )
+        self.status_bar.setText(f"Showing {total} roles total: {mixed} mixed, {track_only} track-only, {album_only} album-only, {unassigned} unassigned")
 
-        logger.info(
-            f"Loaded {total} roles into unified tree with hierarchy ({root_count} root items)"
-        )
+        logger.info(f"Loaded {total} roles into unified tree with hierarchy ({root_count} root items)")
 
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
@@ -525,11 +488,7 @@ class RoleView(QWidget):
 
                 # Prevent circular references
                 if is_hierarchy_descendant(child_id, parent_id, self._all_roles, id_attr="role_id"):
-                    show_status_message(
-                        self,
-                        f"Moving '{child_item.text(0)}' there would create a "
-                        "circular reference in the hierarchy.",
-                    )
+                    show_status_message(self, f"Moving '{child_item.text(0)}' there would create a circular reference in the hierarchy.")
                     continue
 
                 logger.info(f"Moving role {child_id} to parent {parent_id}")
@@ -593,14 +552,7 @@ class RoleView(QWidget):
         """Fill the "Change Parent" submenu with every role except the clicked
         role and its own descendants (picking either would create a cycle)."""
         role_id = self.current_role_id
-        eligible = [
-            role
-            for role in self._all_roles
-            if role.role_id != role_id
-            and not is_hierarchy_descendant(
-                role_id, role.role_id, self._all_roles, id_attr="role_id"
-            )
-        ]
+        eligible = [role for role in self._all_roles if role.role_id != role_id and not is_hierarchy_descendant(role_id, role.role_id, self._all_roles, id_attr="role_id")]
 
         # Parented to self (not submenu): a QAction with no living Python
         # reference and no Qt parent gets garbage-collected -- and removed
@@ -661,20 +613,9 @@ class RoleView(QWidget):
             def sort_key(role):
                 return (role.role_name.lower(),)
 
-        content = render_hierarchy_as_text(
-            self._all_roles,
-            id_attr="role_id",
-            name_attr="role_name",
-            parent_attr="parent_id",
-            sort_key=sort_key,
-        )
+        content = render_hierarchy_as_text(self._all_roles, id_attr="role_id", name_attr="role_name", parent_attr="parent_id", sort_key=sort_key)
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Role Hierarchy",
-            "role_hierarchy.txt",
-            "Text Files (*.txt);;Markdown Files (*.md)",
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Role Hierarchy", "role_hierarchy.txt", "Text Files (*.txt);;Markdown Files (*.md)")
         if not file_path:
             return
 
@@ -711,9 +652,7 @@ class RoleView(QWidget):
     def edit_role(self, role_id):
         """Open edit dialog for selected role."""
         try:
-            role = (
-                self.controller.get.get_entity_object("Role", role_id=role_id) if role_id else None
-            )
+            role = self.controller.get.get_entity_object("Role", role_id=role_id) if role_id else None
             dialog = RoleEditDialog(self.controller, role, self)
             if dialog.exec_() == QDialog.Accepted:
                 self.role_updated.emit()
@@ -723,11 +662,7 @@ class RoleView(QWidget):
                     # enough to patch the cache, no need to re-query the
                     # whole role table on a background thread.
                     updated = self.controller.get.get_entity_object("Role", role_id=role_id)
-                    self._patch_cached_role(
-                        role_id,
-                        role_name=updated.role_name,
-                        role_description=updated.role_description,
-                    )
+                    self._patch_cached_role(role_id, role_name=updated.role_name, role_description=updated.role_description)
                 else:
                     new_role = dialog.result_role
                     if new_role:
@@ -765,9 +700,7 @@ class RoleView(QWidget):
                 show_status_message(self, "The selected role no longer exists.")
                 return
 
-            split_dialog = SplitDBDialog(
-                self.controller.split, "Role", role_obj, self, get_helper=self.controller.get
-            )
+            split_dialog = SplitDBDialog(self.controller.split, "Role", role_obj, self, get_helper=self.controller.get)
 
             if split_dialog.exec_() == QDialog.Accepted:
                 self.load_roles()
@@ -850,17 +783,10 @@ class RoleView(QWidget):
             # Check if role has children
             children = self.controller.get.get_all_entities("Role", parent_id=role_id)
             if children:
-                QMessageBox.warning(
-                    self,
-                    "Cannot Delete",
-                    f"Cannot delete '{role.role_name}' because it has {len(children)} child roles. "
-                    "Please move or delete the child roles first.",
-                )
+                QMessageBox.warning(self, "Cannot Delete", f"Cannot delete '{role.role_name}' because it has {len(children)} child roles. Please move or delete the child roles first.")
                 return
 
-            confirmed, add_to_excluded = self._confirm_delete_role(
-                f"Are you sure you want to delete '{role.role_name}'?"
-            )
+            confirmed, add_to_excluded = self._confirm_delete_role(f"Are you sure you want to delete '{role.role_name}'?")
 
             if confirmed:
                 self.controller.delete.delete_entity("Role", role_id)

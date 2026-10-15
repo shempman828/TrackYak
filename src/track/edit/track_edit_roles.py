@@ -12,9 +12,9 @@ from src.common.dialogs.credited_as_dialog import CreditedAsDialog
 from src.common.widgets.entity_completer_context import artist_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget, register_cached_entity
 from src.common.widgets.flow_layout import ChipCell, FlowLayout
+from src.core.status_widget import show_status_message
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.edit.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"

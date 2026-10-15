@@ -50,8 +50,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class EntityAliasEditDialog(QDialog):
@@ -132,15 +132,7 @@ class EntityAliasRowWidget(QWidget):
     The swap button only appears when swap_cb is provided.
     """
 
-    def __init__(
-        self,
-        edit_cb,
-        delete_cb,
-        swap_cb=None,
-        swap_label: str = "↕ Use as Name",
-        swap_tooltip: str = "Promote this alias to the entity's primary name",
-        parent=None,
-    ):
+    def __init__(self, edit_cb, delete_cb, swap_cb=None, swap_label: str = "↕ Use as Name", swap_tooltip: str = "Promote this alias to the entity's primary name", parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
@@ -293,9 +285,7 @@ class EntityAliasesTab(QWidget):
     def _refresh_extra_completer(self):
         if not self._extra_completer:
             return
-        self._extra_completer.setModel(
-            QStringListModel(self._extra_completions(), self._extra_completer)
-        )
+        self._extra_completer.setModel(QStringListModel(self._extra_completions(), self._extra_completer))
 
     def load(self, entity):
         self.entity = entity
@@ -326,16 +316,9 @@ class EntityAliasesTab(QWidget):
     def _reload_table(self):
         self._clear_rows()
         try:
-            aliases = self.controller.get.get_all_entities(
-                self.alias_model_name, **{self.id_field: self._entity_id()}
-            )
+            aliases = self.controller.get.get_all_entities(self.alias_model_name, **{self.id_field: self._entity_id()})
         except (AttributeError, SQLAlchemyError):
-            logger.exception(
-                "EntityAliasesTab: failed to fetch %s for %s=%s",
-                self.alias_model_name,
-                self.id_field,
-                self._entity_id(),
-            )
+            logger.exception("EntityAliasesTab: failed to fetch %s for %s=%s", self.alias_model_name, self.id_field, self._entity_id())
             aliases = []
 
         for alias in aliases:
@@ -476,23 +459,14 @@ class EntityAliasesTab(QWidget):
             kwargs[self.extra_field] = dlg.extra_value or None
         success = self.controller.update.update_entity(self.alias_model_name, alias_id, **kwargs)
         if not success:
-            show_status_message(
-                self,
-                f"Could not rename alias to '{dlg.alias_name}'. That name may already be in use.",
-            )
+            show_status_message(self, f"Could not rename alias to '{dlg.alias_name}'. That name may already be in use.")
             return
         self._reload_table()
 
     def _delete_alias(self, row: int):
         alias_id = self._row_alias_id(row)
         alias_name = self._row_alias_name(row)
-        reply = QMessageBox.question(
-            self,
-            "Delete Alias",
-            f"Delete alias <b>{alias_name}</b>?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = QMessageBox.question(self, "Delete Alias", f"Delete alias <b>{alias_name}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
         try:

@@ -15,8 +15,8 @@ import time
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.lyrics.autotag.mood_tag_worker import MoodAutoTagWorker
 from src.lyrics.autotag.mood_word_review_widget import MoodWordReviewWidget
 from src.mood.mood_dialog import MoodDialog
@@ -106,9 +106,7 @@ class MoodAutoTagDialog(QDialog):
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        self._word_review = MoodWordReviewWidget(
-            self.controller, self._filter_combo, self._search_filter, self._show_dismissed_chk
-        )
+        self._word_review = MoodWordReviewWidget(self.controller, self._filter_combo, self._search_filter, self._show_dismissed_chk)
         layout.addWidget(self._word_review)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Close)
@@ -143,21 +141,14 @@ class MoodAutoTagDialog(QDialog):
             self._tag_worker.request_cancel()
             self._tag_cancel_btn.setEnabled(False)
 
-    def _on_tag_progress(
-        self, scanned, total, mood_tags_added, place_tags_added, place_tags_queued
-    ):
+    def _on_tag_progress(self, scanned, total, mood_tags_added, place_tags_added, place_tags_queued):
         self._tag_progress_bar.setRange(0, max(total, 1))
         self._tag_progress_bar.setValue(scanned)
 
-        counts = (
-            f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added, "
-            f"{place_tags_queued:,} place(s) awaiting review"
-        )
+        counts = f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added, {place_tags_queued:,} place(s) awaiting review"
         eta = self._estimate_remaining(scanned, total)
         if eta:
-            self._tag_progress_bar.setFormat(
-                f"%p%  ({scanned:,}/{total:,} tracks, {counts}, ETA: {eta})"
-            )
+            self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts}, ETA: {eta})")
         else:
             self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts})")
 
@@ -183,10 +174,7 @@ class MoodAutoTagDialog(QDialog):
         return f"{minutes}m {seconds:02d}s"
 
     def _on_tag_finished(self, scanned, mood_tags_added, place_tags_added, place_tags_queued):
-        self._tag_status_label.setText(
-            f"{scanned} track(s) scanned, {mood_tags_added} mood tag(s) added, "
-            f"{place_tags_added} place tag(s) added, {place_tags_queued} awaiting review"
-        )
+        self._tag_status_label.setText(f"{scanned} track(s) scanned, {mood_tags_added} mood tag(s) added, {place_tags_added} place tag(s) added, {place_tags_queued} awaiting review")
         show_status_message(self, "Mood tagging complete.")
         self._tag_worker.wait()
         self._tag_worker = None
@@ -228,9 +216,7 @@ class MoodAutoTagDialog(QDialog):
         # string has, so a common phrase ("broke my heart") is just as
         # suggestible as a single word and competes for a slot on its own
         # merits.
-        combined = list(stats.get("word_suggestions", [])) + list(
-            stats.get("phrase_suggestions", [])
-        )
+        combined = list(stats.get("word_suggestions", [])) + list(stats.get("phrase_suggestions", []))
         combined.sort(key=lambda item: item[1], reverse=True)
         self._word_review.set_word_cloud_cache(combined)
         self._word_review._refresh_table()
@@ -249,9 +235,7 @@ class MoodAutoTagDialog(QDialog):
 
     def _on_filter_changed(self, _index=None):
         self._sync_refresh_btn_enabled()
-        self._show_dismissed_chk.setEnabled(
-            self._filter_combo.currentIndex() == self.FILTER_UNASSIGNED
-        )
+        self._show_dismissed_chk.setEnabled(self._filter_combo.currentIndex() == self.FILTER_UNASSIGNED)
         self._word_review._refresh_table()
 
     def _create_new_mood(self):

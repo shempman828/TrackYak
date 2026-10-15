@@ -7,10 +7,10 @@ from typing import Any
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
+from src.core.status_widget import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import text_contains_explicit_words
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.lyrics.autotag.mood_autotag import auto_tag_lyrics_safe
 from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.track.edit.track_edit_basetab import _BaseTab

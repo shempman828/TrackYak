@@ -5,10 +5,10 @@ from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QMessageBox, QPushBu
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.influences.graph.influence_graph import InfluenceGraphView
 from src.influences.influences_dialog import AddInfluenceDialog, RemoveInfluenceDialog
 

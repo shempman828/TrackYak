@@ -7,8 +7,8 @@ from PySide6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QLabel, QLin
 
 from src.common.widgets.entity_completer_context import track_context_map
 from src.common.widgets.entity_completer_edit import ContextItemDelegate
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.track.edit.track_edit_basetab import _BaseTab
 
 # Direction constants for the add bar's toggle.

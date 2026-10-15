@@ -8,8 +8,9 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGroupBox, QHBoxLay
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import StatusManager, show_status_message
+from src.foundation.status_utility import StatusManager
 from src.metadata.writers.metadata_writer import MetadataWriter, WriteMode
 
 

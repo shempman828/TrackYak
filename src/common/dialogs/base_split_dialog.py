@@ -1,25 +1,13 @@
 import re
 
 from PySide6.QtCore import QStringListModel, Qt
-from PySide6.QtWidgets import (
-    QCompleter,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QCompleter, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QTextEdit, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import object_mapper
 
+from src.core.status_widget import show_status_message
 from src.db.db_helpers import SplitDB
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # Common separators used when multiple artists/entities are combined into a
 # single name, e.g. "Simon & Garfunkel", "Paul Simon / Art Garfunkel",
@@ -70,9 +58,7 @@ def _get_cached_entity_names(get_helper, model_name: str) -> list:
 class SplitDBDialog(QDialog):
     """Dialog for splitting a combined ORM entity (e.g., 'Paul Simon / Art Garfunkel')."""
 
-    def __init__(
-        self, split_helper: SplitDB, model_name: str, entity_obj, parent=None, get_helper=None
-    ):
+    def __init__(self, split_helper: SplitDB, model_name: str, entity_obj, parent=None, get_helper=None):
         super().__init__(parent)
         self.split_helper = split_helper
         self.model_name = model_name
@@ -84,9 +70,7 @@ class SplitDBDialog(QDialog):
 
         # Shared backing model for the row completers; built once from the
         # cached name list so every row's QCompleter reuses the same data.
-        self._name_completer_model = QStringListModel(
-            _get_cached_entity_names(self.get_helper, self.model_name), self
-        )
+        self._name_completer_model = QStringListModel(_get_cached_entity_names(self.get_helper, self.model_name), self)
 
         self._init_ui()
         self._load_relationship_info()
@@ -163,12 +147,7 @@ class SplitDBDialog(QDialog):
 
     def _find_name_attribute(self) -> str:
         """Find the name attribute for the current entity."""
-        name_attrs_to_try = [
-            f"{self.model_name.lower()}_name",
-            "name",
-            "title",
-            f"{self.model_name.lower()}_title",
-        ]
+        name_attrs_to_try = [f"{self.model_name.lower()}_name", "name", "title", f"{self.model_name.lower()}_title"]
         for name_attr in name_attrs_to_try:
             if hasattr(self.entity_obj, name_attr):
                 return name_attr
@@ -307,16 +286,11 @@ class SplitDBDialog(QDialog):
             self.warning_label.setText("Please enter at least one new entity name.")
             self.split_btn.setEnabled(False)
         elif len(names) == 1:
-            self.warning_label.setText(
-                "Warning: Only one entity specified. This will create a duplicate with a new name."
-            )
+            self.warning_label.setText("Warning: Only one entity specified. This will create a duplicate with a new name.")
             self.split_btn.setEnabled(True)
         else:
             # Updated message to reflect that ALL relationships go to ALL new entities
-            self.warning_label.setText(
-                f"Will create {len(names)} new entities. "
-                f"ALL current relationships will be duplicated to EACH new entity."
-            )
+            self.warning_label.setText(f"Will create {len(names)} new entities. ALL current relationships will be duplicated to EACH new entity.")
             self.split_btn.setEnabled(True)
 
     def _collect_split_names(self):
@@ -339,12 +313,7 @@ class SplitDBDialog(QDialog):
 
         # Confirm the action
         reply = QMessageBox.question(
-            self,
-            "Confirm Split",
-            "All relationships will be copied to the chosen names.\n\n"
-            "Are you sure you want to proceed?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, "Confirm Split", "All relationships will be copied to the chosen names.\n\nAre you sure you want to proceed?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
         if reply != QMessageBox.Yes:
@@ -361,15 +330,11 @@ class SplitDBDialog(QDialog):
             # Call SplitDB using the split_helper
             self.split_helper.split_entity(self.model_name, entity_id, split_attributes)
 
-            logger.info(
-                f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}"
-            )
+            logger.info(f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}")
 
             # Accept the dialog to close it
             self.accept()
 
         except SQLAlchemyError as e:
             logger.error(f"Failed to split {self.model_name} (id={entity_id}): {e}")
-            QMessageBox.critical(
-                self, "Split Failed", f"An error occurred during the split:\n{e!s}"
-            )
+            QMessageBox.critical(self, "Split Failed", f"An error occurred during the split:\n{e!s}")

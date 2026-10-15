@@ -26,9 +26,9 @@ from src.charts.workers.chart_playlist_worker import ChartPlaylistWorker
 from src.common.eta_estimator import estimate_remaining
 from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.style_utils import refresh_style
+from src.core.status_widget import show_status_message
 from src.db.db_tables.chart import ChartEntry
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.statistics.widgets.stat_tile import StatTileWidget
 
 
@@ -165,12 +165,7 @@ class ChartsView(QWidget):
         chart_ids = [c.chart_id for c in synced_charts]
         session = self.controller.get.session
         total = session.scalar(select(func.count()).select_from(ChartEntry).where(ChartEntry.chart_id.in_(chart_ids))) or 0
-        matched = (
-            session.scalar(
-                select(func.count()).select_from(ChartEntry).where(ChartEntry.chart_id.in_(chart_ids), ChartEntry.entity_id.isnot(None))
-            )
-            or 0
-        )
+        matched = session.scalar(select(func.count()).select_from(ChartEntry).where(ChartEntry.chart_id.in_(chart_ids), ChartEntry.entity_id.isnot(None))) or 0
         self.stat_synced.set_data(len(synced_charts), f"of {len(self._charts)} chart(s)")
         match_rate = f"{matched / total:.0%}" if total else "N/A"
         self.stat_match_rate.set_data(match_rate, f"{matched:,} / {total:,} entries")

@@ -7,8 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.artist.dialogs.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
 from src.common.alias.entity_alias_tab import EntityAliasesTab
 from src.common.dialogs.base_merge_dialog import MergeDBDialog
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class AliasesTab(EntityAliasesTab):
@@ -31,9 +31,7 @@ class AliasesTab(EntityAliasesTab):
             extra_field="alias_type",
             extra_field_label="Type",
             extra_field_placeholder="e.g. Birth Name  (or type your own)",
-            extra_field_hint=(
-                "Choose a suggestion or type a custom type — leave blank if unspecified."
-            ),
+            extra_field_hint=("Choose a suggestion or type a custom type — leave blank if unspecified."),
             on_swap=self._perform_swap,
             on_before_add=self._check_existing_artist,
             parent=parent,
@@ -69,46 +67,24 @@ class AliasesTab(EntityAliasesTab):
         reply = QMessageBox.question(
             self,
             "Artist Already Exists",
-            f"An artist named <b>{match.artist_name}</b> already exists.<br>"
-            f"Merge it into <b>{self.artist.artist_name}</b> instead of adding "
-            "this as a separate alias?",
+            f"An artist named <b>{match.artist_name}</b> already exists.<br>Merge it into <b>{self.artist.artist_name}</b> instead of adding this as a separate alias?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:
-            logger.debug(
-                "AliasesTab._check_existing_artist: user declined merge of "
-                "artist_id=%s into artist_id=%s",
-                match.artist_id,
-                self.artist.artist_id,
-            )
-            show_status_message(
-                self, f"Alias not added — '{alias_name}' already belongs to another artist."
-            )
+            logger.debug("AliasesTab._check_existing_artist: user declined merge of artist_id=%s into artist_id=%s", match.artist_id, self.artist.artist_id)
+            show_status_message(self, f"Alias not added — '{alias_name}' already belongs to another artist.")
             return False
 
-        dialog = MergeDBDialog(
-            self.controller, "Artist", self, preload_source=match, preload_target=self.artist
-        )
+        dialog = MergeDBDialog(self.controller, "Artist", self, preload_source=match, preload_target=self.artist)
         if dialog.exec() == QDialog.Accepted:
-            logger.info(
-                "AliasesTab._check_existing_artist: merged artist_id=%s into artist_id=%s",
-                match.artist_id,
-                self.artist.artist_id,
-            )
-            show_status_message(
-                self, f"Merged '{match.artist_name}' into '{self.artist.artist_name}'."
-            )
+            logger.info("AliasesTab._check_existing_artist: merged artist_id=%s into artist_id=%s", match.artist_id, self.artist.artist_id)
+            show_status_message(self, f"Merged '{match.artist_name}' into '{self.artist.artist_name}'.")
         return False
 
     def _perform_swap(self, alias_id: int, new_primary: str, alias_type: str) -> bool:
         old_primary = self.artist.artist_name
-        logger.debug(
-            "AliasesTab._perform_swap: alias_id=%s old=%r new=%r",
-            alias_id,
-            old_primary,
-            new_primary,
-        )
+        logger.debug("AliasesTab._perform_swap: alias_id=%s old=%r new=%r", alias_id, old_primary, new_primary)
 
         if new_primary == old_primary:
             logger.debug("AliasesTab._perform_swap: no-op, alias already matches primary name")
@@ -116,12 +92,7 @@ class AliasesTab(EntityAliasesTab):
             return False
 
         reply = QMessageBox.question(
-            self,
-            "Use as Primary Name",
-            f"Set primary name to <b>{new_primary}</b>?<br>"
-            f"Current name <b>{old_primary}</b> will be saved as an alias.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, "Use as Primary Name", f"Set primary name to <b>{new_primary}</b>?<br>Current name <b>{old_primary}</b> will be saved as an alias.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply != QMessageBox.Yes:
             logger.debug("AliasesTab._perform_swap: cancelled")
@@ -134,43 +105,20 @@ class AliasesTab(EntityAliasesTab):
             # step below is checked explicitly and ordered so a failure never
             # leaves the old name unrecoverable.
             save_type = alias_type or "Former Name"
-            new_alias = self.controller.add.add_entity(
-                "ArtistAlias",
-                artist_id=self.artist.artist_id,
-                alias_name=old_primary,
-                alias_type=save_type,
-            )
+            new_alias = self.controller.add.add_entity("ArtistAlias", artist_id=self.artist.artist_id, alias_name=old_primary, alias_type=save_type)
             if new_alias is None:
-                logger.warning(
-                    "AliasesTab._perform_swap: could not save %r as an alias for artist_id=%s",
-                    old_primary,
-                    self.artist.artist_id,
-                )
-                QMessageBox.critical(
-                    self, "Error", f"Could not save '{old_primary}' as an alias; name not swapped."
-                )
+                logger.warning("AliasesTab._perform_swap: could not save %r as an alias for artist_id=%s", old_primary, self.artist.artist_id)
+                QMessageBox.critical(self, "Error", f"Could not save '{old_primary}' as an alias; name not swapped.")
                 return False
 
             # Attempt the rename next: if the new name collides with another
             # artist, undo the alias just added and leave everything else
             # untouched.
-            success = self.controller.update.update_entity(
-                "Artist", self.artist.artist_id, artist_name=new_primary
-            )
+            success = self.controller.update.update_entity("Artist", self.artist.artist_id, artist_name=new_primary)
             if not success:
-                logger.warning(
-                    "AliasesTab._perform_swap: rename rejected for artist_id=%s -> %r "
-                    "(likely a duplicate artist name)",
-                    self.artist.artist_id,
-                    new_primary,
-                )
+                logger.warning("AliasesTab._perform_swap: rename rejected for artist_id=%s -> %r (likely a duplicate artist name)", self.artist.artist_id, new_primary)
                 self.controller.delete.delete_entity("ArtistAlias", new_alias.alias_id)
-                QMessageBox.warning(
-                    self,
-                    "Could Not Swap Name",
-                    f"Could not set primary name to '{new_primary}'. "
-                    "Another artist may already have that name.",
-                )
+                QMessageBox.warning(self, "Could Not Swap Name", f"Could not set primary name to '{new_primary}'. Another artist may already have that name.")
                 return False
 
             self.artist.artist_name = new_primary
@@ -179,26 +127,11 @@ class AliasesTab(EntityAliasesTab):
             # case is a harmless leftover alias that now duplicates the
             # primary name, not lost data.
             if not self.controller.delete.delete_entity("ArtistAlias", alias_id):
-                logger.warning(
-                    "AliasesTab._perform_swap: could not remove promoted alias_id=%s for "
-                    "artist_id=%s (now duplicates the primary name)",
-                    alias_id,
-                    self.artist.artist_id,
-                )
+                logger.warning("AliasesTab._perform_swap: could not remove promoted alias_id=%s for artist_id=%s (now duplicates the primary name)", alias_id, self.artist.artist_id)
 
-            logger.info(
-                "AliasesTab._perform_swap: swapped artist_id=%s primary %r -> %r "
-                "(old saved as type=%r)",
-                self.artist.artist_id,
-                old_primary,
-                new_primary,
-                save_type,
-            )
+            logger.info("AliasesTab._perform_swap: swapped artist_id=%s primary %r -> %r (old saved as type=%r)", self.artist.artist_id, old_primary, new_primary, save_type)
         except SQLAlchemyError as exc:
-            logger.exception(
-                "AliasesTab._perform_swap: failed during swap for artist_id=%s",
-                self.artist.artist_id,
-            )
+            logger.exception("AliasesTab._perform_swap: failed during swap for artist_id=%s", self.artist.artist_id)
             QMessageBox.critical(self, "Error", f"Could not swap name:\n{exc}")
             return False
 

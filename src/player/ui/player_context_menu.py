@@ -7,8 +7,9 @@ from src.album.edit.base_album_edit import AlbumEditor
 from src.artist.edit.artist_edit import ArtistEditor
 from src.common.widgets.entity_submenu import populate_entity_submenu
 from src.common.widgets.qt_text import esc_amp
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import StatusManager, show_status_message
+from src.foundation.status_utility import StatusManager
 from src.lyrics.autotag.mood_autotag import auto_tag_lyrics_safe
 from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.track.edit.track_edit import TrackEditDialog
@@ -91,9 +92,7 @@ class PlayerContextMenuMixin:
         if self.current_track is None:
             return set()
         try:
-            return {
-                getattr(link, id_attr) for link in getattr(self.current_track, relation_attr, [])
-            }
+            return {getattr(link, id_attr) for link in getattr(self.current_track, relation_attr, [])}
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error reading {relation_attr} for context menu: {e}")
             return set()
@@ -146,15 +145,11 @@ class PlayerContextMenuMixin:
 
         try:
             # Check if the track is already in the playlist
-            already_in = self.controller.get.get_entity_links(
-                "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
-            )
+            already_in = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=playlist_id, track_id=track_id)
 
             if already_in:
                 # Track is already in playlist — remove it
-                success = self.controller.delete.delete_entity(
-                    "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
-                )
+                success = self.controller.delete.delete_entity("PlaylistTracks", playlist_id=playlist_id, track_id=track_id)
                 if not success:
                     show_status_message(self, "Could not remove track from playlist.")
                 # Update the checkmark state on the action
@@ -162,17 +157,10 @@ class PlayerContextMenuMixin:
                 action.setChecked(False)
             else:
                 # Track is not in playlist — add it
-                existing = self.controller.get.get_entity_links(
-                    "PlaylistTracks", playlist_id=playlist_id
-                )
+                existing = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=playlist_id)
                 next_position = max((t.position for t in existing), default=0) + 1
 
-                success = self.controller.add.add_entity_link(
-                    "PlaylistTracks",
-                    playlist_id=playlist_id,
-                    track_id=track_id,
-                    position=next_position,
-                )
+                success = self.controller.add.add_entity_link("PlaylistTracks", playlist_id=playlist_id, track_id=track_id, position=next_position)
                 if not success:
                     show_status_message(self, "Could not add track to playlist.")
                 # Update the checkmark state on the action
@@ -197,15 +185,11 @@ class PlayerContextMenuMixin:
 
         try:
             # Check if already associated
-            existing = self.controller.get.get_entity_links(
-                "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-            )
+            existing = self.controller.get.get_entity_links("MoodTrackAssociation", mood_id=mood_id, track_id=track_id)
 
             if existing:
                 # Already in mood — remove it
-                success = self.controller.delete.delete_entity(
-                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-                )
+                success = self.controller.delete.delete_entity("MoodTrackAssociation", mood_id=mood_id, track_id=track_id)
                 if not success:
                     show_status_message(self, "Could not remove track from mood.")
                 # Update the checkmark state on the action
@@ -213,9 +197,7 @@ class PlayerContextMenuMixin:
                 action.setChecked(False)
             else:
                 # Not in mood — add it
-                success = self.controller.add.add_entity_link(
-                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-                )
+                success = self.controller.add.add_entity_link("MoodTrackAssociation", mood_id=mood_id, track_id=track_id)
                 if not success:
                     show_status_message(self, "Could not add track to mood.")
                 # Update the checkmark state on the action
@@ -315,9 +297,7 @@ class PlayerContextMenuMixin:
             self.controller.update.update_entity("Track", track.track_id, lyrics=lyrics_text)
             message = "Lyrics found and saved."
             if lyrics_text:
-                moods_added, _places_added, places_queued = auto_tag_lyrics_safe(
-                    self.controller, track.track_id, lyrics_text
-                )
+                moods_added, _places_added, places_queued = auto_tag_lyrics_safe(self.controller, track.track_id, lyrics_text)
                 if moods_added:
                     message += f" Tagged mood(s): {', '.join(moods_added)}."
                 if places_queued:

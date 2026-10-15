@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.optional_int_edit import OptionalIntEdit
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Shared helpers
@@ -246,23 +246,11 @@ class _MembershipPanelBase(QWidget):
             other = self._other_artist(m)
             if other is None:
                 continue
-            _append_row(
-                self.table,
-                [
-                    other.artist_name,
-                    m.role or "",
-                    m.active_start_year or "",
-                    m.active_end_year or "",
-                    "Yes" if m.is_current else "No",
-                ],
-                user_data=(m.group_id, m.member_id),
-            )
+            _append_row(self.table, [other.artist_name, m.role or "", m.active_start_year or "", m.active_end_year or "", "Yes" if m.is_current else "No"], user_data=(m.group_id, m.member_id))
 
     def _reload(self):
         try:
-            refreshed = self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
+            refreshed = self.controller.get.get_entity_object("Artist", artist_id=self.artist.artist_id)
             if refreshed:
                 self.artist = refreshed
         except SQLAlchemyError as e:
@@ -292,9 +280,7 @@ class _MembershipPanelBase(QWidget):
         dialog = _EditMembershipDialog(role, start_year, end_year, is_current, self)
         if dialog.exec() != QDialog.Accepted:
             return
-        success = self.controller.update.update_entity_by_filter(
-            "GroupMembership", {"group_id": group_id, "member_id": member_id}, **dialog.values()
-        )
+        success = self.controller.update.update_entity_by_filter("GroupMembership", {"group_id": group_id, "member_id": member_id}, **dialog.values())
         if not success:
             QMessageBox.critical(self, "Error", "Could not update membership.")
             return
@@ -306,9 +292,7 @@ class _MembershipPanelBase(QWidget):
             return
         group_id, member_id = data
         try:
-            self.controller.delete.delete_entity(
-                "GroupMembership", group_id=group_id, member_id=member_id
-            )
+            self.controller.delete.delete_entity("GroupMembership", group_id=group_id, member_id=member_id)
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"{self._REMOVE_ERROR_TEXT}:\n{e}")
             return

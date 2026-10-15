@@ -1,26 +1,12 @@
 from typing import Any
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (
-    QComboBox,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_relationship_dialog import AwardRelationshipDialog
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class AwardDetailTab(QWidget):
@@ -134,9 +120,7 @@ class AwardDetailTab(QWidget):
 
     def _refresh_recipient_display(self) -> None:
         try:
-            associations = self.controller.get.get_all_entities(
-                "AwardAssociation", award_id=self.award.award_id
-            )
+            associations = self.controller.get.get_all_entities("AwardAssociation", award_id=self.award.award_id)
         except SQLAlchemyError as e:
             logger.error(f"Error refreshing relationships: {e}")
             self.recipient_label.setText("Error loading")
@@ -144,23 +128,10 @@ class AwardDetailTab(QWidget):
             self.clear_recipient_btn.setEnabled(False)
             return
 
-        lookup = {
-            "Artist": ("Artist", "artist_id"),
-            "Album": ("Album", "album_id"),
-            "Track": ("Track", "track_id"),
-            "Publisher": ("Publisher", "publisher_id"),
-            "Place": ("Place", "place_id"),
-        }
+        lookup = {"Artist": ("Artist", "artist_id"), "Album": ("Album", "album_id"), "Track": ("Track", "track_id"), "Publisher": ("Publisher", "publisher_id"), "Place": ("Place", "place_id")}
 
         def name_of(entity):
-            for attr in (
-                "name",
-                "artist_name",
-                "album_name",
-                "track_name",
-                "publisher_name",
-                "place_name",
-            ):
+            for attr in ("name", "artist_name", "album_name", "track_name", "publisher_name", "place_name"):
                 if hasattr(entity, attr):
                     return getattr(entity, attr)
             return "Unknown"
@@ -177,9 +148,7 @@ class AwardDetailTab(QWidget):
 
             model_name, id_field = model
             try:
-                entity = self.controller.get.get_entity_object(
-                    model_name, **{id_field: assoc.entity_id}
-                )
+                entity = self.controller.get.get_entity_object(model_name, **{id_field: assoc.entity_id})
                 display_name = name_of(entity) if entity else "Not found"
 
                 relationship_text = f"{assoc.entity_type}: {display_name}"
@@ -215,9 +184,7 @@ class AwardDetailTab(QWidget):
     def _clear_recipient(self) -> None:
         """Clear only the recipient relationship."""
         try:
-            associations = self.controller.get.get_all_entities(
-                "AwardAssociation", award_id=self.award.award_id
-            )
+            associations = self.controller.get.get_all_entities("AwardAssociation", award_id=self.award.award_id)
 
             # Remove only recipient associations
             for assoc in associations:
@@ -239,9 +206,7 @@ class AwardDetailTab(QWidget):
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlainText(self.award.award_description or "")
-        self.description_edit.setPlaceholderText(
-            "Enter award description, ceremony details, or notes..."
-        )
+        self.description_edit.setPlaceholderText("Enter award description, ceremony details, or notes...")
         self.description_edit.textChanged.connect(self._enable_save)
         self.description_edit.setMinimumHeight(120)
         layout.addWidget(self.description_edit)
@@ -303,9 +268,7 @@ class AwardDetailTab(QWidget):
             award_year = int(year_text) if year_text else None
 
             if award_year and (award_year < 1000 or award_year > 2999):
-                QMessageBox.warning(
-                    self, "Invalid Year", "Please enter a valid year between 1000 and 2999."
-                )
+                QMessageBox.warning(self, "Invalid Year", "Please enter a valid year between 1000 and 2999.")
                 return
 
             # First update the basic award information
@@ -349,20 +312,13 @@ class AwardDetailTab(QWidget):
 
     def _delete_award(self) -> None:
         """Delete the current award after confirmation."""
-        children = (
-            self.controller.get.get_all_entities("Award", parent_id=self.award.award_id) or []
-        )
+        children = self.controller.get.get_all_entities("Award", parent_id=self.award.award_id) or []
 
         message = f"Are you sure you want to delete the award '{self.award.award_name}'?"
         if children:
-            message += (
-                f"\n\nIt has {len(children)} child award(s). They will not be "
-                "deleted -- they will become top-level awards."
-            )
+            message += f"\n\nIt has {len(children)} child award(s). They will not be deleted -- they will become top-level awards."
 
-        reply = QMessageBox.question(
-            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        reply = QMessageBox.question(self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
         if reply == QMessageBox.Yes:
             try:
@@ -379,26 +335,17 @@ class AwardDetailTab(QWidget):
                 logger.error(f"Error deleting award: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete award: {e!s}")
 
-    def _on_relationship_added(
-        self, entity_type: str, entity_id: int, relationship_type: str
-    ) -> None:
+    def _on_relationship_added(self, entity_type: str, entity_id: int, relationship_type: str) -> None:
         """Handle new relationship from dialog."""
         try:
             # Create the award association
-            association_data = {
-                "award_id": self.award.award_id,
-                "entity_type": entity_type,
-                "entity_id": entity_id,
-                "association_type": relationship_type,
-            }
+            association_data = {"award_id": self.award.award_id, "entity_type": entity_type, "entity_id": entity_id, "association_type": relationship_type}
 
             self.controller.add.add_entity("AwardAssociation", **association_data)
 
             self._enable_save()
             self._refresh_recipient_display()
-            logger.info(
-                f"Added {relationship_type} relationship: {entity_type} {entity_id} to award {self.award.award_id}"
-            )
+            logger.info(f"Added {relationship_type} relationship: {entity_type} {entity_id} to award {self.award.award_id}")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error adding relationship: {e}")

@@ -26,8 +26,8 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QM
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.eta_estimator import estimate_remaining
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.image.album_art_worker import CoverEmbedWorker
 from src.image.artwork_cache import get_artwork_cache
 from src.library.artwork.library_artwork_consistency import ArtworkConsistencyChecker

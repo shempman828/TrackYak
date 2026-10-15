@@ -17,8 +17,8 @@ from src.common.widgets.hierarchy_tree_style import (
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog, find_duplicate_genre_name
 from src.genre.genre_loader_worker import GenreLoaderWorker
 from src.genre.genre_merge import GenreMergeDialog

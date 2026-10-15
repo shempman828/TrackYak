@@ -19,9 +19,10 @@ from sqlalchemy.orm import selectinload
 
 from src.analysis.analysis_cache import analysis_cache, track_needs_analysis
 from src.analysis.batch_analysis_scheduler import BatchAnalysisScheduler, max_worker_count, recommended_worker_count
+from src.core.status_widget import show_status_message
 from src.db.db_tables import Track, TrackArtistRole
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import StatusManager, show_status_message
+from src.foundation.status_utility import StatusManager
 
 
 class _PendingTracksWorker(QThread):
@@ -46,12 +47,7 @@ class _PendingTracksWorker(QThread):
     def run(self):
         try:
             try:
-                all_tracks = self._controller.get.get_all_entities(
-                    "Track",
-                    load_options=[
-                        selectinload(Track.artist_roles).selectinload(TrackArtistRole.artist)
-                    ],
-                )
+                all_tracks = self._controller.get.get_all_entities("Track", load_options=[selectinload(Track.artist_roles).selectinload(TrackArtistRole.artist)])
             except Exception as e:
                 # Intentional broad boundary catch: this runs on a QThread and must
                 # not let an exception kill the thread silently.
@@ -67,24 +63,17 @@ class _PendingTracksWorker(QThread):
 
             Session.remove()
 
-        if self._force_all:
-            # Ignore both the cache and each track's existing field values —
-            # every track queues, e.g. after a scoring-formula change that
-            # invalidates previously-computed values still sitting in the DB.
-            pending = list(all_tracks)
-        else:
-            # A track counts as "cached" (complete) only if it is BOTH marked
-            # analysed in the cache AND has every required field populated —
-            # so it's pending if EITHER is false. Using AND here (as before)
-            # left a gap: a track missing a field the cache doesn't know
-            # about (or one added to REQUIRED_ANALYSIS_FIELDS later) could be neither
-            # cached nor pending, so cached+pending fell short of the total
-            # track count.
-            pending = [
-                track
-                for track in all_tracks
-                if not analysis_cache.is_analysed(track.track_id) or track_needs_analysis(track)
-            ]
+        # With _force_all, ignore both the cache and each track's existing field values —
+        # every track queues, e.g. after a scoring-formula change that
+        # invalidates previously-computed values still sitting in the DB.
+        # Otherwise a track counts as "cached" (complete) only if it is BOTH marked
+        # analysed in the cache AND has every required field populated —
+        # so it's pending if EITHER is false. Using AND here (as before)
+        # left a gap: a track missing a field the cache doesn't know
+        # about (or one added to REQUIRED_ANALYSIS_FIELDS later) could be neither
+        # cached nor pending, so cached+pending fell short of the total
+        # track count.
+        pending = list(all_tracks) if self._force_all else [track for track in all_tracks if not analysis_cache.is_analysed(track.track_id) or track_needs_analysis(track)]
         self.tracks_loaded.emit(pending, len(all_tracks))
 
 
@@ -168,9 +157,7 @@ class AudioAnalysisDialog(QDialog):
         self._workers_spin.setRange(1, max_worker_count())
         self._workers_spin.setValue(recommended)
         self._workers_spin.setToolTip(
-            "Number of parallel analysis workers.  More workers = faster but "
-            f"higher CPU and memory usage.  {recommended} is recommended for "
-            "this machine (CPU cores minus one)."
+            f"Number of parallel analysis workers.  More workers = faster but higher CPU and memory usage.  {recommended} is recommended for this machine (CPU cores minus one)."
         )
         settings_layout.addWidget(self._workers_spin)
         settings_layout.addWidget(QLabel(f"(recommended: {recommended})"))
@@ -180,9 +167,7 @@ class AudioAnalysisDialog(QDialog):
 
         self._force_all_checkbox = QCheckBox("Re-analyze all tracks (ignore existing values)")
         self._force_all_checkbox.setToolTip(
-            "Queue every track regardless of the cache or already-populated "
-            "fields — use this after a scoring formula changes, so tracks "
-            "analysed under the old formula get refreshed too."
+            "Queue every track regardless of the cache or already-populated fields — use this after a scoring formula changes, so tracks analysed under the old formula get refreshed too."
         )
         self._force_all_checkbox.toggled.connect(self._on_force_all_toggled)
         root.addWidget(self._force_all_checkbox)
@@ -243,9 +228,7 @@ class AudioAnalysisDialog(QDialog):
         self._summary_label.setText("Scanning library…")
         self._start_btn.setEnabled(False)
 
-        self._scan_worker = _PendingTracksWorker(
-            self.controller, force_all=self._force_all_checkbox.isChecked(), parent=self
-        )
+        self._scan_worker = _PendingTracksWorker(self.controller, force_all=self._force_all_checkbox.isChecked(), parent=self)
         self._scan_worker.tracks_loaded.connect(self._on_pending_tracks_loaded)
         self._scan_worker.failed.connect(self._on_pending_scan_failed)
         self._scan_worker.start()
@@ -276,11 +259,7 @@ class AudioAnalysisDialog(QDialog):
 
         for track in self._tracks_pending:
             name = getattr(track, "track_name", "Unknown Title")
-            artist = (
-                track.artists[0].artist_name
-                if getattr(track, "artists", None)
-                else "Unknown Artist"
-            )
+            artist = track.artists[0].artist_name if getattr(track, "artists", None) else "Unknown Artist"
             item = QListWidgetItem(f"{artist} — {name}")
             item.setData(Qt.UserRole, track.track_id)
             self._list.addItem(item)
@@ -293,14 +272,9 @@ class AudioAnalysisDialog(QDialog):
         total_cached = max(self._total_tracks - pending, 0)
 
         if self._force_all_checkbox.isChecked():
-            self._summary_label.setText(
-                f"Re-analyzing all tracks: {pending} queued (ignoring cache and existing values)."
-            )
+            self._summary_label.setText(f"Re-analyzing all tracks: {pending} queued (ignoring cache and existing values).")
         else:
-            self._summary_label.setText(
-                f"{total_cached} tracks already analysed in cache.  "
-                f"{pending} track{'s' if pending != 1 else ''} pending."
-            )
+            self._summary_label.setText(f"{total_cached} tracks already analysed in cache.  {pending} track{'s' if pending != 1 else ''} pending.")
         self._progress_bar.setMaximum(max(pending, 1))
         self._progress_bar.setValue(0)
         self._progress_label.setText(f"0 / {pending} tracks processed")
@@ -363,12 +337,7 @@ class AudioAnalysisDialog(QDialog):
 
     def _on_stop(self):
         reply = QMessageBox.question(
-            self,
-            "Stop Analysis",
-            "Stop the current analysis?\n\n"
-            "Progress is saved — the next run will continue where this one left off.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, "Stop Analysis", "Stop the current analysis?\n\nProgress is saved — the next run will continue where this one left off.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             self._scheduler.stop()
@@ -452,11 +421,7 @@ class AudioAnalysisDialog(QDialog):
         logger.info(f"Track {track_id} removed from cache — will be re-analysed")
 
         if self._scheduler.is_running:
-            show_status_message(
-                self,
-                "This track will be re-analysed the next time you start analysis. "
-                "(Stop and restart to include it in the current run.)",
-            )
+            show_status_message(self, "This track will be re-analysed the next time you start analysis. (Stop and restart to include it in the current run.)")
 
     # ------------------------------------------------------------------
     # UI state helpers
@@ -484,9 +449,7 @@ class AudioAnalysisDialog(QDialog):
     def _update_progress_display(self, completed: int, total: int):
         self._progress_bar.setValue(completed)
         self._progress_label.setText(f"{completed} / {total} tracks processed")
-        self._status_label.setText(
-            f"Analysing… ({completed}/{total} complete)" if completed < total else "Finishing up…"
-        )
+        self._status_label.setText(f"Analysing… ({completed}/{total} complete)" if completed < total else "Finishing up…")
 
     # ------------------------------------------------------------------
     # Close behaviour — analysis keeps running

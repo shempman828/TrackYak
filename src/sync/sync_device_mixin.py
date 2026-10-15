@@ -2,8 +2,8 @@
 
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.sync.mtp_list_worker import MtpListWorker
 from src.sync.mtp_manager import MtpManager, mtp_available
 from src.sync.sync_profile import SyncProfile

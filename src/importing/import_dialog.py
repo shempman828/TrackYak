@@ -5,10 +5,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSizePolicy, QSpacerItem, QVBoxLayout
 
+from src.core.status_widget import show_status_message
 from src.foundation.asset_paths import config, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import StatusManager, show_status_message
+from src.foundation.status_utility import StatusManager
 from src.importing.import_worker import ImportWorker
 from src.library.artwork.artwork_consistency_dialog import ArtworkConsistencyDialog
 
@@ -42,11 +43,7 @@ class ImportDialog(QDialog):
         self.dir_list = QListWidget()
         self.dir_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.dir_list.itemChanged.connect(self._save_directories)
-        self.dir_list.itemDoubleClicked.connect(
-            lambda item: item.setCheckState(
-                Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
-            )
-        )
+        self.dir_list.itemDoubleClicked.connect(lambda item: item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked))
 
         # Shown instead of the (empty) list until a directory is added
         self.empty_state_label = QLabel('No directories added yet. Click "Add Directory" to start.')
@@ -80,9 +77,7 @@ class ImportDialog(QDialog):
         # Progress
         self.progress_bar = QProgressBar()
         self.progress_bar.hide()
-        self.status_note = QLabel(
-            "You can close this window; the import will continue in the background."
-        )
+        self.status_note = QLabel("You can close this window; the import will continue in the background.")
         self.status_note.setWordWrap(True)
         self.status_note.setStyleSheet("font-style: italic;")
         self.status_note.hide()
@@ -166,11 +161,7 @@ class ImportDialog(QDialog):
             self.progress_bar.setValue(0)
             self.progress_bar.show()
 
-            selected_paths = [
-                str(Path(self.dir_list.item(i).text()))
-                for i in range(self.dir_list.count())
-                if self.dir_list.item(i).checkState() == Qt.Checked
-            ]
+            selected_paths = [str(Path(self.dir_list.item(i).text())) for i in range(self.dir_list.count()) if self.dir_list.item(i).checkState() == Qt.Checked]
             if not selected_paths:
                 raise ValueError("No directories selected")
 
@@ -275,13 +266,7 @@ class ImportDialog(QDialog):
     def _save_directories(self):
         """Save current checkbox states to config"""
         try:
-            data = [
-                (
-                    str(Path(self.dir_list.item(i).text()).resolve()),
-                    self.dir_list.item(i).checkState() == Qt.Checked,
-                )
-                for i in range(self.dir_list.count())
-            ]
+            data = [(str(Path(self.dir_list.item(i).text()).resolve()), self.dir_list.item(i).checkState() == Qt.Checked) for i in range(self.dir_list.count())]
             temp_file = Path(CONFIG_FILE).with_suffix(".tmp")
             with temp_file.open("w") as f:
                 json.dump(data, f, indent=4)
@@ -317,9 +302,7 @@ class ImportDialog(QDialog):
             self.hide()
 
             # Update status to show import continues
-            StatusManager.show_message(
-                "Import continues in background. Reopen import dialog to monitor progress.", 0
-            )
+            StatusManager.show_message("Import continues in background. Reopen import dialog to monitor progress.", 0)
 
             # IMPORTANT: DO NOT disconnect signals - they must remain connected
             # for progress updates to continue working

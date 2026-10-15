@@ -7,8 +7,8 @@ from PySide6.QtWidgets import QAbstractItemView, QTreeWidgetItem
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.hierarchy_tree_style import icon_for_depth
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class PlaylistTreeDnD:

@@ -4,8 +4,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.disc.disc_edit import DiscEditDialog
 from src.album.disc.disc_sorting import TrackSortingDisplay
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 
 
 class DiscTabView(QWidget):

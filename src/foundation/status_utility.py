@@ -98,20 +98,14 @@ class _StatusManager(QObject):
 StatusManager = _StatusManager()
 
 
-def show_status_message(widget, message: str, duration: int = 4000):
-    """Show a non-blocking toast on the dialog that holds `widget`, else on the main status bar."""
-    # A modal dialog gets its own StatusBarWidget, so the toast is not hidden behind the dialog.
-    from PySide6.QtWidgets import QDialog
+def __getattr__(name):
+    """Lazily re-export the moved show_status_message, so foundation does not import core at load time."""
+    # Deprecated: kept for one release. Import show_status_message from src.core.status_widget.
+    if name == "show_status_message":
+        import warnings
 
-    from src.core.status_widget import StatusBarWidget
+        from src.core.status_widget import show_status_message
 
-    window = widget.window()
-    if not isinstance(window, QDialog):
-        StatusManager.show_message(message, duration)
-        return
-
-    status_widget = getattr(window, "_local_status_widget", None)
-    if status_widget is None:
-        status_widget = StatusBarWidget(window)
-        window._local_status_widget = status_widget
-    status_widget.show_message(message, duration)
+        warnings.warn("src.foundation.status_utility.show_status_message moved to src.core.status_widget", DeprecationWarning, stacklevel=2)
+        return show_status_message
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

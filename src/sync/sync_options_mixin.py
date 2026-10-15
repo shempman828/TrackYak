@@ -6,9 +6,9 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QFrame, QGridLa
 from src.common.widgets.detail_card import DetailCard
 from src.common.widgets.segmented_control import SegmentedControl
 from src.common.widgets.style_utils import set_style_property
+from src.core.status_widget import show_status_message
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.sync.mtp_manager import DEFAULT_MUSIC_PATH, mtp_available, normalize_music_path
 from src.sync.transcode import ALLOWED_BITRATES, DEFAULT_BITRATE, TranscodeCache, ffmpeg_available
 

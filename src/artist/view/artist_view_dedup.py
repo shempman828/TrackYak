@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog
 from src.artist.dialogs.artist_delete_orphans import OrphanArtistDialog
-from src.foundation.status_utility import show_status_message
+from src.core.status_widget import show_status_message
 
 
 class ArtistDedupMixin:
@@ -65,11 +65,7 @@ class ArtistDedupMixin:
             return
 
         if not orphans:
-            show_status_message(
-                self,
-                "No artists were found with zero roles, influences, "
-                "memberships, places, or awards.",
-            )
+            show_status_message(self, "No artists were found with zero roles, influences, memberships, places, or awards.")
             return
 
         dialog = OrphanArtistDialog(orphans, self)
@@ -80,10 +76,7 @@ class ArtistDedupMixin:
         if not selected_ids:
             return
 
-        if self.controller.delete.delete_entity("Artist", entity_ids=selected_ids):
-            deleted = len(selected_ids)
-        else:
-            deleted = 0
+        deleted = len(selected_ids) if self.controller.delete.delete_entity("Artist", entity_ids=selected_ids) else 0
 
         show_status_message(self, f"Deleted {deleted} of {len(selected_ids)} selected artist(s).")
         self.load_artists()
@@ -135,10 +128,7 @@ class ArtistDedupMixin:
         def _on_finished(matches):
             progress.close()
             if not matches:
-                show_status_message(
-                    self,
-                    f"No similar artist names found (threshold: {int(THRESHOLD * 100)}% similarity).",
-                )
+                show_status_message(self, f"No similar artist names found (threshold: {int(THRESHOLD * 100)}% similarity).")
                 return
             dialog = FuzzyMatchDialog(matches, self.controller, self)
             if dialog.exec_() == QDialog.Accepted:

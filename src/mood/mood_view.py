@@ -1,18 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import (
-    QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.hierarchy_tree_style import (
@@ -24,8 +12,8 @@ from src.common.widgets.hierarchy_tree_style import (
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import show_status_message
 from src.mood.mood_view_actions import MoodActionsMixin
 
 
@@ -77,9 +65,7 @@ class MoodView(MoodActionsMixin, QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         header_layout.addWidget(self.flat_view_button)
 
@@ -160,15 +146,8 @@ class MoodView(MoodActionsMixin, QWidget):
             new_parent_id = target_item.data(0, Qt.UserRole) if target_item else None
 
             # Prevent circular reference
-            if new_parent_id and (
-                dragged_mood_id == new_parent_id
-                or is_hierarchy_descendant(
-                    dragged_mood_id, new_parent_id, self.moods_data, id_attr="mood_id"
-                )
-            ):
-                show_status_message(
-                    self, "Cannot make a mood a child of itself or its descendants."
-                )
+            if new_parent_id and (dragged_mood_id == new_parent_id or is_hierarchy_descendant(dragged_mood_id, new_parent_id, self.moods_data, id_attr="mood_id")):
+                show_status_message(self, "Cannot make a mood a child of itself or its descendants.")
                 event.ignore()
                 return
 
@@ -235,25 +214,13 @@ class MoodView(MoodActionsMixin, QWidget):
             mood_dict = {mood.mood_id: mood for mood in self.moods_data}
 
             # Find root moods (no parent or parent not in current list)
-            root_moods = sorted(
-                [
-                    mood
-                    for mood in self.moods_data
-                    if not mood.parent_id or mood.parent_id not in mood_dict
-                ],
-                key=lambda m: (m.mood_name or "").lower(),
-            )
+            root_moods = sorted([mood for mood in self.moods_data if not mood.parent_id or mood.parent_id not in mood_dict], key=lambda m: (m.mood_name or "").lower())
 
             # Recursively build tree with depth tracking
             def add_children(parent_item, parent_mood, depth):
-                children = sorted(
-                    [m for m in self.moods_data if m.parent_id == parent_mood.mood_id],
-                    key=lambda m: (m.mood_name or "").lower(),
-                )
+                children = sorted([m for m in self.moods_data if m.parent_id == parent_mood.mood_id], key=lambda m: (m.mood_name or "").lower())
                 for child in children:
-                    child_item = self._make_mood_item(
-                        child, own_counts, recursive_counts, parent_item
-                    )
+                    child_item = self._make_mood_item(child, own_counts, recursive_counts, parent_item)
 
                     # Set color based on depth
                     self._set_mood_item_style(child_item, depth, own_counts, recursive_counts)
@@ -314,11 +281,7 @@ class MoodView(MoodActionsMixin, QWidget):
         recursive_count = recursive_counts.get(mood.mood_id, own_count)
         count_text = self._format_track_count(own_count, recursive_count)
 
-        item = (
-            QTreeWidgetItem(parent, [mood.mood_name, count_text])
-            if parent
-            else QTreeWidgetItem([mood.mood_name, count_text])
-        )
+        item = QTreeWidgetItem(parent, [mood.mood_name, count_text]) if parent else QTreeWidgetItem([mood.mood_name, count_text])
         item.setData(0, Qt.UserRole, mood.mood_id)
         item.setData(0, Qt.UserRole + 1, mood)  # Store full mood object
         self._style_count_cell(item)
@@ -347,9 +310,7 @@ class MoodView(MoodActionsMixin, QWidget):
                 if mood_id:
                     direct_track_ids.setdefault(mood_id, set()).add(association.track_id)
 
-            own_counts = {
-                mood_id: len(track_ids) for mood_id, track_ids in direct_track_ids.items()
-            }
+            own_counts = {mood_id: len(track_ids) for mood_id, track_ids in direct_track_ids.items()}
 
             children_map = {}
             for mood in self.moods_data:
@@ -368,9 +329,7 @@ class MoodView(MoodActionsMixin, QWidget):
             for mood in self.moods_data:
                 track_ids_for(mood.mood_id)
 
-            recursive_counts = {
-                mood_id: len(track_ids) for mood_id, track_ids in recursive_track_ids.items()
-            }
+            recursive_counts = {mood_id: len(track_ids) for mood_id, track_ids in recursive_track_ids.items()}
 
             return own_counts, recursive_counts
         except SQLAlchemyError as e:
@@ -393,9 +352,7 @@ class MoodView(MoodActionsMixin, QWidget):
         if hasattr(mood_obj, "description") and mood_obj.description:
             tooltip += f"\nDescription: {mood_obj.description}"
         if hasattr(mood_obj, "parent_id") and mood_obj.parent_id:
-            parent_mood = next(
-                (m for m in self.moods_data if m.mood_id == mood_obj.parent_id), None
-            )
+            parent_mood = next((m for m in self.moods_data if m.mood_id == mood_obj.parent_id), None)
             if parent_mood:
                 tooltip += f"\nParent: {parent_mood.mood_name}"
 
@@ -473,17 +430,10 @@ class MoodView(MoodActionsMixin, QWidget):
                 all_tracks = []
                 seen_track_ids = set()
                 for mid in all_mood_ids:
-                    associations = self.controller.get.get_all_entities(
-                        "MoodTrackAssociation", mood_id=mid
-                    )
+                    associations = self.controller.get.get_all_entities("MoodTrackAssociation", mood_id=mid)
                     for association in associations:
-                        if hasattr(association, "track"):
-                            track = association.track
-                        else:
-                            # Fallback: get track by ID
-                            track = self.controller.get.get_entity_object(
-                                "Track", track_id=association.track_id
-                            )
+                        # Fallback: get track by ID
+                        track = association.track if hasattr(association, "track") else self.controller.get.get_entity_object("Track", track_id=association.track_id)
                         if track is None or track.track_id in seen_track_ids:
                             continue
                         seen_track_ids.add(track.track_id)
@@ -491,18 +441,14 @@ class MoodView(MoodActionsMixin, QWidget):
 
                 return all_tracks
             # Just get tracks for this specific mood
-            associations = self.controller.get.get_all_entities(
-                "MoodTrackAssociation", mood_id=mood_id
-            )
+            associations = self.controller.get.get_all_entities("MoodTrackAssociation", mood_id=mood_id)
             tracks = []
             for association in associations:
                 if hasattr(association, "track"):
                     tracks.append(association.track)
                 else:
                     # Fallback: get track by ID
-                    track = self.controller.get.get_entity_object(
-                        "Track", track_id=association.track_id
-                    )
+                    track = self.controller.get.get_entity_object("Track", track_id=association.track_id)
                     if track:
                         tracks.append(track)
             return tracks
