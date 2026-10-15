@@ -120,8 +120,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         # second line -- and reserves the height for it -- instead of
         # crushing/overlapping when a larger UI font won't fit in one row.
         self._filter_row_widget = FlowLayoutContainer()
-        filter_layout = self._build_filter_bar()
-        self._filter_row_widget.setLayout(filter_layout)
+        self._build_filter_bar(self._filter_row_widget)
         main_layout.addWidget(self._filter_row_widget)
 
         main_layout.addWidget(self._build_scroll_area())
@@ -175,9 +174,13 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
         return row
 
-    def _build_filter_bar(self) -> FlowLayout:
-        """Secondary row with advanced filter chips."""
-        row = FlowLayout(margin=0, h_spacing=12, v_spacing=6)
+    def _build_filter_bar(self, container: QWidget) -> FlowLayout:
+        """Secondary row with advanced filter chips, installed on *container*."""
+        # Install the layout on its container first so addWidget() parents
+        # each chip: show() on a still-parentless chip maps it as its own
+        # top-level window, which on Wayland requests an activation token
+        # that GNOME shows as a busy cursor until it times out.
+        row = FlowLayout(container, margin=0, h_spacing=12, v_spacing=6)
 
         def add(widget):
             row.addWidget(widget)
@@ -289,10 +292,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         """Load all albums from the controller and refresh the grid."""
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            self.all_albums = (
-                self.controller.get.get_all_entities("Album", load_options=_ALBUM_LIST_LOAD_OPTIONS)
-                or []
-            )
+            self.all_albums = self.controller.get.get_all_entities("Album", load_options=_ALBUM_LIST_LOAD_OPTIONS) or []
             self._populate_dynamic_filter_combos()
             self._restore_sort_combo()
             self._apply_filters()
@@ -454,14 +454,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
         # Re-sort in place and find where the patched album landed
         self._sort_filtered()
-        new_idx = next(
-            (
-                i
-                for i, a in enumerate(self.filtered_albums)
-                if getattr(a, "album_id", None) == album_id
-            ),
-            None,
-        )
+        new_idx = next((i for i, a in enumerate(self.filtered_albums) if getattr(a, "album_id", None) == album_id), None)
 
         # Only patch the single widget in place when the edit didn't change
         # its position in the (possibly re-sorted) list — if the order
@@ -592,9 +585,7 @@ class _AnySpinBox(QSpinBox):
         # most 4 digits. Size to the widest text we'll actually show
         # ("9999" or "Any") instead.
         fm = QFontMetrics(self.font())
-        text_width = max(
-            fm.horizontalAdvance(str(self.maximum())), fm.horizontalAdvance(self.specialValueText())
-        )
+        text_width = max(fm.horizontalAdvance(str(self.maximum())), fm.horizontalAdvance(self.specialValueText()))
         return QSize(text_width + 28, super().sizeHint().height())
 
     def minimumSizeHint(self) -> QSize:

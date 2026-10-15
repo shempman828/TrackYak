@@ -663,3 +663,45 @@ def test_clear_filters_resets_type_and_media_combos(qapp, monkeypatch):
         assert sorted(a.album_id for a in view.filtered_albums) == [1, 2]
     finally:
         view.close()
+
+
+# ---- test_album_view_filter_bar_parenting.py ---------------------------------
+def test_building_view_never_shows_a_top_level_window(qapp):
+    """The filter bar's FlowLayout used to be built without a parent, so
+    addWidget() left each chip parentless and the following show() mapped it
+    as its own top-level window. On Wayland each one requested an
+    xdg-activation token that was never used, so GNOME kept a busy cursor up
+    after the Albums view was first opened."""
+    from PySide6.QtWidgets import QApplication
+
+    class StubGetController:
+        def get_all_entities(self, entity_type, load_options=None):
+            return []
+
+    class StubController:
+        def __init__(self):
+            self.get = StubGetController()
+
+    shown = []
+
+    class _Spy(QWidget):
+        def eventFilter(self, obj, event):
+            if event.type() == event.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+                shown.append(type(obj).__name__)
+            return False
+
+    spy = _Spy()
+    QApplication.instance().installEventFilter(spy)
+    try:
+        view = AlbumView(StubController())
+    finally:
+        QApplication.instance().removeEventFilter(spy)
+
+    try:
+        assert shown == []
+        row = view._filter_row_widget
+        assert row.layout().count() > 0
+        for i in range(row.layout().count()):
+            assert row.layout().itemAt(i).widget().parentWidget() is row
+    finally:
+        view.close()
