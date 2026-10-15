@@ -256,6 +256,7 @@ class Config:
                 self.config.read(self.config_path, encoding="utf-8")
                 logger.info(f"Configuration loaded from {self.config_path}")
                 self._migrate_legacy_queue_keys()
+                self._migrate_legacy_theme_file()
             except (configparser.Error, OSError) as e:
                 logger.error(f"Error loading config: {e}")
                 self._create_default_config()
@@ -277,6 +278,20 @@ class Config:
             logger.info("Migrated legacy queue/history IDs out of config.ini")
             self.save()
 
+    def _migrate_legacy_theme_file(self):
+        """Fold the legacy app.theme_file key into display.theme, then remove it."""
+        # display.theme is the one key DisplaySettings applies, so it wins when both are set.
+        if not self.config.has_option("app", "theme_file"):
+            return
+        legacy_stem = Path(self.config.get("app", "theme_file")).stem
+        if not self.config.get("display", "theme", fallback="") and legacy_stem:
+            if not self.config.has_section("display"):
+                self.config.add_section("display")
+            self.config.set("display", "theme", legacy_stem)
+        self.config.remove_option("app", "theme_file")
+        logger.info("Migrated legacy app.theme_file into display.theme")
+        self.save()
+
     def _create_default_config(self):
         """Fill self.config with the default sections and values."""
         # Window section
@@ -284,11 +299,7 @@ class Config:
         # Display section (NEW)
         self.config["display"] = {"theme": "dark_mode", "ui_scale": "1.0", "font_family": "Inter", "font_size": "10", "blur_explicit_art": "false", "censor_explicit_words": "false"}
         # App section
-        self.config["app"] = {
-            "music_dir": str(Path.home() / "Music"),
-            "first_run": "true",
-            # theme_file (app) and display.theme both name the active theme; see bugs.md #596.
-        }
+        self.config["app"] = {"music_dir": str(Path.home() / "Music"), "first_run": "true"}
 
         # Library section
         self.config["library"] = {"root_directory": str(Path.home() / "Music"), "scan_on_startup": "true", "auto_refresh": "false", "excluded_genres": "", "excluded_roles": ""}
@@ -431,18 +442,16 @@ class Config:
 
     # Theme management (filesystem-backed, not config-value accessors)
     def get_available_themes(self):
-        """Return the file names of the available .qss themes."""
-        theme_files = []
-        if self.themes_dir.exists():
-            for file in self.themes_dir.glob("*.qss"):
-                theme_files.append(file.name)
-        return theme_files
+        """Return the sorted names (file stems) of the available .qss themes."""
+        if not self.themes_dir.exists():
+            return []
+        return sorted(file.stem for file in self.themes_dir.glob("*.qss"))
 
-    def get_theme_path(self, theme_file=None):
-        """Return the full path to a theme file (default: the configured one)."""
-        if theme_file is None:
-            theme_file = self.get_theme_file()
-        return self.themes_dir / theme_file
+    def get_theme_path(self, theme_name=None):
+        """Return the full path to <theme_name>.qss (default: the configured display theme)."""
+        if theme_name is None:
+            theme_name = self.get_display_theme()
+        return self.themes_dir / f"{theme_name}.qss"
 
     def save_equalizer_settings(self, enabled: bool, band_gains: list, preset_name: str = "Custom"):
         """Store all EQ settings and save the file."""
@@ -461,7 +470,6 @@ class Config:
 # above. Either way, every accessor is generated through the same mechanism.
 
 _CONFIG_FIELDS = [
-    _primitive("theme_file", "app", "theme_file", "str", "default.qss"),
     _primitive("first_run", "app", "first_run", "bool", True, prefix="is"),
     ConfigField("base_directory", "library", ("root_directory",), _decode_base_directory, _encode_base_directory),
     _primitive("scan_on_startup", "library", "scan_on_startup", "bool", True),

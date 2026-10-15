@@ -266,3 +266,47 @@ def test_menu_bar_auto_hide_round_trips(fresh_config):
     cfg.set_menu_bar_auto_hide(True)
     cfg.save()
     assert _reload(scratch_ini).get_menu_bar_auto_hide() is True
+
+
+# ---- legacy app.theme_file migration (bugs.md #596) ---------------------------
+
+
+def _write_ini(scratch_ini, text):
+    scratch_ini.write_text(text, encoding="utf-8")
+    return _reload(scratch_ini)
+
+
+def test_legacy_theme_file_fills_empty_display_theme_and_is_removed(fresh_config):
+    _, scratch_ini = fresh_config
+    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n[display]\ntheme =\n")
+
+    assert cfg.get_display_theme() == "light_mode"
+    assert not cfg.config.has_option("app", "theme_file")
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert not raw.has_option("app", "theme_file")
+    assert raw["display"]["theme"] == "light_mode"
+
+
+def test_legacy_theme_file_creates_missing_display_section(fresh_config):
+    _, scratch_ini = fresh_config
+    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n")
+
+    assert cfg.get_display_theme() == "light_mode"
+    assert not cfg.config.has_option("app", "theme_file")
+
+
+def test_display_theme_wins_over_disagreeing_legacy_theme_file(fresh_config):
+    _, scratch_ini = fresh_config
+    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n[display]\ntheme = dark_mode\n")
+
+    assert cfg.get_display_theme() == "dark_mode"
+    assert not cfg.config.has_option("app", "theme_file")
+
+
+def test_theme_path_and_available_themes_use_stems(fresh_config):
+    cfg, _ = fresh_config
+    cfg.set_display_theme("dark_mode")
+
+    assert cfg.get_theme_path() == cfg.themes_dir / "dark_mode.qss"
+    assert all(not name.endswith(".qss") for name in cfg.get_available_themes())

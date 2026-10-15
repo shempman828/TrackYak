@@ -308,7 +308,6 @@ def test_cancel_reverts_live_appearance_changes(qapp, monkeypatch, fresh_config)
         assert ds._censor is False
         assert ds.ui_scale == 1.0
         assert ("set_ui_scale", 1.3) not in ds.calls
-        assert fresh_config.get_theme_file() != "light_mode.qss"
     finally:
         _close(dialog, qapp)
 

@@ -1010,7 +1010,9 @@ Double-click any queued track to jump to it immediately.
   setting's default instead of failing to start. The UI scale is limited to
   50–300 %, and thin 1px borders stay visible at small scales. Themes load
   from the app's own `themes/` folder, whichever directory you start the app
-  from.
+  from. The first-run dialog and this dialog use the same theme setting
+  (`display.theme`). An older `config.ini` with an `app.theme_file` key is
+  migrated into `display.theme` once, on the next start.
 - **Exit** (`Ctrl+Q`) — closes the app.
 
 ## Library Statistics

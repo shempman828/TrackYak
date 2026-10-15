@@ -47,7 +47,7 @@ def test_mkdir_failure_uses_show_error(qapp, monkeypatch, fresh_config, tmp_path
     assert shown and "read-only" in shown[0]
 
 
-def test_finish_saves_directory_and_both_theme_keys(qapp, monkeypatch, fresh_config, tmp_path):
+def test_finish_saves_directory_and_display_theme(qapp, monkeypatch, fresh_config, tmp_path):
     monkeypatch.setattr(fresh_config, "save", lambda: None)
     dialog = StartupDialog(fresh_config)
     dialog._selected_dir = tmp_path
@@ -57,7 +57,7 @@ def test_finish_saves_directory_and_both_theme_keys(qapp, monkeypatch, fresh_con
     dialog._finish_setup()
 
     assert fresh_config.get_base_directory() == tmp_path
-    assert fresh_config.get_theme_file() == "dark_mode.qss"
+    assert not fresh_config.config.has_option("app", "theme_file")
     assert fresh_config.get_display_theme() == "dark_mode"
     assert fresh_config.is_first_run() is False
 

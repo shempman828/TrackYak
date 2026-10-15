@@ -159,10 +159,9 @@ class ConfigDialog(QDialog):
         widget = QWidget()
         layout = QFormLayout(widget)
 
-        # Theme selection — live-applies via DisplaySettings when available,
-        # and keeps the startup theme_file config key in sync either way.
+        # Theme selection — live-applies via DisplaySettings when available.
         self.theme_combo = QComboBox()
-        available_themes = self.display_settings.get_available_themes() if self.display_settings is not None else [Path(name).stem for name in self.config.get_available_themes()]
+        available_themes = self.display_settings.get_available_themes() if self.display_settings is not None else self.config.get_available_themes()
         self.theme_combo.addItems(available_themes if available_themes else ["default"])
         if self.display_settings is not None:
             self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
@@ -402,10 +401,8 @@ class ConfigDialog(QDialog):
             self.font_combo.setCurrentIndex(index)
 
     def _on_theme_changed(self, name: str):
-        """Live-apply the selected theme and keep the startup theme_file key in sync."""
+        """Live-apply and persist the selected theme."""
         self.display_settings.set_theme(name)
-        self.config.set_theme_file(f"{name}.qss")
-        self.config.save()
 
     def _on_scale_changed(self, value: int):
         """Update the scale label and queue a debounced live preview."""
@@ -460,7 +457,6 @@ class ConfigDialog(QDialog):
             return
         self._appearance_snapshot = {
             "theme_name": ds.theme_name,
-            "theme_file": self.config.get_theme_file(),
             "ui_scale": ds.ui_scale,
             "font_family": ds.font_family,
             "font_size": ds.font_size,
@@ -485,9 +481,6 @@ class ConfigDialog(QDialog):
 
         if snap["theme_name"] and ds.theme_name != snap["theme_name"]:
             ds.set_theme(snap["theme_name"])
-        if self.config.get_theme_file() != snap["theme_file"]:
-            self.config.set_theme_file(snap["theme_file"])
-            self.config.save()
         if ds.font_family != snap["font_family"]:
             ds.set_font_family(snap["font_family"])
         if ds.font_size != snap["font_size"]:
@@ -562,7 +555,7 @@ class ConfigDialog(QDialog):
                     if index >= 0:
                         self.theme_combo.setCurrentIndex(index)
             else:
-                index = self.theme_combo.findText(Path(self.config.get_theme_file()).stem)
+                index = self.theme_combo.findText(self.config.get_display_theme())
                 if index >= 0:
                     self.theme_combo.setCurrentIndex(index)
 
@@ -630,7 +623,7 @@ class ConfigDialog(QDialog):
 
             # Appearance settings already apply live through DisplaySettings when it's available.
             if self.display_settings is None:
-                self.config.set_theme_file(f"{self.theme_combo.currentText()}.qss")
+                self.config.set_display_theme(self.theme_combo.currentText())
                 self.config.set_ui_scale(self.scale_slider.value() / 100.0)
                 self.config.set_font_family(self.font_combo.currentText())
                 self.config.set_font_size(self.font_size_spin.value())

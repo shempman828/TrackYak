@@ -433,12 +433,12 @@ class GUI(QMainWindow, MenuBar):
             return
 
         try:
-            theme_file = app_config.get_theme_file()
-            theme_path = app_config.get_theme_path(theme_file)
-            if theme_path.exists():
+            theme_name = app_config.get_display_theme()
+            theme_path = app_config.get_theme_path(theme_name)
+            if theme_name and theme_path.exists():
                 with theme_path.open(encoding="utf-8") as f:
                     QApplication.instance().setStyleSheet(resolve_theme_assets(f.read()))
-                logger.debug(f"Theme applied: {theme_file}")
+                logger.debug(f"Theme applied: {theme_name}")
             else:
                 default_theme = theme("dark_mode.qss")
                 if Path(default_theme).exists():

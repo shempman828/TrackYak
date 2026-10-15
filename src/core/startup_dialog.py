@@ -63,10 +63,11 @@ class StartupDialog(QDialog):
         theme_layout = QFormLayout(theme_frame)
 
         self.theme_combo = QComboBox()
-        themes = sorted(Path(name).stem for name in self.config.get_available_themes())
+        # DisplaySettings does not exist yet at first run, so read its display.theme key through Config.
+        themes = self.config.get_available_themes()
         if themes:
             self.theme_combo.addItems(themes)
-            idx = self.theme_combo.findText(Path(self.config.get_theme_file()).stem)
+            idx = self.theme_combo.findText(self.config.get_display_theme())
             if idx >= 0:
                 self.theme_combo.setCurrentIndex(idx)
         else:
@@ -172,8 +173,6 @@ class StartupDialog(QDialog):
 
         theme_name = self.theme_combo.currentText()
         self.config.set_base_directory(selected_dir)
-        # Both keys name the active theme until bugs.md #596 merges them.
-        self.config.set_theme_file(f"{theme_name}.qss")
         self.config.set_display_theme(theme_name)
         self.config.set_first_run(False)
         self.config.save()
