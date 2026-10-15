@@ -127,6 +127,58 @@ class MetadataWriteWorker(CancellableWorker):
             self.finished.emit(results)
 
 
+class MetadataPreviewWorker(CancellableWorker):
+    """Dry run: logs, per file, the tag keys whose on-disk value differs from the database."""
+
+    progress = Signal(int, int, int)  # current, total, track_id
+    # object, not dict: see MetadataScannerWorker.finished for why a
+    # queued int-keyed dict signal fails to copy-convert.
+    finished = Signal(object)  # {track_id: [changed tag keys]}, or None on error
+    log_message = Signal(str)
+
+    def __init__(self, metadata_writer: MetadataWriter, track_ids: list[int], parent=None):
+        """Keep the writer and the tracks to preview."""
+        super().__init__(parent)
+        self.metadata_writer = metadata_writer
+        self.track_ids = track_ids
+
+    def cancel(self):
+        """Request cancellation; the preview stops before the next file."""
+        self.request_cancel()
+
+    def run(self):
+        """Diff each track's file against the database and emit finished with the changed keys per track."""
+        total = len(self.track_ids)
+        results = {}
+
+        try:
+            for i, track_id in enumerate(self.track_ids):
+                if self.is_cancelled:
+                    break
+
+                self.progress.emit(i + 1, total, track_id)
+
+                try:
+                    track = self.metadata_writer.controller.get.get_entity_object("Track", track_id=track_id)
+                    file_path = track.track_file_path if track else None
+                    changed = self.metadata_writer.get_changed_tags(track_id, file_path) if file_path else []
+                except Exception as e:
+                    # Intentional broad boundary catch: one unreadable file must not end the preview or kill the thread.
+                    logger.exception(f"Error previewing track {track_id}")
+                    self.log_message.emit(f"✗ Error reading track {track_id}: {e!s}")
+                    results[track_id] = None
+                    continue
+
+                results[track_id] = changed
+                name = Path(file_path).name if file_path else f"track {track_id}"
+                self.log_message.emit(f"~ {name}: {', '.join(changed)}" if changed else f"= {name}: no changes")
+        finally:
+            # Read-only: get_changed_tags never writes the file or the database.
+            self._release_db_session()
+            # Always emitted, so the dialog never stays locked.
+            self.finished.emit(results)
+
+
 class MetadataWriteDialog(QDialog):
     """Scans for tracks to write, then writes database metadata to their audio files."""
 
@@ -138,6 +190,7 @@ class MetadataWriteDialog(QDialog):
         self.status_manager = StatusManager
         self.scanner_thread: MetadataScannerWorker | None = None
         self.writer_thread: MetadataWriteWorker | None = None
+        self.preview_thread: MetadataPreviewWorker | None = None
         self.scan_results: dict[int, bool] = {}  # track_id -> has a writable file
         self.tracks_to_update: list[int] = []
         self._cancelled = False
@@ -308,18 +361,24 @@ class MetadataWriteDialog(QDialog):
         mode = self.mode_combo.currentData()
         track_ids = self.tracks_to_update
 
-        if self.dry_run_check.isChecked():
-            self.log_message("=== DRY RUN - No files will be modified ===")
-            self.log_message(f"Would update {len(track_ids)} files with mode: {mode.name}")
-            self.update_status(f"Dry run complete - would update {len(track_ids)} files")
-            self.status_manager.show_message("Dry run complete", 3000)
-            return
-
         self._cancelled = False
         self.scan_btn.setEnabled(False)
         self.update_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.progress_group.setVisible(True)
+
+        if self.dry_run_check.isChecked():
+            self.status_manager.start_task(f"Previewing {len(track_ids)} files")
+            self.preview_thread = MetadataPreviewWorker(self.metadata_writer, track_ids)
+            self.preview_thread.progress.connect(self.update_preview_progress)
+            self.preview_thread.finished.connect(self.on_preview_finished)
+            self.preview_thread.log_message.connect(self.log_message)
+            self.preview_thread.start()
+
+            self.log_message(f"=== DRY RUN ({mode.name}) - No files will be modified ===")
+            self.log_message("Tags whose file value differs from the database:")
+            self.update_status(f"Previewing {len(track_ids)} files...")
+            return
 
         self.status_manager.start_task(f"Updating {len(track_ids)} files")
 
@@ -331,6 +390,30 @@ class MetadataWriteDialog(QDialog):
 
         self.log_message(f"=== Starting metadata update for {len(track_ids)} files ===")
         self.update_status(f"Updating {len(track_ids)} files...")
+
+    def update_preview_progress(self, current: int, total: int, track_id: int):
+        """Show preview progress."""
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.progress_label.setText(f"Previewing: {current}/{total} (Track ID: {track_id})")
+
+    def on_preview_finished(self, results: dict[int, list[str] | None]):
+        """Summarise the dry run; Update stays enabled so the user can write the previewed files."""
+        changed_count = sum(1 for keys in results.values() if keys)
+        error_count = sum(1 for keys in results.values() if keys is None)
+        unchanged_count = len(results) - changed_count - error_count
+
+        self.scan_btn.setEnabled(True)
+        self.update_btn.setEnabled(bool(self.tracks_to_update))
+        self.cancel_btn.setEnabled(False)
+        self.progress_group.setVisible(False)
+
+        stopped = "cancelled" if self._cancelled else "complete"
+        summary = f"{changed_count} files would change, {unchanged_count} unchanged, {error_count} errors"
+        self.log_message(f"=== Dry run {stopped}: {summary} ===")
+        self.update_status(f"Dry run {stopped} - {summary}")
+        if not self._cancelled:
+            self.status_manager.end_task("Dry run complete", 3000)
 
     def update_write_progress(self, current: int, total: int, track_id: int):
         """Show write progress."""
@@ -379,6 +462,12 @@ class MetadataWriteDialog(QDialog):
             self.log_message("Scan cancelled")
             self.status_manager.end_task("Scan cancelled", 3000)
             self.update_status("Scan cancelled")
+        elif self.preview_thread and self.preview_thread.isRunning():
+            self._cancelled = True
+            self.preview_thread.cancel()
+            self.log_message("Cancelling preview...")
+            self.status_manager.end_task("Preview cancelled", 3000)
+            self.update_status("Cancelling...")
         elif self.writer_thread and self.writer_thread.isRunning():
             self._cancelled = True
             self.writer_thread.cancel()
@@ -392,7 +481,7 @@ class MetadataWriteDialog(QDialog):
     def closeEvent(self, event):
         """Cancel any running work and wait for the worker, so no QThread outlives the dialog."""
         self.cancel_operation()
-        for worker in (self.scanner_thread, self.writer_thread):
+        for worker in (self.scanner_thread, self.writer_thread, self.preview_thread):
             if worker and worker.isRunning():
                 # Each loop checks the cancel flag per track, so this returns after the current file.
                 worker.wait()

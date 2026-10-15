@@ -1058,7 +1058,11 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
 - **Write Metadata…** — pushes your database edits back into the actual file
   tags, for when you want the files themselves to match what you've cleaned
   up in TrackYak. Scan the library first (dirty tracks only by default, or a
-  full rescan), pick a write mode, optionally preview, then write. Writing
+  full rescan), pick a write mode, optionally preview, then write. "Preview
+  only" writes nothing: it logs each file with the tag keys (for example
+  `TIT2` or `ALBUM`) whose value in the file differs from the database, or
+  "no changes". The preview compares values only; it does not show the
+  effect of the write mode. Writing
   works for MP3, FLAC and Ogg Vorbis files; Opus streams (even with an
   `.ogg` extension) are skipped rather than risk damaging them. "Replace all
   tags" clears every other tag but always keeps embedded cover art. Cancel
