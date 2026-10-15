@@ -5,13 +5,14 @@ from pathlib import Path
 
 from src.foundation.logger_config import logger
 from src.metadata.readers.metadata_artwork import ArtworkExtractor
+from src.metadata.readers.metadata_file_view import LazyFileView
 from src.metadata.readers.metadata_properties import AudioPropertiesExtractor
 from src.metadata.readers.metadata_raw_tags import RawTagExtractor
 from src.metadata.readers.metadata_text import TextMetadataExtractor, flatten_text_metadata
 
 
 class MetadataExtractor:
-    """Reads a file once and combines the raw-tag, text, artwork and audio-property extractors."""
+    """Combines the raw-tag, text, artwork and audio-property extractors over one lazy view of the file."""
 
     def __init__(self):
         """Create the per-concern extractors."""
@@ -30,23 +31,24 @@ class MetadataExtractor:
         try:
             logger.debug(f"Processing file: {file_path}")
 
-            # One read; every extractor works off this buffer.
-            data = Path(file_path).read_bytes()
+            # Every extractor shares one lazy view, so only the header/tag regions it touches are read, not the audio payload.
+            with Path(file_path).open("rb") as file_obj:
+                data = LazyFileView(file_obj)
 
-            metadata = {"track_file_path": file_path, "file_size": len(data), "file_extension": file_ext.lstrip("."), "date_added": datetime.now(UTC)}
+                metadata = {"track_file_path": file_path, "file_size": len(data), "file_extension": file_ext.lstrip("."), "date_added": datetime.now(UTC)}
 
-            raw_tags = self.raw_tag_extractor.extract_raw_tags(data, file_ext)
+                raw_tags = self.raw_tag_extractor.extract_raw_tags(data, file_ext)
 
-            text_extractor = TextMetadataExtractor(file_path, file_ext.lstrip("."), raw_tags)
-            text_metadata = text_extractor.extract_metadata()
-            metadata.update(flatten_text_metadata(text_metadata))
+                text_extractor = TextMetadataExtractor(file_path, file_ext.lstrip("."), raw_tags)
+                text_metadata = text_extractor.extract_metadata()
+                metadata.update(flatten_text_metadata(text_metadata))
 
-            artwork = self.artwork_extractor.extract_artwork(data, file_ext)
-            if artwork:
-                metadata["album_art_data"] = artwork
+                artwork = self.artwork_extractor.extract_artwork(data, file_ext)
+                if artwork:
+                    metadata["album_art_data"] = artwork
 
-            audio_properties = self.audio_properties_extractor.extract_audio_properties(data, file_ext)
-            metadata.update(audio_properties)
+                audio_properties = self.audio_properties_extractor.extract_audio_properties(data, file_ext)
+                metadata.update(audio_properties)
 
             logger.debug(f"Successfully extracted metadata from {file_path}")
             logger.debug(f"Metadata keys: {list(self._safe_for_logging(metadata).keys())}")
