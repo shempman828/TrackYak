@@ -268,7 +268,9 @@ class ConfigDialog(QDialog):
             "PipeWire/PulseAudio holds (e.g. an HDMI receiver) shows under its "
             'sink name, such as "alsa_output...hdmi-surround (Direct)"; '
             "playback pauses that sink while it uses the device. If the device "
-            "stays busy, playback falls back to the default output."
+            "stays busy (for example, GNOME Settings' Sound panel is open), "
+            "playback uses the shared output and a message names the program "
+            "that holds the device."
         )
         exclusive_info_label.setWordWrap(True)
         exclusive_info_label.setProperty("textRole", "muted")

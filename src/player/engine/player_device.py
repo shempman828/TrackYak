@@ -7,6 +7,7 @@
 # self.stop()/self.seek()/self.play() (transport controls).
 
 import json
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -129,7 +130,7 @@ class PlayerDeviceMixin:
                 # the sink itself is the handle for grabbing it.
                 sink_name = device_name.strip()
 
-        sinks = self._list_pactl_sinks()
+        sinks = self._pactl_list("sinks")
         if sinks is None:
             return None, None
 
@@ -148,22 +149,72 @@ class PlayerDeviceMixin:
         return None, None
 
     @staticmethod
-    def _list_pactl_sinks() -> list | None:
-        """Return PipeWire/PulseAudio sinks from `pactl -f json list sinks`,
-        or None if pactl is unavailable or its output can't be parsed."""
+    def _pactl_list(kind: str) -> list | None:
+        """Return `pactl -f json list <kind>` (sinks, sources, sink-inputs,
+        source-outputs), or None if pactl is unavailable or its output can't
+        be parsed."""
         try:
-            result = subprocess.run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True, timeout=2, check=True)
+            result = subprocess.run(["pactl", "-f", "json", "list", kind], capture_output=True, text=True, timeout=2, check=True)
             return json.loads(result.stdout)
         except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
-            logger.debug(f"pactl sink lookup failed: {exc}")
+            logger.debug(f"pactl {kind} lookup failed: {exc}")
             return None
+
+    @staticmethod
+    def _hw_node_is_open(hw_ids) -> bool:
+        """True while some process still has the ALSA playback PCM
+        hw:card,dev open, per /proc/asound. Returns False if that can't be
+        read, so the PortAudio rescan decides instead."""
+        card, dev = hw_ids
+        try:
+            return any(not status.read_text().startswith("closed") for status in Path(f"/proc/asound/card{card}/pcm{dev}p").glob("sub*/status"))
+        except OSError:
+            return False
+
+    def _wait_for_hw_node_closed(self, hw_ids, timeout: float = 1.0) -> bool:
+        """Poll until the sound server has let go of hw_ids after a suspend."""
+        deadline = time.monotonic() + timeout
+        while self._hw_node_is_open(hw_ids):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        return True
+
+    def _sink_client_names(self, sink_name: str) -> list:
+        """Apps with a stream on `sink_name` or on its monitor source (e.g.
+        the level meter in GNOME Settings' Sound panel). PipeWire won't
+        suspend a sink while any of these are connected."""
+        sink = next((s for s in self._pactl_list("sinks") or [] if s.get("name") == sink_name), None)
+        if sink is None:
+            return []
+        monitor = next((s for s in self._pactl_list("sources") or [] if s.get("name") == sink.get("monitor_source")), None)
+        streams = [i for i in self._pactl_list("sink-inputs") or [] if i.get("sink") == sink.get("index")]
+        if monitor is not None:
+            streams += [o for o in self._pactl_list("source-outputs") or [] if o.get("source") == monitor.get("index")]
+        names = []
+        for stream in streams:
+            name = stream.get("properties", {}).get("application.name")
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _report_exclusive_unavailable(self, sink_name: str, hw_ids) -> None:
+        """Tell the user bit-perfect output couldn't be opened, naming the
+        apps that hold the device when they can be found -- otherwise
+        playback silently falls back to the shared sink."""
+        holders = self._sink_client_names(sink_name)
+        target = f"hw:{hw_ids[0]},{hw_ids[1]}"
+        reason = f"{', '.join(holders)} is using {target}. Close it and try again." if holders else f"another program is using {target}."
+        message = f"Bit-perfect output unavailable: {reason} Playing through the shared output instead."
+        logger.warning(message)
+        self.error_occurred.emit(message)
 
     def _alsa_backed_sink_names(self) -> set:
         """Names of sinks that sit directly on an ALSA hw node. In exclusive
         mode, _prepare_exclusive_device suspends such a sink and opens its hw
         node, so these count as direct devices too."""
         names = set()
-        for sink in self._list_pactl_sinks() or []:
+        for sink in self._pactl_list("sinks") or []:
             props = sink.get("properties", {})
             if props.get("alsa.card") is not None and props.get("alsa.device") is not None and sink.get("name"):
                 names.add(sink["name"])
@@ -197,8 +248,18 @@ class PlayerDeviceMixin:
             return None
 
         if not self._suspend_sink(sink_name, True):
+            self._report_exclusive_unavailable(sink_name, hw_ids)
             return None
         self._suspended_sink_name = sink_name
+
+        # pactl reports success even when PipeWire keeps the node running
+        # because a client still has a stream on the sink or its monitor, so
+        # check that the hw node really closed before rescanning for it.
+        if not self._wait_for_hw_node_closed(hw_ids):
+            self._suspend_sink(sink_name, False)
+            self._suspended_sink_name = None
+            self._report_exclusive_unavailable(sink_name, hw_ids)
+            return None
 
         stream_exceptions = (OSError, RuntimeError)
         if hasattr(self, "sd") and hasattr(self.sd, "PortAudioError"):
@@ -225,6 +286,7 @@ class PlayerDeviceMixin:
         # (and the user's system audio) stuck.
         self._suspend_sink(sink_name, False)
         self._suspended_sink_name = None
+        self._report_exclusive_unavailable(sink_name, hw_ids)
         return None
 
     def _get_device_config(self) -> dict:

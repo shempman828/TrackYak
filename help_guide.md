@@ -990,7 +990,11 @@ Double-click any queued track to jump to it immediately.
   device labeled "(Direct)". A device the desktop sound server already uses
   (for example an HDMI receiver) shows under its PipeWire sink name, such as
   `alsa_output.pci-…hdmi-surround (Direct)`; during playback TrackYak pauses
-  that sink and opens the hardware directly, then gives it back. Appearance changes (theme, UI scale, font, menu bar
+  that sink and opens the hardware directly, then gives it back. If another
+  program keeps the sink in use, TrackYak plays through the shared output and
+  shows a message that names that program. On GNOME, an open Sound panel in
+  Settings does this (its level meter records the output), so close Settings
+  before you play. Appearance changes (theme, UI scale, font, menu bar
   auto-hide, explicit-content options) show immediately as a preview.
   **OK** keeps them; **Cancel** (or closing the dialog) undoes every
   Appearance change made since the dialog opened or since you last clicked
