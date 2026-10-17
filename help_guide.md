@@ -986,7 +986,11 @@ Double-click any queued track to jump to it immediately.
   split across tabs. See [Library Statistics](#library-statistics) below for
   what each tab holds.
 - **General Settings** — display, audio device, and general app preferences,
-  all in one dialog. Appearance changes (theme, UI scale, font, menu bar
+  all in one dialog. For **Bit-Perfect / Exclusive Mode**, pick an output
+  device labeled "(Direct)". A device the desktop sound server already uses
+  (for example an HDMI receiver) shows under its PipeWire sink name, such as
+  `alsa_output.pci-…hdmi-surround (Direct)`; during playback TrackYak pauses
+  that sink and opens the hardware directly, then gives it back. Appearance changes (theme, UI scale, font, menu bar
   auto-hide, explicit-content options) show immediately as a preview.
   **OK** keeps them; **Cancel** (or closing the dialog) undoes every
   Appearance change made since the dialog opened or since you last clicked

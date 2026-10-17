@@ -264,9 +264,11 @@ class ConfigDialog(QDialog):
         exclusive_info_label = QLabel(
             "Opens the output device directly, with no volume/format processing "
             "in between. Only works with a direct hardware device — pick one "
-            'labeled "(Direct)" above, not "(Shared)". If the device is busy '
-            "(e.g. held by PulseAudio/PipeWire), playback falls back to the "
-            "default output."
+            'labeled "(Direct)" above, not "(Shared)". A device that '
+            "PipeWire/PulseAudio holds (e.g. an HDMI receiver) shows under its "
+            'sink name, such as "alsa_output...hdmi-surround (Direct)"; '
+            "playback pauses that sink while it uses the device. If the device "
+            "stays busy, playback falls back to the default output."
         )
         exclusive_info_label.setWordWrap(True)
         exclusive_info_label.setProperty("textRole", "muted")

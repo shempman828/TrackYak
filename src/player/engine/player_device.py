@@ -121,15 +121,16 @@ class PlayerDeviceMixin:
                 return None, None
         else:
             match = re.search(r"hw:(\d+),(\d+)", device_name)
-            if not match:
-                return None, None
-            hw_ids = (int(match.group(1)), int(match.group(2)))
+            if match:
+                hw_ids = (int(match.group(1)), int(match.group(2)))
+            else:
+                # A hw node PipeWire holds open is listed only under its sink
+                # name (e.g. "alsa_output.pci-0000_0a_00.1.hdmi-surround"), so
+                # the sink itself is the handle for grabbing it.
+                sink_name = device_name.strip()
 
-        try:
-            result = subprocess.run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True, timeout=2, check=True)
-            sinks = json.loads(result.stdout)
-        except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
-            logger.debug(f"pactl sink lookup failed: {exc}")
+        sinks = self._list_pactl_sinks()
+        if sinks is None:
             return None, None
 
         for sink in sinks:
@@ -145,6 +146,28 @@ class PlayerDeviceMixin:
             return found_ids, sink.get("name")
 
         return None, None
+
+    @staticmethod
+    def _list_pactl_sinks() -> list | None:
+        """Return PipeWire/PulseAudio sinks from `pactl -f json list sinks`,
+        or None if pactl is unavailable or its output can't be parsed."""
+        try:
+            result = subprocess.run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True, timeout=2, check=True)
+            return json.loads(result.stdout)
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
+            logger.debug(f"pactl sink lookup failed: {exc}")
+            return None
+
+    def _alsa_backed_sink_names(self) -> set:
+        """Names of sinks that sit directly on an ALSA hw node. In exclusive
+        mode, _prepare_exclusive_device suspends such a sink and opens its hw
+        node, so these count as direct devices too."""
+        names = set()
+        for sink in self._list_pactl_sinks() or []:
+            props = sink.get("properties", {})
+            if props.get("alsa.card") is not None and props.get("alsa.device") is not None and sink.get("name"):
+                names.add(sink["name"])
+        return names
 
     def _suspend_sink(self, sink_name: str, suspend: bool) -> bool:
         """Suspend (or resume) a PipeWire/PulseAudio sink via pactl so its
@@ -193,6 +216,9 @@ class PlayerDeviceMixin:
                 continue
             for i, d in enumerate(self.available_devices):
                 if target in d["name"]:
+                    # The re-init renumbers devices, so the old index may now
+                    # name a different device; follow the hw node instead.
+                    self.current_device = i
                     return i
 
         # Couldn't grab it — undo the suspend so we don't leave the sink
@@ -283,9 +309,10 @@ class PlayerDeviceMixin:
         self._restart_playback_if_active()
 
     def get_audio_devices(self) -> list:
+        alsa_sinks = self._alsa_backed_sink_names()
         try:
             return [
-                {"id": i, "name": d["name"], "default": d.get("default", False), "direct": self.is_direct_output_device(d["name"])}
+                {"id": i, "name": d["name"], "default": d.get("default", False), "direct": self.is_direct_output_device(d["name"]) or d["name"] in alsa_sinks}
                 for i, d in enumerate(self.available_devices)
                 if d["max_output_channels"] > 0
             ]
