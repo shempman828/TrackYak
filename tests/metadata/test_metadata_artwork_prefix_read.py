@@ -25,6 +25,7 @@ import io
 import os
 
 from PIL import Image
+import pytest
 
 from src.metadata.readers.metadata_artwork import ArtworkExtractor
 from src.metadata.writers.id3.metadata_id3_writer import ID3TagWriter
@@ -127,3 +128,14 @@ def test_flac_prefix_read_handles_missing_marker(tmp_path):
 
     assert prefix == junk.read_bytes()
     assert extractor.extract_artwork_by_role(str(junk), ".flac") == {}
+
+
+# --- Unreadable file ----------------------------------------------------------
+
+
+def test_unreadable_file_raises_instead_of_reporting_no_art(tmp_path):
+    # A read error must not look like "no pictures": ArtworkCache would cache that as "no art".
+    missing = tmp_path / "gone.flac"
+
+    with pytest.raises(OSError):
+        ArtworkExtractor().extract_artwork_by_role(str(missing), ".flac")

@@ -201,17 +201,16 @@ class ArtworkExtractor:
     _FLAC_READ_CHUNK = 256 * 1024
 
     def extract_artwork_by_role(self, file_path, file_ext):
-        """Return {role: picture} for the roles found in a FLAC or MP3 file ({} for other formats)."""
+        """Return {role: picture} for the roles found in a FLAC or MP3 file ({} for other formats).
+
+        Raises OSError if the file cannot be read, so callers can tell "unreadable" from "no art".
+        """
         # Reads only the tag region: the library-wide consistency scan calls this once per track.
         ext = file_ext.lower()
         if ext not in self.SUPPORTED_EXTENSIONS:
             return {}
 
-        try:
-            data = self._read_flac_metadata_prefix(file_path) if ext == ".flac" else self._read_mp3_id3_prefix(file_path)
-        except OSError as e:
-            logger.warning(f"Error reading {file_path} for role-based artwork: {e}")
-            return {}
+        data = self._read_flac_metadata_prefix(file_path) if ext == ".flac" else self._read_mp3_id3_prefix(file_path)
 
         all_pictures = self._extract_flac_artwork_all(data) if ext == ".flac" else self._extract_mp3_artwork_all(data)
 

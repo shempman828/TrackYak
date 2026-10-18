@@ -229,6 +229,26 @@ def test_undecodable_embedded_art_is_cached_as_no_art(cache, tmp_path, monkeypat
     assert cache.peek_has_art(album, "front") is False
 
 
+def test_transient_read_error_is_not_cached_as_no_art(cache, tmp_path, monkeypatch):
+    album = _album_with_track(tmp_path)
+    responses = [PermissionError("file locked"), {}]
+
+    def _extract(*_a, **_k):
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(cache._extractor, "extract_artwork_by_role", _extract)
+
+    assert cache.get_dimensions(album, "front") is None
+    assert cache._select(album.album_id, "front") is None  # nothing written for the failed read
+
+    # The file is readable again with an unchanged mtime: the next lookup must re-read it.
+    assert cache.get_dimensions(album, "front") is None
+    assert responses == []
+
+
 def test_store_with_bad_bytes_does_not_raise_and_drops_row(cache, tmp_path):
     album = _album_with_track(tmp_path)
     cache.store(album, "front", _png_1x1())
