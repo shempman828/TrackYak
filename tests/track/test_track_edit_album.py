@@ -20,6 +20,7 @@ from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
+from src.track.edit.canonical_album_resolver import CanonicalAlbumResolver
 from src.track.edit.track_edit_album import AlbumsTab
 
 
@@ -133,8 +134,8 @@ def test_blank_text_resolves_to_none(controller_ra):
 
 
 # ---- test_track_edit_album_resolve_artist_mbid_conflict.py -------------------
-# Regression coverage for AlbumsTab._resolve_or_create_artist
-# (src/track/track_edit_album.py): same MBID/name-match ordering as the
+# Regression coverage for CanonicalAlbumResolver.resolve_or_create_artist
+# (src/track/edit/canonical_album_resolver.py): same MBID/name-match ordering as the
 # other MB-import resolvers -- MBID match first, then a name match backfills
 # the MBID only if the row has none yet, and a name match whose row already
 # carries a *different* MBID is ignored (not reused) so a new Artist gets
@@ -148,19 +149,15 @@ def controller_amc():
     session.close()
 
 
-def _tab_amc(controller_amc):
-    tab = AlbumsTab.__new__(AlbumsTab)
-    tab.controller = controller_amc
-    return tab
+def _resolver_amc(controller_amc, confirm=lambda details: True, warn=lambda title, text: None):
+    return CanonicalAlbumResolver(controller_amc, confirm_create=confirm, warn=warn)
 
 
 def test_mbid_match_is_used_as_is(controller_amc):
-    existing = controller_amc.add.add_entity(
-        "Artist", artist_name="Some Other Name", MBID="mbid-new"
-    )
+    existing = controller_amc.add.add_entity("Artist", artist_name="Some Other Name", MBID="mbid-new")
 
     jobs: list[tuple[str, int, str]] = []
-    artist = _tab_amc(controller_amc)._resolve_or_create_artist("mbid-new", "John Smith", jobs)
+    artist = _resolver_amc(controller_amc).resolve_or_create_artist("mbid-new", "John Smith", jobs)
 
     assert artist.artist_id == existing.artist_id
     # An existing MBID match is left untouched -- no awards enrichment queued.
@@ -171,7 +168,7 @@ def test_name_match_with_no_mbid_backfills(controller_amc):
     existing = controller_amc.add.add_entity("Artist", artist_name="John Smith", MBID=None)
 
     jobs: list[tuple[str, int, str]] = []
-    artist = _tab_amc(controller_amc)._resolve_or_create_artist("mbid-new", "John Smith", jobs)
+    artist = _resolver_amc(controller_amc).resolve_or_create_artist("mbid-new", "John Smith", jobs)
 
     assert artist.artist_id == existing.artist_id
     assert artist.MBID == "mbid-new"
@@ -181,18 +178,48 @@ def test_name_match_with_no_mbid_backfills(controller_amc):
 
 
 def test_name_match_with_conflicting_mbid_creates_new_artist(controller_amc):
-    conflicting = controller_amc.add.add_entity(
-        "Artist", artist_name="John Smith", MBID="mbid-different"
-    )
+    conflicting = controller_amc.add.add_entity("Artist", artist_name="John Smith", MBID="mbid-different")
 
     jobs: list[tuple[str, int, str]] = []
-    artist = _tab_amc(controller_amc)._resolve_or_create_artist("mbid-new", "John Smith", jobs)
+    artist = _resolver_amc(controller_amc).resolve_or_create_artist("mbid-new", "John Smith", jobs)
 
     assert artist.artist_id != conflicting.artist_id
     assert artist.MBID == "mbid-new"
     assert jobs == [("Artist", artist.artist_id, "mbid-new")]
     untouched = controller_amc.get.get_entity_object("Artist", artist_id=conflicting.artist_id)
     assert untouched.MBID == "mbid-different"
+
+
+def test_declined_confirm_creates_nothing(controller_amc):
+    prompts = []
+
+    def _decline(details):
+        prompts.append(details)
+        return False
+
+    enrichment = {"album_name": "New Record", "MBID": "rel-1", "release_year": 1999, "artist_credits": [{"mbid": "mbid-a", "name": "John Smith"}]}
+    jobs: list[tuple[str, int, str]] = []
+    assert _resolver_amc(controller_amc, confirm=_decline).resolve_or_create_album(enrichment, jobs) is None
+
+    # The callback gets the formatted details and the decline leaves the DB alone.
+    assert "Album:   New Record" in prompts[0] and "Release: 1999" in prompts[0]
+    assert controller_amc.get.count_entities("Album") == 0
+    assert controller_amc.get.count_entities("Artist") == 0
+    assert jobs == []
+
+
+def test_confirmed_create_links_artists_without_warning(controller_amc):
+    controller_amc.add.add_entity("Role", role_id=1, role_name="Album Artist")  # seeded by db_defaults in the app
+    warnings = []
+    enrichment = {"album_name": "New Record", "release_group_mbid": "rg-1", "artist_credits": [{"mbid": "mbid-a", "name": "John Smith"}]}
+    jobs: list[tuple[str, int, str]] = []
+
+    album = _resolver_amc(controller_amc, warn=lambda title, text: warnings.append(title)).resolve_or_create_album(enrichment, jobs)
+
+    assert album.album_name == "New Record"
+    assert [a.artist_name for a in album.album_artists] == ["John Smith"]
+    assert warnings == []
+    assert ("Album", album.album_id, "rg-1") in jobs
 
 
 # ---- test_track_edit_album_disc_link.py -------------------------------------
@@ -227,13 +254,7 @@ def test_detach_from_album_also_clears_disc_id(controller_disc):
     c = controller_disc
     album = c.add.add_entity("Album", album_name="Voulez-Vous")
     disc = c.add.add_entity("Disc", album_id=album.album_id, disc_number=1)
-    track = c.add.add_entity(
-        "Track",
-        track_name="Gimme! Gimme! Gimme!",
-        album_id=album.album_id,
-        disc_id=disc.disc_id,
-        track_file_path="/m/abba/11.flac",
-    )
+    track = c.add.add_entity("Track", track_name="Gimme! Gimme! Gimme!", album_id=album.album_id, disc_id=disc.disc_id, track_file_path="/m/abba/11.flac")
     tab = _tab_disc(c, [_live_track(c, track.track_id)])
 
     assert tab._apply_primary_album(None) is True
@@ -248,13 +269,7 @@ def test_set_new_primary_album_clears_stale_disc_id(controller_disc):
     old = c.add.add_entity("Album", album_name="Old")
     new = c.add.add_entity("Album", album_name="New")
     disc = c.add.add_entity("Disc", album_id=old.album_id, disc_number=1)
-    track = c.add.add_entity(
-        "Track",
-        track_name="T",
-        album_id=old.album_id,
-        disc_id=disc.disc_id,
-        track_file_path="/m/t.flac",
-    )
+    track = c.add.add_entity("Track", track_name="T", album_id=old.album_id, disc_id=disc.disc_id, track_file_path="/m/t.flac")
     tab = _tab_disc(c, [_live_track(c, track.track_id)])
 
     assert tab._apply_primary_album(new.album_id) is True
@@ -268,9 +283,7 @@ def test_set_primary_album_keeps_disc_id_when_disc_belongs_to_target(controller_
     c = controller_disc
     album = c.add.add_entity("Album", album_name="A")
     disc = c.add.add_entity("Disc", album_id=album.album_id, disc_number=1)
-    track = c.add.add_entity(
-        "Track", track_name="T", album_id=None, disc_id=disc.disc_id, track_file_path="/m/t.flac"
-    )
+    track = c.add.add_entity("Track", track_name="T", album_id=None, disc_id=disc.disc_id, track_file_path="/m/t.flac")
     tab = _tab_disc(c, [_live_track(c, track.track_id)])
 
     assert tab._apply_primary_album(album.album_id) is True

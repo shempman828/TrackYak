@@ -224,7 +224,7 @@ def test_album_create_from_mb_failure_does_not_crash(qapp, monkeypatch):
     tab = AlbumsTab.__new__(AlbumsTab)
     tab.controller = SimpleNamespace(add=SimpleNamespace(add_entity=lambda *a, **k: None))
 
-    assert tab._create_album_from_mb({"album_name": "X", "release_group_mbid": "rg"}, []) is None
+    assert tab._canonical_album_resolver().create_album({"album_name": "X", "release_group_mbid": "rg"}, []) is None
     assert warnings
 
 

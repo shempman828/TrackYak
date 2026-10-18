@@ -21,6 +21,7 @@ from src.musicbrainz.musicbrainz_artist import suggest_artist_names
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_recording import search_canonical_album_for_recording
+from src.track.edit.canonical_album_resolver import CanonicalAlbumResolver
 from src.track.edit.track_edit_basetab import _BaseTab
 
 _ART_SIZE = 96
@@ -660,7 +661,7 @@ class AlbumsTab(_BaseTab):
         # Awards enrichment for each linked entity runs on a worker at the end (see _import_award_data).
         award_jobs: list[tuple[str, int, str]] = []
 
-        album = self._resolve_or_create_album_from_mb(picked.enrichment, award_jobs)
+        album = self._canonical_album_resolver().resolve_or_create_album(picked.enrichment, award_jobs)
         if album is None:
             return
 
@@ -714,115 +715,14 @@ class AlbumsTab(_BaseTab):
             self, "No Matches Found", f"No MusicBrainz releases were found for artist '{artist_name}'.\n\nSimilar artists on MusicBrainz:\n" + "\n".join(f"• {s}" for s in suggestions)
         )
 
-    def _resolve_or_create_album_from_mb(self, enrichment: dict, award_jobs: list[tuple[str, int, str]]):
-        """Return the local album for a MusicBrainz match: by MBID, by name and artist overlap, or new."""
-        mbid = enrichment.get("MBID")
-        if mbid:
-            album = self.controller.get.get_entity_object("Album", MBID=mbid)
-            if album is not None:
-                return album
+    def _canonical_album_resolver(self) -> CanonicalAlbumResolver:
+        """Build the MusicBrainz album resolver, with this tab's dialogs as its callbacks."""
+        return CanonicalAlbumResolver(self.controller, confirm_create=self._confirm_create_album, warn=lambda title, text: QMessageBox.warning(self, title, text))
 
-        album_name = enrichment.get("album_name")
-        artist_credits = enrichment.get("artist_credits") or []
-        if album_name:
-            candidate_album = self.controller.get.resolve_entity_or_alias("Album", "album_name", album_name)
-            if candidate_album is not None:
-                # Overlap, not exact-set-equality (unlike get_album_exists) --
-                # this is matching one recording's credit against a possibly
-                # larger album artist roster, not deduping a full import.
-                existing_ids = {a.MBID for a in candidate_album.album_artists if a.MBID}
-                credit_ids = {c["mbid"] for c in artist_credits if c.get("mbid")}
-                if existing_ids & credit_ids:
-                    return candidate_album
-
-        return self._create_album_from_mb(enrichment, award_jobs)
-
-    def _create_album_from_mb(self, enrichment: dict, award_jobs: list[tuple[str, int, str]]):
-        """Create a new album and its artists from a MusicBrainz match, after confirmation."""
-        album_name = enrichment.get("album_name") or "Unknown Album"
-        artist_credits = enrichment.get("artist_credits") or []
-        artist_names = ", ".join(c["name"] for c in artist_credits if c.get("name")) or "Unknown Artist"
-
-        date_bits = [str(enrichment[k]) for k in ("release_year", "release_month", "release_day") if enrichment.get(k) is not None]
-        detail_lines = [f"Album:   {album_name}", f"Artist:  {artist_names}"]
-        if date_bits:
-            detail_lines.append(f"Release: {'-'.join(date_bits)}")
-        if enrichment.get("release_type"):
-            detail_lines.append(f"Type:    {enrichment['release_type']}")
-        if enrichment.get("status"):
-            detail_lines.append(f"Status:  {enrichment['status']}")
-        if enrichment.get("country"):
-            detail_lines.append(f"Country: {enrichment['country']}")
-        if enrichment.get("MBID"):
-            detail_lines.append(f"MBID:    {enrichment['MBID']}")
-
-        confirm = QMessageBox.question(
-            self, "Create New Album", "No matching album found locally. Create a new album with these details?\n\n" + "\n".join(detail_lines), QMessageBox.Yes | QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
-            return None
-
-        # add_entity catches its own DB errors and returns None.
-        new_album = self.controller.add.add_entity(
-            "Album",
-            album_name=album_name,
-            release_year=enrichment.get("release_year"),
-            release_month=enrichment.get("release_month"),
-            release_day=enrichment.get("release_day"),
-            MBID=enrichment.get("MBID"),
-            release_group_MBID=enrichment.get("release_group_mbid"),
-        )
-        if new_album is None:
-            logger.error(f"Failed to create album {album_name!r} from MusicBrainz match")
-            QMessageBox.warning(self, "Error", "Could not create the album. See the log for details.")
-            return None
-        if enrichment.get("release_group_mbid"):
-            award_jobs.append(("Album", new_album.album_id, enrichment["release_group_mbid"]))
-
-        failed_artists = []
-        for credit in artist_credits:
-            artist = self._resolve_or_create_artist(credit.get("mbid"), credit.get("name"), award_jobs)
-            if artist is None:
-                if credit.get("name"):
-                    failed_artists.append(credit["name"])
-                continue
-            link = self.controller.add.add_entity(
-                "AlbumRoleAssociation",
-                album_id=new_album.album_id,
-                artist_id=artist.artist_id,
-                role_id=1,  # "Album Artist" -- seeded convention, see db_defaults.py
-            )
-            if link is None:
-                failed_artists.append(artist.artist_name)
-        if failed_artists:
-            QMessageBox.warning(self, "Some Artists Not Linked", "The album was created, but these artists could not be added to it:\n" + "\n".join(failed_artists))
-
-        return new_album
-
-    def _resolve_or_create_artist(self, artist_mbid, artist_name, award_jobs: list[tuple[str, int, str]]):
-        """Return the local artist for a credit (by MBID, then name), else a new artist; None on failure."""
-        if not artist_name:
-            return None
-        if artist_mbid:
-            artist = self.controller.get.get_entity_object("Artist", MBID=artist_mbid)
-            if artist is not None:
-                return artist
-        artist = self.controller.get.resolve_entity_or_alias("Artist", "artist_name", artist_name)
-        if artist is not None and not artist.MBID:
-            if artist_mbid and self.controller.update.update_entity("Artist", artist.artist_id, MBID=artist_mbid):
-                artist.MBID = artist_mbid
-                award_jobs.append(("Artist", artist.artist_id, artist_mbid))
-            return artist
-        # A name match whose row already carries a (necessarily different)
-        # MBID is a distinct real-world artist -- ignore it and create a
-        # new Artist instead of merging two different people.
-        new_artist = self.controller.add.add_entity("Artist", artist_name=artist_name, MBID=artist_mbid)
-        if new_artist is None:
-            logger.error(f"Failed to create artist {artist_name!r} from MusicBrainz match")
-            return None
-        if artist_mbid:
-            award_jobs.append(("Artist", new_artist.artist_id, artist_mbid))
-        return new_artist
+    def _confirm_create_album(self, details: str) -> bool:
+        """Ask the user to create a new album from the MusicBrainz match details."""
+        confirm = QMessageBox.question(self, "Create New Album", "No matching album found locally. Create a new album with these details?\n\n" + details, QMessageBox.Yes | QMessageBox.No)
+        return confirm == QMessageBox.Yes
 
     # ── Virtual appearance search / add / remove ──────────────────────────
 
