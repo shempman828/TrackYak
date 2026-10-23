@@ -2,16 +2,7 @@
 
 from typing import Any
 
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.artist.artist_sort import artist_sort_key
 from src.foundation.logger_config import logger
@@ -35,9 +26,7 @@ class OrphanArtistDialog(QDialog):
         layout = QVBoxLayout(self)
 
         lbl_instructions = QLabel(
-            f"Found {len(self.orphans)} artist(s) with no roles, influences, "
-            "group memberships, places, or awards. All are selected for deletion "
-            "by default — uncheck any you want to keep."
+            f"Found {len(self.orphans)} artist(s) with no roles, influences, group memberships, places, or awards. All are selected for deletion by default — uncheck any you want to keep."
         )
         lbl_instructions.setWordWrap(True)
         layout.addWidget(lbl_instructions)
