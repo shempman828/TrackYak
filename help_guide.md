@@ -152,6 +152,11 @@ the file too. The second option asks you to confirm twice, since it's
 permanent. The same choice is available as a **Delete Track** button on the
 track editor's Advanced tab, for when you decide mid-edit that a track has to
 go — it removes the track and closes the editor.
+The Advanced tab's **Write Metadata to File** button writes the changed tags
+of the track(s) you are editing to their files. It runs in the background and
+shows its progress below the buttons, so the editor stays usable on a large
+selection. While it runs, the button reads **Stop Writing**: click it to stop
+after the current track. Delete Track is unavailable until the write ends.
 If a search is active when you delete, the view keeps your search results
 and only removes the deleted tracks from them.
 
