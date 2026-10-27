@@ -15,9 +15,9 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.track import Track
-import src.track.view.base_track_view as base_track_view_module
 from src.track.view.base_track_view import BaseTrackView
 from src.track.view.track_columns import ColumnCustomizationDialog
+import src.track.view.track_view_actions as track_view_actions_module
 from src.track.view.track_view_actions import TrackViewActionsMixin
 import src.track.view.track_view_columns as track_view_columns_module
 from src.track.view.track_view_editing import add_tracks_to_mood, add_tracks_to_playlist, delete_tracks_with_prompt, track_names_preview
@@ -164,7 +164,7 @@ def test_selected_track_objects_come_from_visible_list(qapp):
     sel = host.table.selectionModel()
     for row in (3, 1):
         sel.select(host.model.index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
-    assert [t.track_id for t in host._get_selected_track_objects()] == [1, 3]
+    assert [t.track_id for t in host._selected_tracks()] == [1, 3]
 
 
 # ── column dialog ────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ def test_column_dialog_refuses_to_hide_every_column(qapp, session, monkeypatch):
 
 def test_base_view_drag_starts_on_table_with_selected_tracks(qapp, session, monkeypatch):
     dragged = []
-    monkeypatch.setattr(base_track_view_module, "start_track_drag", lambda source, tracks: dragged.append((source, [t.track_id for t in tracks])))
+    monkeypatch.setattr(track_view_actions_module, "start_track_drag", lambda source, tracks: dragged.append((source, [t.track_id for t in tracks])))
     view = _view(session, enable_drag=True)
     view.table.selectRow(0)
 

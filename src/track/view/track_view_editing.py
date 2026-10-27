@@ -102,16 +102,21 @@ class TrackViewEditingMixin:
 
     def edit_selected_track(self):
         """Open the track editor for the selection (one track or many)."""
-        tracks = self._get_selected_track_objects()
+        tracks = self._selected_tracks()
         if not tracks:
             return
         try:
             dialog = TrackEditDialog(tracks[0], self.controller, self) if len(tracks) == 1 else MultiTrackEditDialog(tracks, self.controller, self)
-            dialog.accepted.connect(self._force_reload)
+            dialog.accepted.connect(self._after_tracks_edited)
             self._track_edit_dialog = dialog
             dialog.show()
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening track edit dialog: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to open track editor: {e!s}")
+
+    def _after_tracks_edited(self):
+        """Reload after an edit (hosts with a fixed track list override this)."""
+        self._force_reload()
 
     # =========================================================================
     #  Track deletion (single or multiple)
@@ -119,12 +124,16 @@ class TrackViewEditingMixin:
 
     def delete_selected_tracks(self):
         """Delete the selected tracks after the DB-only / DB-and-file prompt."""
-        tracks = self._get_selected_track_objects()
+        tracks = self._selected_tracks()
         if not tracks:
             return
         deleted = delete_tracks_with_prompt(self, self.controller, tracks, confirm=confirm_delete_with_file_option)
         if deleted:
-            self._force_reload()
+            self._after_tracks_deleted(deleted)
+
+    def _after_tracks_deleted(self, track_ids: list[int]):
+        """Reload after a delete (hosts with a fixed track list override this)."""
+        self._force_reload()
 
     # =========================================================================
     #  Context menu
@@ -136,7 +145,7 @@ class TrackViewEditingMixin:
         if not selected:
             return
 
-        tracks = self._get_selected_track_objects()
+        tracks = self._selected_tracks()
         if not tracks:
             return
 

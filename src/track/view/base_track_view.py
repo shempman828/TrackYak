@@ -7,30 +7,27 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QStandardItemModel
 from PySide6.QtWidgets import QDialog, QFileDialog, QHeaderView, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout
-from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
-from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.core.status_widget import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.logger_config import logger
-from src.track.edit.track_edit import MultiTrackEditDialog, TrackEditDialog
 from src.track.track_shuffle import play_tracks, shuffle_and_play
 from src.track.view.track_table import TrackTable
 from src.track.view.track_toolbar import make_primary_tool_button
-from src.track.view.track_view_actions import TRACK_ID_MIME, copy_selected_rows, format_track_value, start_track_drag
+from src.track.view.track_view_actions import TRACK_ID_MIME, TrackViewActionsMixin
 from src.track.view.track_view_columns import TrackViewColumnsMixin
 from src.track.view.track_view_data import TrackViewDataMixin
-from src.track.view.track_view_editing import add_tracks_to_mood, add_tracks_to_playlist, delete_tracks_with_prompt, report_add_result
+from src.track.view.track_view_editing import TrackViewEditingMixin
 from src.track.view.track_view_search import TrackViewSearchMixin
 from src.track.view.track_view_toolbar import TrackViewToolbarMixin
 
 
-class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackViewDataMixin, TrackViewSearchMixin):
+class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackViewDataMixin, TrackViewSearchMixin, TrackViewActionsMixin, TrackViewEditingMixin):
     """Track list dialog with the library view's toolbar, columns and search, over a fixed list."""
 
     # Dialog-specific parts: CSV export, play/shuffle buttons, a persistent context menu
-    # (callers append actions to it), and optional drag/drop.
+    # (callers append actions to it), and optional drag/drop. Queue, copy, edit, delete and
+    # playlist/mood adds come from TrackViewActionsMixin and TrackViewEditingMixin.
     track_deleted = Signal(int)
 
     def __init__(self, controller, tracks, title="Tracks", enable_drag=False, enable_drop=False):
@@ -90,7 +87,7 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
         copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
         copy_shortcut.activated.connect(self._copy_selected_rows)
         delete_shortcut = QShortcut(QKeySequence.Delete, self.table)
-        delete_shortcut.activated.connect(self._delete_selected_tracks)
+        delete_shortcut.activated.connect(self.delete_selected_tracks)
 
         if self.enable_drag:
             self.setup_drag_support()
@@ -126,7 +123,7 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
 
     def _selection_bar_actions(self):
         """Return the (play_next, queue, edit, delete) callables for the selection bar."""
-        return (lambda: self.add_selected_to_queue(insert_next=True), self.add_selected_to_queue, self.edit_selected_tracks, self._delete_selected_tracks)
+        return (lambda: self.add_selected_to_queue(insert_next=True), self.add_selected_to_queue, self.edit_selected_track, self.delete_selected_tracks)
 
     def _now_playing_source(self):
         """Return the media player, for the now-playing highlight."""
@@ -177,7 +174,7 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
 
         # Label and enabled state are set per selection in show_context_menu.
         self.edit_action = QAction("✏️ Edit Track", self)
-        self.edit_action.triggered.connect(self.edit_selected_tracks)
+        self.edit_action.triggered.connect(self.edit_selected_track)
 
         self.context_menu.addAction(self.add_to_queue_action)
         self.context_menu.addAction(self.add_to_queue_next_action)
@@ -189,12 +186,12 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
         self.context_menu.addSeparator()
 
         self.delete_tracks_action = QAction("🗑 Delete Tracks...", self)
-        self.delete_tracks_action.triggered.connect(self._delete_selected_tracks)
+        self.delete_tracks_action.triggered.connect(self.delete_selected_tracks)
         self.context_menu.addAction(self.delete_tracks_action)
 
     def show_context_menu(self, position):
         """Show the context menu for the selection at `position`."""
-        selected_tracks = self.get_selected_tracks()
+        selected_tracks = self._selected_tracks()
         if not selected_tracks:
             return
         track_ids = [str(track.track_id) for track in selected_tracks]
@@ -204,16 +201,14 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
 
         self.add_to_playlist_menu.clear()
         self.add_to_mood_menu.clear()
-        self._populate_playlist_menu(selected_tracks, track_ids)
-        self._populate_mood_menu(selected_tracks, track_ids)
+        self._populate_playlist_submenu(self.add_to_playlist_menu, selected_tracks, track_ids)
+        self._populate_mood_submenu(self.add_to_mood_menu, selected_tracks, track_ids)
 
         self.context_menu.exec_(self.table.mapToGlobal(position))
 
     def get_selected_tracks(self):
-        """Return the Track objects of the selected rows, in row order."""
-        source = self._visible_source()
-        rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
-        return [source[row] for row in rows if 0 <= row < len(source)]
+        """Return the Track objects of the selected rows (for callers outside the view)."""
+        return self._selected_tracks()
 
     def _on_row_double_clicked(self, index):
         """Play a short preview of the double-clicked track."""
@@ -234,57 +229,9 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
         except (OSError, RuntimeError) as e:
             logger.error(f"Error previewing track: {e}")
 
-    def _copy_selected_rows(self):
-        """Copy the selected rows (visible columns, in visual order) to the clipboard."""
-        copy_selected_rows(self.table, self.model, self.columns)
-
-    def _get_queue_manager(self):
-        """Return the playback queue manager, or None."""
-        queue_manager = getattr(self.controller, "queue_manager", None)
-        if not queue_manager and hasattr(self.controller, "mediaplayer"):
-            queue_manager = getattr(self.controller.mediaplayer, "queue_manager", None)
-        return queue_manager
-
-    def add_selected_to_queue(self, insert_next=False):
-        """Add the selected tracks to the queue (or after the current track)."""
-        selected_tracks = self.get_selected_tracks()
-        if not selected_tracks:
-            return
-
-        queue_manager = self._get_queue_manager()
-        if not queue_manager:
-            logger.warning("Queue manager not found in controller")
-            return
-
-        if insert_next and hasattr(queue_manager, "insert_tracks_next"):
-            queue_manager.insert_tracks_next(selected_tracks)
-        else:
-            queue_manager.add_tracks_to_queue(selected_tracks)
-        logger.info(f"Added {len(selected_tracks)} track(s) to queue")
-
-    def edit_selected_tracks(self):
-        """Open the track edit dialog for the current selection (single or multi)."""
-        tracks = self.get_selected_tracks()
-        if not tracks:
-            return
-
-        try:
-            dialog = TrackEditDialog(tracks[0], self.controller, self) if len(tracks) == 1 else MultiTrackEditDialog(tracks, self.controller, self)
-            dialog.accepted.connect(lambda: self.load_data(self._all_tracks))
-            self._track_edit_dialog = dialog
-            dialog.show()
-        except RuntimeError as e:
-            logger.error(f"Error opening track edit dialog: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to open track editor: {e!s}")
-
-    def _get_artist_name(self, track):
-        """Return the cached primary artist names of `track` (safe on worker threads)."""
-        # Never lazy-load track.artist_roles here: FilterWorker calls this off the main thread.
-        return self._artist_name_cache.get(track.track_id, "Unknown Artist")
-
-    def _format_value(self, value, field_name, field_config):
-        """Format a field value for table/CSV display."""
-        return format_track_value(value, field_name)
+    def _after_tracks_edited(self):
+        """Redisplay the fixed list after an edit (never reload the whole library)."""
+        self.load_data(self._all_tracks)
 
     def shuffle_all_tracks(self):
         """Shuffle the listed tracks (respecting any active filter) and start playing."""
@@ -321,7 +268,7 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
         """Let the user drag the selected tracks out as TRACK_ID_MIME."""
         self.table.setDragEnabled(True)
         # The table viewport receives the mouse events, so the drag must start on the table.
-        self.table.startDrag = lambda _actions: start_track_drag(self.table, self.get_selected_tracks())
+        self.table.startDrag = self.startDrag
 
     def setup_drop_support(self):
         """Accept drops of TRACK_ID_MIME (callers replace dropEvent)."""
@@ -352,78 +299,13 @@ class BaseTrackView(QDialog, TrackViewToolbarMixin, TrackViewColumnsMixin, Track
         event.acceptProposedAction()
         logger.warning("dropEvent should be overridden by subclass")
 
-    # ── Playlist / mood submenus ──────────────────────────────────────────
-
-    def _populate_playlist_menu(self, selected_tracks, track_ids):
-        """Populate the playlist submenu (shared hierarchical builder)."""
-        full, partial = selection_membership(selected_tracks, "playlists", "playlist_id")
-        populate_entity_submenu(
-            self.add_to_playlist_menu,
-            controller=self.controller,
-            entity_type="Playlist",
-            on_trigger=self._add_to_playlist_from_menu,
-            member_ids=full,
-            partial_ids=partial,
-            make_action_data=lambda entity_id: (entity_id, track_ids),
-        )
-
-    def _populate_mood_menu(self, selected_tracks, track_ids):
-        """Populate the mood submenu (shared hierarchical builder)."""
-        full, partial = selection_membership(selected_tracks, "moods", "mood_id")
-        populate_entity_submenu(
-            self.add_to_mood_menu,
-            controller=self.controller,
-            entity_type="Mood",
-            on_trigger=self._add_to_mood_from_menu,
-            member_ids=full,
-            partial_ids=partial,
-            make_action_data=lambda entity_id: (entity_id, track_ids),
-        )
-
-    def _add_to_playlist_from_menu(self):
-        """Add the menu action's tracks to its playlist."""
-        action = self.sender()
-        if not action:
-            return
-        playlist_id, track_ids = action.data()
-        try:
-            added, already, failed = add_tracks_to_playlist(self.controller, playlist_id, track_ids)
-        except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error adding tracks to playlist: {e!s}")
-            QMessageBox.critical(self, "Error", f"Failed to add tracks to playlist:\n{e!s}")
-            return
-        report_add_result(self, "the playlist", added, already, failed)
-
-    def _add_to_mood_from_menu(self):
-        """Tag the menu action's tracks with its mood."""
-        action = self.sender()
-        if not action:
-            return
-        mood_id, track_ids = action.data()
-        try:
-            added, already, failed = add_tracks_to_mood(self.controller, mood_id, track_ids)
-        except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error adding tracks to mood: {e!s}")
-            QMessageBox.critical(self, "Error", f"Failed to add tracks to mood:\n{e!s}")
-            return
-        report_add_result(self, "the mood", added, already, failed)
-
     # ── Delete ────────────────────────────────────────────────────────────
 
-    def _delete_selected_tracks(self):
-        """Delete the selected tracks: DB-only, or DB + audio file(s) from disk."""
-        tracks = self.get_selected_tracks()
-        if not tracks:
-            return
-
-        # confirm is looked up here at call time, so tests can patch this module's name.
-        deleted_ids = delete_tracks_with_prompt(self, self.controller, tracks, confirm=confirm_delete_with_file_option)
-        if not deleted_ids:
-            return
-
-        deleted = set(deleted_ids)
+    def _after_tracks_deleted(self, track_ids):
+        """Drop the deleted tracks from the fixed list and emit track_deleted for each."""
+        deleted = set(track_ids)
         self._all_tracks = [t for t in self._all_tracks if t.track_id not in deleted]
         self.load_data(self._all_tracks)
 
-        for tid in deleted_ids:
+        for tid in track_ids:
             self.track_deleted.emit(tid)

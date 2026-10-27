@@ -96,7 +96,7 @@ class TrackViewActionsMixin:
 
     def startDrag(self, supported_actions):
         """Drag the selected tracks as TRACK_ID_MIME (installed on the table)."""
-        start_track_drag(self.table, self._get_selected_track_objects())
+        start_track_drag(self.table, self._selected_tracks())
 
     # =========================================================================
     #  Queue helpers
@@ -138,8 +138,8 @@ class TrackViewActionsMixin:
             qm.add_tracks_to_queue(tracks)
         logger.info(f"{'Shuffled' if shuffle else 'Added'} {len(tracks):,} filtered tracks to queue")
 
-    def _get_selected_track_objects(self) -> list:
-        """Return the Track objects of the selected rows, in row order."""
+    def _selected_tracks(self) -> list:
+        """Return the Track objects of the selected rows, in row order (the hook the shared actions use)."""
         # Model rows map 1:1 onto the visible source list, so no DB query is needed.
         source = self._visible_source()
         rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
@@ -147,11 +147,11 @@ class TrackViewActionsMixin:
 
     def add_selected_to_queue(self, insert_next: bool = False):
         """Add the selected tracks to the queue (or after the current track)."""
+        tracks = self._selected_tracks()
+        if not tracks:
+            return
         qm = self._get_queue_manager()
         if not qm:
-            return
-        tracks = self._get_selected_track_objects()
-        if not tracks:
             return
         if insert_next and hasattr(qm, "insert_tracks_next"):
             qm.insert_tracks_next(tracks)

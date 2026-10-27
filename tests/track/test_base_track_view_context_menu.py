@@ -47,7 +47,7 @@ def test_playlist_submenu_is_hierarchical_and_sorted(qapp, session):
     session.commit()
 
     view = BaseTrackView(_Controller(session), [track])
-    view._populate_playlist_menu([track], [str(track.track_id)])
+    view._populate_playlist_submenu(view.add_to_playlist_menu, [track], [str(track.track_id)])
 
     rows = view.add_to_playlist_menu.actions()
     assert [a.text() for a in rows if not a.isSeparator()] == ["Jazz", "Rock"]
@@ -74,7 +74,7 @@ def test_checkmark_reflects_selection_membership(qapp, session):
     session.commit()
 
     view = BaseTrackView(_Controller(session), [t1, t2])
-    view._populate_playlist_menu([t1, t2], [str(t1.track_id), str(t2.track_id)])
+    view._populate_playlist_submenu(view.add_to_playlist_menu, [t1, t2], [str(t1.track_id), str(t2.track_id)])
 
     by_text = {a.text(): a for a in view.add_to_playlist_menu.actions() if not a.isSeparator()}
     assert by_text["Both"].isChecked()  # every selected track is in it

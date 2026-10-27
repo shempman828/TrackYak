@@ -21,9 +21,9 @@ from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
-import src.track.view.base_track_view as base_track_view_module
 from src.track.view.base_track_view import BaseTrackView
 import src.track.view.track_view_columns as track_view_columns_module
+import src.track.view.track_view_editing as track_view_editing_module
 from src.track.view.track_view_filter import FilterWorker, SortWorker
 
 
@@ -207,7 +207,7 @@ def test_delete_key_shortcut_triggers_same_flow_as_menu_action(qapp, session, mo
     session.commit()
 
     calls = []
-    monkeypatch.setattr(base_track_view_module, "confirm_delete_with_file_option", lambda *a, **k: (calls.append(1), None)[1])
+    monkeypatch.setattr(track_view_editing_module, "confirm_delete_with_file_option", lambda *a, **k: (calls.append(1), None)[1])
 
     view = BaseTrackView(_Controller(session), [track])
     view.table.selectRow(0)
@@ -215,7 +215,7 @@ def test_delete_key_shortcut_triggers_same_flow_as_menu_action(qapp, session, mo
     # Directly invoke what the QShortcut(QKeySequence.Delete) is wired to,
     # matching how Qt itself would call it on a real key press.
     assert QKeySequence(QKeySequence.Delete) is not None
-    view._delete_selected_tracks()
+    view.delete_selected_tracks()
 
     assert calls == [1]  # confirm dialog was shown; cancel (None) aborted the delete
 
@@ -228,7 +228,7 @@ def test_batch_delete_issues_single_entity_ids_call(qapp, session, monkeypatch):
     session.add_all([t1, t2])
     session.commit()
 
-    monkeypatch.setattr(base_track_view_module, "confirm_delete_with_file_option", lambda *a, **k: "db_only")
+    monkeypatch.setattr(track_view_editing_module, "confirm_delete_with_file_option", lambda *a, **k: "db_only")
 
     view = BaseTrackView(_Controller(session), [t1, t2])
     view.table.selectRow(0)
@@ -243,7 +243,45 @@ def test_batch_delete_issues_single_entity_ids_call(qapp, session, monkeypatch):
 
     monkeypatch.setattr(view.controller.delete, "delete_entity", spy_delete_entity)
 
-    view._delete_selected_tracks()
+    view.delete_selected_tracks()
 
     assert len(delete_calls) == 1
     assert set(delete_calls[0]["entity_ids"]) == {t1.track_id, t2.track_id}
+
+
+def test_base_view_uses_shared_mixin_actions_not_copies():
+    """BaseTrackView must not redefine the shared queue/copy/edit/delete/add actions (they drifted when copied)."""
+    shared = (
+        "_copy_selected_rows",
+        "_format_value",
+        "_get_queue_manager",
+        "add_selected_to_queue",
+        "edit_selected_track",
+        "delete_selected_tracks",
+        "add_to_playlist",
+        "add_to_mood",
+        "_selected_tracks",
+    )
+    assert not [name for name in shared if name in vars(BaseTrackView)]
+
+
+def test_delete_keeps_fixed_list_and_emits_track_deleted(qapp, session, monkeypatch):
+    """The shared delete flow calls the fixed-list hook: drop the rows and emit, never reload the whole library."""
+    t1 = Track(track_name="Keep")
+    t2 = Track(track_name="Drop")
+    session.add_all([t1, t2])
+    session.commit()
+
+    monkeypatch.setattr(track_view_editing_module, "confirm_delete_with_file_option", lambda *a, **k: "db_only")
+
+    view = BaseTrackView(_Controller(session), [t1, t2])
+    monkeypatch.setattr(view, "_force_reload", lambda: pytest.fail("BaseTrackView must not reload the whole library"))
+    emitted = []
+    view.track_deleted.connect(emitted.append)
+    row = next(i for i, t in enumerate(view._all_tracks) if t.track_id == t2.track_id)
+    view.table.selectRow(row)
+
+    view.delete_selected_tracks()
+
+    assert [t.track_id for t in view._all_tracks] == [t1.track_id]
+    assert emitted == [t2.track_id]
