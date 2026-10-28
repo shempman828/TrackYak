@@ -22,6 +22,7 @@ class _CloseHost(QMainWindow):
     """Main window with only the attributes closeEvent touches; no player or queue docks."""
 
     _stop_explicit_recalc_worker = GUI._stop_explicit_recalc_worker
+    _stop_missing_tracks_scan = GUI._stop_missing_tracks_scan
     _close_miniplayer = GUI._close_miniplayer
 
     def __init__(self):

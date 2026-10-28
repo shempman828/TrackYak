@@ -196,6 +196,7 @@ def test_advanced_cleanup_stops_running_analysis(qapp):
     tab = AdvancedTab.__new__(AdvancedTab)
     scheduler = _Scheduler()
     tab._scheduler = scheduler
+    tab._write_worker = None
 
     AdvancedTab.cleanup(tab)
 
