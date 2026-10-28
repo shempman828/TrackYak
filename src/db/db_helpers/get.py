@@ -11,11 +11,12 @@ from src.foundation.logger_config import logger
 class GetFromDB(BaseDBHelper):
     """Class for retrieving data from the database"""
 
-    def query_entities(self, entity_class: str, multiple: bool = True, load_options=None, **filters):
+    def query_entities(self, entity_class: str, multiple: bool = True, load_options=None, limit: int | None = None, **filters):
         """Generic entity query supporting simple and advanced filtering."""
         # load_options accepts a list of SQLAlchemy loader options (e.g. selectinload(...))
         # so callers needing related data can eager-load it in one extra query instead of
         # triggering a lazy-load per row.
+        # limit caps the row count in SQL, so a capped search does not load every match.
         logger.debug(f"Querying {entity_class} (multiple={multiple}) with filters: {filters}")
 
         try:
@@ -91,6 +92,9 @@ class GetFromDB(BaseDBHelper):
                         logger.error(f"Unsupported filter operation: {op}")
                         continue
 
+            if limit is not None:
+                stmt = stmt.limit(limit)
+
             result = self.session.scalars(stmt).all() if multiple else self.session.scalar(stmt)
 
             # Close out the read transaction this query just opened -- left
@@ -108,8 +112,8 @@ class GetFromDB(BaseDBHelper):
             logger.error(f"Database error querying {entity_class}: {e}")
             return [] if multiple else None
 
-    def get_all_entities(self, model_name: str, load_options=None, **kwargs):
-        return self.query_entities(model_name, multiple=True, load_options=load_options, **kwargs)
+    def get_all_entities(self, model_name: str, load_options=None, limit: int | None = None, **kwargs):
+        return self.query_entities(model_name, multiple=True, load_options=load_options, limit=limit, **kwargs)
 
     def get_entity_object(self, model_name: str, **kwargs):
         return self.query_entities(model_name, multiple=False, **kwargs)

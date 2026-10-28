@@ -152,13 +152,10 @@ class _AddSampleBar(QWidget):
         self.name_combo.blockSignals(True)
         self.name_combo.clear()
         if len(text) >= 2:
-            tracks = self.controller.get.get_all_entities("Track", track_name__contains=text) or []
-            # Cap *before* building the display index: each entry touches
-            # track.album_name, a lazy-loaded relationship, so a common
-            # substring (e.g. "love") matching thousands of tracks would
-            # otherwise trigger thousands of album lookups just to throw
-            # all but 50 of them away.
-            tracks = tracks[:_MAX_SEARCH_RESULTS]
+            # Cap in SQL: a common substring (e.g. "love") can match
+            # thousands of tracks, and each display entry also touches
+            # track.album_name, a lazy-loaded relationship.
+            tracks = self.controller.get.get_all_entities("Track", limit=_MAX_SEARCH_RESULTS, track_name__contains=text) or []
             self._display_to_id = _build_track_index(tracks, exclude_id=self._exclude_id)
             context_by_id = track_context_map(tracks)
             self._display_to_context = {display: context_by_id.get(track_id, "") for display, track_id in self._display_to_id.items()}

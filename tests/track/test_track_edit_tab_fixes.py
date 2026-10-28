@@ -17,7 +17,7 @@ from src.track.edit.track_edit_album import AlbumsTab
 from src.track.edit.track_edit_genres import GenresTab
 from src.track.edit.track_edit_lyrics import LyricsTab
 from src.track.edit.track_edit_roles import RolesTab
-from src.track.edit.track_edit_samples import SamplesTab, _AddSampleBar
+from src.track.edit.track_edit_samples import _MAX_SEARCH_RESULTS, SamplesTab, _AddSampleBar
 from src.track.edit.track_edit_usedin import UsedInTab
 
 
@@ -119,6 +119,27 @@ def test_sample_search_first_result_can_be_picked(qapp, session):
     bar.name_combo.activated.emit(0)  # the user picks the (already current) first row
 
     assert bar._matched_id == t.track_id
+
+
+def test_sample_search_caps_rows_in_the_query(qapp, session, monkeypatch):
+    session.add_all([Track(track_name=f"Love {i}") for i in range(_MAX_SEARCH_RESULTS + 10)])
+    session.commit()
+    get = GetFromDB(session)
+    calls = []
+    real_query = get.query_entities
+
+    def spy(*args, **kwargs):
+        result = real_query(*args, **kwargs)
+        calls.append((kwargs.get("limit"), len(result)))
+        return result
+
+    monkeypatch.setattr(get, "query_entities", spy)
+    bar = _AddSampleBar(SimpleNamespace(get=get), on_add=lambda **k: None)
+
+    bar.name_search.setText("Love")
+
+    assert calls == [(_MAX_SEARCH_RESULTS, _MAX_SEARCH_RESULTS)]
+    assert bar.name_combo.count() == _MAX_SEARCH_RESULTS
 
 
 def test_sample_add_uses_exact_name_match_without_a_pick(qapp, session):
