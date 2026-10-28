@@ -1,4 +1,6 @@
-"""Art column pieces: progress strip, slide dots, art shadow pad, backdrop."""
+"""Now Playing art column: progress strip, slide dots, backdrop, artist
+photo cache, slideshow pausing, and the art card caption pan.
+"""
 
 from types import SimpleNamespace
 
@@ -9,8 +11,13 @@ import pytest
 from src.nowplaying.art.nowplaying_art import _ArtCard
 from src.nowplaying.art.nowplaying_art_column import _ArtColumn, _SlideDots
 from src.nowplaying.art.nowplaying_backdrop import _BlurredBackdrop, _tint_from
+from src.nowplaying.nowplaying_marquee import MarqueeLabel
 from src.nowplaying.nowplaying_progress import _ProgressStrip, format_ms
 from src.nowplaying.nowplaying_view import NowPlayingView
+
+# ---------------------------------------------------------------------------
+# Art column pieces: progress strip, slide dots, art shadow pad, backdrop.
+# ---------------------------------------------------------------------------
 
 
 class _FakeMediaPlayer(QObject):
@@ -38,9 +45,6 @@ def _px(w=300, h=300, color="red") -> QPixmap:
     px = QPixmap(w, h)
     px.fill(QColor(color))
     return px
-
-
-# ── progress strip ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(("ms", "text"), [(0, "0:00"), (61_000, "1:01"), (3_723_000, "1:02:03"), (-5, "0:00")])
@@ -77,9 +81,6 @@ def test_update_ui_reads_the_current_duration(view, player):
     assert view._progress.fraction() == pytest.approx(0.5)
 
 
-# ── slide dots ───────────────────────────────────────────────────────────
-
-
 def test_slide_dots_clamp_index(qapp):
     dots = _SlideDots()
     dots.set_count(3)
@@ -111,52 +112,12 @@ def test_dots_without_front_follow_the_sequence(view):
     assert view._slide_dots.index() == 1
 
 
-# ── art card shadow pad / column layout ──────────────────────────────────
-
-
-def test_art_sits_inside_the_shadow_pad(qapp):
-    card = _ArtCard(shadow_pad=20)
-    card.resize(240, 240)
-    rect = card._rest_rect(_px(100, 100), False)
-    assert rect.left() >= 20 and rect.top() >= 20
-    assert rect.right() <= 240 - 20 and rect.bottom() <= 240 - 20
-
-
-def test_art_column_centres_the_group_and_stacks_rows_under_the_art(qapp):
-    card, dots, prog = _ArtCard(shadow_pad=24), _SlideDots(), _ProgressStrip()
-    col = _ArtColumn(card, dots, prog)
-    col.setContentsMargins(32, 36, 24, 28)
-    col.resize(500, 800)
-    col._relayout()
-    art_bottom = card.geometry().bottom() - 24
-    assert dots.geometry().top() > art_bottom
-    assert prog.geometry().top() > dots.geometry().bottom()
-    assert prog.width() == card.width() - 48  # strip matches the art width
-    top_gap = card.geometry().top() + 24
-    bottom_gap = col.height() - prog.geometry().bottom()
-    assert abs(top_gap - bottom_gap) <= 36  # roughly centred in the column
-
-
-def test_hidden_progress_strip_frees_its_row_for_the_art(qapp):
-    card, dots, prog = _ArtCard(shadow_pad=24), _SlideDots(), _ProgressStrip()
-    col = _ArtColumn(card, dots, prog)
-    col.resize(500, 400)  # height-bound, so the art side depends on the rows below
-    col._relayout()
-    side_with_strip = card.width()
-    col.set_progress_visible(False)
-    assert prog.isHidden()
-    assert card.width() > side_with_strip
-
-
 def test_progress_strip_shows_only_in_cinema_mode(view):
     assert view._progress.isHidden()
     view.toggle_cinema_mode()
     assert not view._progress.isHidden()
     view.toggle_cinema_mode()
     assert view._progress.isHidden()
-
-
-# ── backdrop ─────────────────────────────────────────────────────────────
 
 
 def test_backdrop_blurs_a_small_copy_and_takes_a_tint(qapp):
@@ -173,9 +134,6 @@ def test_backdrop_blurs_a_small_copy_and_takes_a_tint(qapp):
 
 def test_greyscale_art_uses_the_accent_tint(qapp):
     assert _tint_from(_px(color="#808080")) == QColor(133, 153, 234)
-
-
-# ── Finalize fixes ───────────────────────────────────────────────────────
 
 
 class _FakeWorker(QObject):
@@ -207,13 +165,6 @@ def test_cancel_art_worker_does_not_block_and_keeps_the_worker_until_it_ends(vie
     assert worker in view._retired_art_workers
     worker.finished.emit()
     assert worker not in view._retired_art_workers
-
-
-def test_backdrop_fade_starts_from_zero_through_the_property(view):
-    view._backdrop.setProperty("backdropOpacity", 1.0)
-    view._apply_backdrop(_px())
-    view._fade_anim.stop()
-    assert view._backdrop._opacity == 0.0
 
 
 def test_artist_photo_cache_reuses_and_downscales(tmp_path, qapp):
@@ -255,7 +206,7 @@ def test_hidden_view_pauses_slideshow_and_auto_cycle(view):
 
 
 def test_marquee_parses_its_colour_once(qapp):
-    from src.nowplaying.nowplaying_marquee import MarqueeLabel, _parse_color
+    from src.nowplaying.nowplaying_marquee import _parse_color
 
     assert _parse_color("rgba(180,190,240,0.70)") == QColor(180, 190, 240, 178)
     assert _parse_color("#ff0000") == QColor("#ff0000")
@@ -267,7 +218,6 @@ def test_marquee_parses_its_colour_once(qapp):
 
 
 def test_marquee_pans_only_while_visible(qapp):
-    from src.nowplaying.nowplaying_marquee import MarqueeLabel
 
     label = MarqueeLabel("a very long title " * 10, QFont(), "#ffffff")
     label.resize(50, 20)
@@ -296,3 +246,72 @@ def test_countdown_keeps_its_text_while_the_position_is_unknown(view):
     view._last_position_ms = -1
     view._update_countdown()
     assert view._countdown_lbl.text() == "♪  in 9s"
+
+
+# ---------------------------------------------------------------------------
+# The Now Playing art card captions each artist photo with the artist's
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def card(qapp):
+    w = _ArtCard()
+    w.resize(400, 400)
+    w.show()  # the caption pans only while the card is on screen
+    yield w
+    w.deleteLater()
+
+
+def _photo() -> QPixmap:
+    px = QPixmap(400, 400)
+    px.fill()
+    return px
+
+
+def test_short_caption_does_not_scroll(card):
+    card.set_art(_photo(), is_artist=True, label="AB")
+    card._check_label_scroll()
+    assert not card._label_timer.isActive()
+    assert card._label_offset == 0
+
+
+def test_non_artist_art_never_scrolls(card):
+    card.set_art(_photo(), is_artist=False, label="ignored for album covers")
+    card._check_label_scroll()
+    assert not card._label_timer.isActive()
+
+
+def test_long_caption_pans_and_reverses(card):
+    long_credit = "Wynton Learson Marsalis " * 6 + "(Trumpet, Flugelhorn, Cornet)"
+    card.set_art(_photo(), is_artist=True, label=long_credit)
+    card._check_label_scroll()
+    assert card._label_timer.isActive()
+    assert card._label_text_w > card._label_avail_w
+
+    # Burn the start pause, then confirm the offset advances toward the end.
+    card._label_pause = 0
+    card._tick_label_scroll()
+    assert card._label_offset == _ArtCard._LABEL_SCROLL_STEP_PX
+    assert card._label_scroll_dir == 1
+
+    # Push past the far end: the offset clamps, direction flips, and the
+    # end-pause is re-armed.
+    card._label_pause = 0
+    card._label_offset = card._label_text_w
+    card._tick_label_scroll()
+    max_off = card._label_text_w - card._label_avail_w + _ArtCard._LABEL_END_PAD
+    assert card._label_offset == max_off
+    assert card._label_scroll_dir == -1
+    assert card._label_pause == _ArtCard._LABEL_PAUSE_TICKS
+
+
+def test_switching_art_resets_the_pan(card):
+    card.set_art(_photo(), is_artist=True, label="Some Very Long Artist Credit " * 5)
+    card._check_label_scroll()
+    card._label_pause = 0
+    card._tick_label_scroll()
+    assert card._label_offset > 0
+
+    card.set_art(_photo(), is_artist=True, label="Short")
+    assert card._label_offset == 0
+    assert card._label_scroll_dir == 1

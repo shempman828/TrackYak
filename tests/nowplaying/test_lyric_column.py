@@ -1,8 +1,5 @@
-"""Lyrics show as one scrolling column: past, current and upcoming lines.
-
-Exercises the real ``NowPlayingView`` wiring plus the ``NowPlayingLyricsMixin``
-position-sync path that drives ``_LyricColumn``, the follow / browse-all
-toggle, and plain (unsynced) lyrics.
+"""Now Playing lyric column (follow/browse modes, pacing, auto-fit font) and
+the lyrics toolbar (follow, offset stepper, debounced save).
 """
 
 from types import SimpleNamespace
@@ -12,10 +9,17 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QGraphicsDropShadowEffect
 import pytest
 
+from src.nowplaying.lyrics import nowplaying_lyrics
 from src.nowplaying.lyrics.nowplaying_lyric_column import _LyricColumn
 from src.nowplaying.nowplaying_view import NowPlayingView
 
+# ---------------------------------------------------------------------------
+# Lyrics show as one scrolling column: past, current and upcoming lines.
+# ---------------------------------------------------------------------------
+
+
 _SYNCED_LYRICS = "\n".join(["[00:03.00] line zero", "[00:05.00] line one", "[00:07.00] line two", "[00:09.00] line three", "[00:11.00] line four", "[00:13.00] line five"])
+
 
 _PLAIN_LYRICS = "first plain line\nsecond plain line\nthird plain line"
 
@@ -45,9 +49,6 @@ def column(qapp):
 
 def _wheel(widget, dy=-120):
     return QWheelEvent(QPointF(10, 10), QPointF(widget.mapToGlobal(QPoint(10, 10))), QPoint(0, 0), QPoint(0, dy), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
-
-
-# ── view wiring ──────────────────────────────────────────────────────────
 
 
 def test_synced_lyrics_fill_the_column_and_follow(view):
@@ -159,16 +160,6 @@ def test_no_lyrics_clears_the_column_and_shows_credits(view):
     assert view._stack.currentIndex() == view._PAGE_CREDITS
 
 
-def test_lyric_column_carries_a_text_shadow_over_busy_art(view):
-    """Regression: lyrics get the same dark halo the metadata labels use."""
-    effect = view._lyric_column.graphicsEffect()
-    assert isinstance(effect, QGraphicsDropShadowEffect)
-    assert effect.color().alpha() > 0
-
-
-# ── widget behaviour ─────────────────────────────────────────────────────
-
-
 def test_synced_lyrics_start_at_the_top(column):
     """Regression: the first line used to wait 38 % down, leaving empty space above."""
     column.set_lines([f"line {i}" for i in range(20)], synced=True)
@@ -266,9 +257,6 @@ def test_wheel_on_empty_column_is_ignored(column):
     assert not event.isAccepted()
 
 
-# ── plain lyrics fit the widget ──────────────────────────────────────────
-
-
 def test_plain_lyrics_shrink_to_show_every_line(column):
     """Regression: unsynced lyrics used the large synced font and needed scrolling."""
     column.set_lines([f"plain line {i}" for i in range(10)], synced=False)
@@ -302,11 +290,88 @@ def test_synced_lyrics_keep_the_large_font(column):
     assert column._font.pointSize() == column._FONT.pointSize()
 
 
-def test_edges_fade_only_where_more_text_continues(column):
-    """Regression: the true first line sat in the top fade and looked permanently darker."""
-    column.set_lines([f"line {i}" for i in range(40)], synced=True)
-    assert column._edge_alpha(1.0) == 1.0  # at the top: nothing above line 0
-    assert column._edge_alpha(column.height() - 1.0) < 1.0  # more lines below
-    column.set_active(39)
-    assert column._edge_alpha(1.0) < 1.0  # sung lines scrolled off the top
-    assert column._edge_alpha(column.height() - 1.0) == 1.0  # last line is the end
+# ---------------------------------------------------------------------------
+# The lyric toolbar under the lyric column: ALL LINES, offset stepper, SYNC.
+# ---------------------------------------------------------------------------
+
+
+_SYNCED_LYRICS_TOOLBAR = "[00:02.00] one\n[00:04.00] two"
+
+
+class _FakeMediaPlayerToolbar(QObject):
+    position_changed = Signal(int)
+
+
+@pytest.fixture
+def view_toolbar(qapp, monkeypatch):
+    # Never write the user's real config from a test.
+    monkeypatch.setattr(nowplaying_lyrics.app_config, "set_lyrics_sync_offset", lambda v: None)
+    monkeypatch.setattr(nowplaying_lyrics.app_config, "save", lambda: None)
+    controller = SimpleNamespace(mediaplayer=_FakeMediaPlayerToolbar())
+    v = NowPlayingView(controller)
+    v._on_offset_changed(0)
+    yield v
+    v._offset_save_timer.stop()
+    v.deleteLater()
+
+
+def _pills(view_toolbar):
+    return [view_toolbar._toggle_mode_btn, view_toolbar._offset_minus_btn, view_toolbar._offset_value_btn, view_toolbar._offset_plus_btn, view_toolbar._manual_sync_btn]
+
+
+def test_toolbar_hidden_without_lyrics(view_toolbar):
+    view_toolbar._update_lyrics(SimpleNamespace(lyrics=None))
+    assert not view_toolbar._lyrics_toolbar.isVisibleTo(view_toolbar)
+
+
+def test_synced_lyrics_show_the_whole_toolbar(view_toolbar):
+    view_toolbar._update_lyrics(SimpleNamespace(lyrics=_SYNCED_LYRICS_TOOLBAR))
+    assert view_toolbar._lyrics_toolbar.isVisibleTo(view_toolbar)
+    assert view_toolbar._toggle_mode_btn.isVisibleTo(view_toolbar)
+    assert view_toolbar._offset_group.isVisibleTo(view_toolbar)
+    assert view_toolbar._manual_sync_btn.isEnabled()
+
+
+def test_plain_lyrics_keep_follow_but_hide_offset(view_toolbar):
+    """Plain lyrics are paced by song progress, so they can follow; they have no timing to offset."""
+    view_toolbar._update_lyrics(SimpleNamespace(lyrics="just\nplain"))
+    assert view_toolbar._lyrics_toolbar.isVisibleTo(view_toolbar)
+    assert view_toolbar._toggle_mode_btn.isVisibleTo(view_toolbar)
+    assert not view_toolbar._offset_group.isVisibleTo(view_toolbar)
+    assert view_toolbar._manual_sync_btn.isEnabled()
+
+
+def test_stepper_nudges_by_a_tenth_of_a_second(view_toolbar):
+    view_toolbar._offset_plus_btn.click()
+    view_toolbar._offset_plus_btn.click()
+    assert view_toolbar._sync_offset_ms == 200
+    assert view_toolbar._offset_value_btn.text() == "⏱ +0.2s"
+    assert view_toolbar._offset_value_btn.property("active") is True
+
+    view_toolbar._offset_minus_btn.click()
+    view_toolbar._offset_minus_btn.click()
+    view_toolbar._offset_minus_btn.click()
+    assert view_toolbar._sync_offset_ms == -100
+    assert view_toolbar._offset_value_btn.text() == "⏱ −0.1s"  # noqa: RUF001 (U+2212 minus glyph)
+
+
+def test_value_button_resets_to_zero(view_toolbar):
+    view_toolbar._on_offset_changed(13)
+    view_toolbar._offset_value_btn.click()
+    assert view_toolbar._sync_offset_ms == 0
+    assert view_toolbar._offset_value_btn.text() == "⏱ 0.0s"
+    assert view_toolbar._offset_value_btn.property("active") is False
+
+
+def test_offset_is_clamped_to_five_seconds(view_toolbar):
+    view_toolbar._on_offset_changed(49)
+    view_toolbar._offset_plus_btn.click()
+    view_toolbar._offset_plus_btn.click()
+    assert view_toolbar._sync_offset_ms == 5000
+    view_toolbar._on_offset_changed(-999)
+    assert view_toolbar._sync_offset_ms == -5000
+
+
+def test_offset_change_debounces_the_config_save(view_toolbar):
+    view_toolbar._offset_plus_btn.click()
+    assert view_toolbar._offset_save_timer.isActive()

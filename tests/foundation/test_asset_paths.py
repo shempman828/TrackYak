@@ -26,16 +26,10 @@ def _wire_dirs(monkeypatch, root: Path):
     return config_dir, images_dir, cache_dir, imagecache_dir
 
 
-def test_imagecache_dir_lives_under_cache_dir():
+def test_regenerable_caches_live_under_cache_dir():
     assert asset_paths.IMAGECACHE_DIR.parent == asset_paths.CACHE_DIR
-
-
-def test_cache_helper_points_into_cache_dir():
-    assert Path(asset_paths.cache("x.json")) == asset_paths.CACHE_DIR / "x.json"
-
-
-def test_waveformcache_dir_lives_under_cache_dir():
     assert asset_paths.WAVEFORMCACHE_DIR.parent == asset_paths.CACHE_DIR
+    assert Path(asset_paths.cache("x.json")) == asset_paths.CACHE_DIR / "x.json"
 
 
 def test_ensure_directories_exist_creates_waveform_cache(monkeypatch, tmp_path):
@@ -63,11 +57,6 @@ def test_relocates_legacy_analysis_cache_and_imagecache(monkeypatch, tmp_path):
     assert (imagecache_dir / "artwork_cache.db").read_bytes() == b"sqlite-ish"
 
 
-def test_relocate_is_noop_when_nothing_legacy_present(monkeypatch, tmp_path):
-    _wire_dirs(monkeypatch, tmp_path)
-    asset_paths._migrate_legacy_cache_locations()  # must not raise
-
-
 def test_relocate_keeps_new_location_when_both_exist(monkeypatch, tmp_path):
     config_dir, _, cache_dir, _ = _wire_dirs(monkeypatch, tmp_path)
     (config_dir / "analysis_cache.json").write_text("OLD")
@@ -80,8 +69,10 @@ def test_relocate_keeps_new_location_when_both_exist(monkeypatch, tmp_path):
     assert (config_dir / "analysis_cache.json").read_text() == "OLD"
 
 
-def test_relocate_swallows_move_errors(monkeypatch, tmp_path):
+def test_relocate_is_best_effort(monkeypatch, tmp_path):
     config_dir, _, _, _ = _wire_dirs(monkeypatch, tmp_path)
+    asset_paths._migrate_legacy_cache_locations()  # nothing legacy present
+
     (config_dir / "analysis_cache.json").write_text("{}")
 
     def boom(*_a, **_k):

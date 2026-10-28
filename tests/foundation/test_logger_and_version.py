@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+
 from src.foundation import logger_config, version
 
 
@@ -20,22 +22,13 @@ def test_reconfigure_closes_old_handlers_and_disables_propagation(monkeypatch, t
     assert all(h not in log.handlers for h in old_handlers)
 
 
-def test_version_with_tag_and_git(monkeypatch):
+@pytest.mark.parametrize(
+    ("tag_count", "build_count", "suffix"),
+    [("7", "300", ".7 (build 300)"), (None, "300", " (build 300)"), (None, None, " (dev)")],
+    ids=["tag-and-git", "no-tag", "no-git"],
+)
+def test_version_string(monkeypatch, tag_count, build_count, suffix):
     version.get_version.cache_clear()
-    monkeypatch.setattr(version, "_git", lambda *a: "7" if a[1].startswith("v") else "300")
-    assert version.get_version() == f"{version.BASE_VERSION}.7 (build 300)"
-    version.get_version.cache_clear()
-
-
-def test_version_without_tag_keeps_build_count(monkeypatch):
-    version.get_version.cache_clear()
-    monkeypatch.setattr(version, "_git", lambda *a: None if a[1].startswith("v") else "300")
-    assert version.get_version() == f"{version.BASE_VERSION} (build 300)"
-    version.get_version.cache_clear()
-
-
-def test_version_without_git_is_dev(monkeypatch):
-    version.get_version.cache_clear()
-    monkeypatch.setattr(version, "_git", lambda *a: None)
-    assert version.get_version() == f"{version.BASE_VERSION} (dev)"
+    monkeypatch.setattr(version, "_git", lambda *a: tag_count if a[1].startswith("v") else build_count)
+    assert version.get_version() == f"{version.BASE_VERSION}{suffix}"
     version.get_version.cache_clear()

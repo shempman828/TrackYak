@@ -107,7 +107,7 @@ def test_clearing_field_sets_key_confidence_to_null(qapp, session):
     changes = tab.collect_changes()
     assert changes["key_confidence"] is None
 
-    setattr(track, "key_confidence", changes["key_confidence"])
+    track.key_confidence = changes["key_confidence"]
     session.commit()
     reloaded = session.get(Track, track.track_id)
     assert reloaded.key_confidence is None

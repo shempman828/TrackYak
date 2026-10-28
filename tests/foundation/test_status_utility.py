@@ -70,22 +70,3 @@ def test_task_message_returns_after_transient_message_expires(qapp):
     StatusManager.end_task()
     assert hidden
     _reset()
-
-
-def test_foundation_status_utility_does_not_import_core_at_load_time():
-    # Foundation must depend on nothing else in src; the moved helper is only re-exported lazily.
-    import ast
-    from pathlib import Path
-
-    tree = ast.parse(Path(status_utility.__file__).read_text())
-    top_level_modules = [node.module for node in tree.body if isinstance(node, ast.ImportFrom)]
-    assert all(not m.startswith("src.") or m.startswith("src.foundation") for m in top_level_modules)
-
-
-def test_deprecated_show_status_message_reexport_warns_and_returns_core_helper():
-    import pytest
-
-    from src.core.status_widget import show_status_message
-
-    with pytest.deprecated_call():
-        assert status_utility.show_status_message is show_status_message

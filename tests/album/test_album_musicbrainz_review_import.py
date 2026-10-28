@@ -13,11 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.album.musicbrainz import album_musicbrainz_review_import
-from src.album.musicbrainz.album_musicbrainz_review_import import (
-    _plan_album_credit,
-    _plan_track_credit,
-    _resolve_artist,
-)
+from src.album.musicbrainz.album_musicbrainz_review_import import _plan_album_credit, _plan_track_credit, _resolve_artist
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB

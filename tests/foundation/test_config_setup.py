@@ -1,8 +1,7 @@
 """Unit tests for src.foundation.config_setup.Config accessors.
 
-Covers the CSV-list config fields (excluded_genres / excluded_roles) that
-back the "Skipped …" parse-ignore lists — see
-docs/specs/role_parse_ignore_list.md.
+Covers default values and round-trips of typed settings, fallback on
+corrupt values, atomic save, and the legacy theme_file migration.
 """
 
 import configparser
@@ -33,142 +32,30 @@ def _reload(scratch_ini):
     return config_setup.Config()
 
 
-def test_excluded_roles_round_trips_through_config_file(fresh_config):
+@pytest.mark.parametrize(
+    ("name", "default", "value", "section", "key", "raw_value"),
+    [
+        ("excluded_roles", [], ["Composer", "Remixer"], "library", "excluded_roles", "Composer,Remixer"),
+        ("transcode_cache_max_mb", 2048, 512, "sync", "transcode_cache_max_mb", "512"),
+        ("waveform_cache_max_mb", 256, 512, "player", "waveform_cache_max_mb", "512"),
+        ("waveform_display_mode", "linear", "log", "player", "display_mode", "log"),
+        ("nav_item_order", [], ["Tracks", "Albums", "Artists"], "navigation", "item_order", "Tracks,Albums,Artists"),
+        ("nav_hidden_items", [], ["Genres", "Places"], "navigation", "hidden_items", "Genres,Places"),
+        ("menu_bar_auto_hide", False, True, None, None, None),
+    ],
+)
+def test_setting_defaults_and_round_trips_through_config_file(fresh_config, name, default, value, section, key, raw_value):
     cfg, scratch_ini = fresh_config
+    assert getattr(cfg, f"get_{name}")() == default
 
-    cfg.set_excluded_roles(["Composer", "Remixer"])
+    getattr(cfg, f"set_{name}")(value)
     cfg.save()
 
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_excluded_roles() == ["Composer", "Remixer"]
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["library"]["excluded_roles"] == "Composer,Remixer"
-
-
-def test_excluded_roles_defaults_to_empty_list_when_unset(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_excluded_roles() == []
-
-
-def test_excluded_roles_and_genres_are_independent(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_excluded_genres(["Noise"])
-    cfg.set_excluded_roles(["Engineer"])
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_excluded_genres() == ["Noise"]
-    assert reloaded.get_excluded_roles() == ["Engineer"]
-
-
-# --- transcode cache size cap (idea 57) ------------------------------------ AC9
-
-
-def test_transcode_cache_max_mb_defaults_to_2048(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_transcode_cache_max_mb() == 2048
-
-
-def test_transcode_cache_max_mb_round_trips_through_config_file(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_transcode_cache_max_mb(512)
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_transcode_cache_max_mb() == 512
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["sync"]["transcode_cache_max_mb"] == "512"
-
-
-# --- waveform peak cache size cap (idea 58) ------------------------------- AC12
-
-
-def test_waveform_cache_max_mb_defaults_to_256(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_waveform_cache_max_mb() == 256
-
-
-def test_waveform_cache_max_mb_round_trips_through_config_file(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_waveform_cache_max_mb(512)
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_waveform_cache_max_mb() == 512
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["player"]["waveform_cache_max_mb"] == "512"
-
-
-# --- waveform display mode (linear vs. perceptual/log) -------------------- AC1
-
-
-def test_waveform_display_mode_defaults_to_linear(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_waveform_display_mode() == "linear"
-
-
-def test_waveform_display_mode_round_trips_through_config_file(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_waveform_display_mode("log")
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_waveform_display_mode() == "log"
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["player"]["display_mode"] == "log"
-
-
-# --- navbar order and visibility ------------------------------------------ AC1, AC2
-
-
-def test_nav_item_order_defaults_to_empty_list_when_unset(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_nav_item_order() == []
-
-
-def test_nav_item_order_round_trips_through_config_file(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_nav_item_order(["Tracks", "Albums", "Artists"])
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_nav_item_order() == ["Tracks", "Albums", "Artists"]
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["navigation"]["item_order"] == "Tracks,Albums,Artists"
-
-
-def test_nav_hidden_items_defaults_to_empty_list_when_unset(fresh_config):
-    cfg, _ = fresh_config
-    assert cfg.get_nav_hidden_items() == []
-
-
-def test_nav_hidden_items_round_trips_through_config_file(fresh_config):
-    cfg, scratch_ini = fresh_config
-
-    cfg.set_nav_hidden_items(["Genres", "Places"])
-    cfg.save()
-
-    reloaded = _reload(scratch_ini)
-    assert reloaded.get_nav_hidden_items() == ["Genres", "Places"]
-
-    raw = configparser.ConfigParser()
-    raw.read(scratch_ini)
-    assert raw["navigation"]["hidden_items"] == "Genres,Places"
+    assert getattr(_reload(scratch_ini), f"get_{name}")() == value
+    if section:
+        raw = configparser.ConfigParser()
+        raw.read(scratch_ini)
+        assert raw[section][key] == raw_value
 
 
 # --- finalize audit: robustness fixes -------------------------------------
@@ -260,14 +147,6 @@ def test_failed_save_keeps_previous_file(fresh_config, monkeypatch):
     assert not scratch_ini.with_name(scratch_ini.name + ".tmp").exists()
 
 
-def test_menu_bar_auto_hide_round_trips(fresh_config):
-    cfg, scratch_ini = fresh_config
-    assert cfg.get_menu_bar_auto_hide() is False
-    cfg.set_menu_bar_auto_hide(True)
-    cfg.save()
-    assert _reload(scratch_ini).get_menu_bar_auto_hide() is True
-
-
 # ---- legacy app.theme_file migration (bugs.md #596) ---------------------------
 
 
@@ -276,32 +155,25 @@ def _write_ini(scratch_ini, text):
     return _reload(scratch_ini)
 
 
-def test_legacy_theme_file_fills_empty_display_theme_and_is_removed(fresh_config):
+@pytest.mark.parametrize(
+    ("ini", "expected"),
+    [
+        ("[app]\ntheme_file = light_mode.qss\n[display]\ntheme =\n", "light_mode"),
+        ("[app]\ntheme_file = light_mode.qss\n", "light_mode"),
+        ("[app]\ntheme_file = light_mode.qss\n[display]\ntheme = dark_mode\n", "dark_mode"),
+    ],
+    ids=["fills-empty-theme", "creates-display-section", "display-theme-wins"],
+)
+def test_legacy_theme_file_is_migrated_and_removed(fresh_config, ini, expected):
     _, scratch_ini = fresh_config
-    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n[display]\ntheme =\n")
+    cfg = _write_ini(scratch_ini, ini)
 
-    assert cfg.get_display_theme() == "light_mode"
+    assert cfg.get_display_theme() == expected
     assert not cfg.config.has_option("app", "theme_file")
     raw = configparser.ConfigParser()
     raw.read(scratch_ini)
     assert not raw.has_option("app", "theme_file")
-    assert raw["display"]["theme"] == "light_mode"
-
-
-def test_legacy_theme_file_creates_missing_display_section(fresh_config):
-    _, scratch_ini = fresh_config
-    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n")
-
-    assert cfg.get_display_theme() == "light_mode"
-    assert not cfg.config.has_option("app", "theme_file")
-
-
-def test_display_theme_wins_over_disagreeing_legacy_theme_file(fresh_config):
-    _, scratch_ini = fresh_config
-    cfg = _write_ini(scratch_ini, "[app]\ntheme_file = light_mode.qss\n[display]\ntheme = dark_mode\n")
-
-    assert cfg.get_display_theme() == "dark_mode"
-    assert not cfg.config.has_option("app", "theme_file")
+    assert raw["display"]["theme"] == expected
 
 
 def test_theme_path_and_available_themes_use_stems(fresh_config):

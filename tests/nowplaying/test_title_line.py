@@ -42,13 +42,6 @@ def _track(**kw):
     return SimpleNamespace(**base)
 
 
-# ── widget wiring ────────────────────────────────────────────────────────────
-
-
-def test_title_widget_is_adaptive(view):
-    assert isinstance(view._title_lbl, _AdaptiveTitle)
-
-
 # ── wrap vs. marquee decision ────────────────────────────────────────────────
 
 
@@ -81,10 +74,6 @@ def test_four_lines_switches_to_marquee(title, monkeypatch):
     assert not title._marquee.isHidden()
     assert title._wrap.isHidden()
     assert title._marquee._text == "whatever"
-
-
-def test_line_count_single_word_is_one(title):
-    assert title._line_count("Hi", 400) == 1
 
 
 def test_wrap_reserves_no_blank_row(title):

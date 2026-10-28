@@ -1,13 +1,8 @@
-"""Regression test for the Settings-dialog open lag: computing the
-alias-deduplicated font family list (fc-list subprocess + QFontDatabase
-clustering, see FontFamilyWorker) used to run synchronously in
-ConfigDialog.__init__ on every single open, blocking the UI thread.
-
-It now runs once per process in FontFamilyWorker on a background QThread,
-with ConfigDialog showing a placeholder until it lands and caching the
-result at the class level so later opens skip the work entirely.
+"""ConfigDialog: background font-family computation, live preview and
+revert, audio tab, and apply/cancel behavior.
 """
 
+import subprocess
 import time
 
 from PySide6.QtCore import Qt
@@ -17,8 +12,13 @@ import pytest
 
 from src.core.config_dialog import ConfigDialog
 import src.core.font_family_worker as font_family_worker_module
+from src.core.font_family_worker import FontFamilyWorker
 from src.foundation import config_setup as config_setup_module
 from src.foundation.config_setup import Config
+
+# ---------------------------------------------------------------------------
+# Regression test for the Settings-dialog open lag: computing the
+# ---------------------------------------------------------------------------
 
 
 # ---- test_config_dialog_font_worker_async.py ---------------------------------
@@ -153,12 +153,6 @@ def test_visible_restyle_roots_falls_back_to_just_self_without_a_main_window(qap
     assert ConfigDialog._visible_restyle_roots(orphan) == [orphan]
 
 
-# ---- waveform display mode (linear vs. perceptual/log), see
-# docs/specs/waveform_display_mode.md ------------------------------------------
-# AC3  audio tab loads the checkbox from waveform_display_mode
-# AC4  applying the checkbox writes "log"/"linear" back to config
-
-
 @pytest.fixture
 def fresh_config(tmp_path, monkeypatch):
     scratch_ini = tmp_path / "config.ini"
@@ -203,9 +197,6 @@ def test_unchecking_and_applying_writes_linear_back_to_config(qapp, monkeypatch,
         dialog.reject()
         qapp.processEvents()
         ConfigDialog._canonical_font_families_cache = None
-
-
-# ---- live Appearance preview: load must not apply, Cancel must revert ---------
 
 
 class _FakeDisplaySettings:
@@ -399,3 +390,57 @@ def test_font_list_arrival_never_live_applies_the_first_font(qapp, monkeypatch, 
         assert not any(call[0] == "set_font_family" for call in ds.calls)
     finally:
         _close(dialog, qapp)
+
+
+# ---------------------------------------------------------------------------
+# Regression test for the font dropdown duplicate-alias bug: fontconfig
+# ---------------------------------------------------------------------------
+
+
+def test_compute_canonical_font_families_collapses_named_instance_aliases(qapp, monkeypatch):
+    fake_families = ["Test Sans", "Test Sans Thin", "Test Sans Condensed SemiBold", "Test Sans Arabic", "Test Sans Arabic Cond Blk", "Test Serif", "Test Serif Black"]
+    fake_styles = {
+        "Test Sans": ["Regular", "Bold", "Thin", "Condensed SemiBold"],
+        "Test Sans Thin": ["Regular", "Italic"],
+        "Test Sans Condensed SemiBold": ["Regular", "Italic"],
+        "Test Sans Arabic": ["Regular", "Bold", "Condensed Black"],
+        "Test Sans Arabic Cond Blk": ["Regular"],
+        "Test Serif": ["Regular", "Bold", "Italic"],
+        "Test Serif Black": ["Regular"],
+    }
+    fake_fc_list = "\n".join(
+        [
+            "Test Sans",
+            "Test Sans,Test Sans Thin",
+            "Test Sans,Test Sans Condensed SemiBold",
+            "Test Sans Arabic",
+            "Test Sans Arabic,Test Sans Arabic Cond Blk",
+            "Test Serif",
+            # Test Serif Black is its own dedicated file, never co-registered
+            # with "Test Serif" — a genuinely distinct typeface, not a
+            # named-instance alias, and must survive de-duplication.
+            "Test Serif Black",
+        ]
+    )
+
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families)))
+    monkeypatch.setattr(QFontDatabase, "styles", staticmethod(lambda family: list(fake_styles[family])))
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=a, returncode=0, stdout=fake_fc_list, stderr=""))
+
+    canonical = FontFamilyWorker()._compute_canonical_font_families()
+
+    assert canonical == {"Test Sans", "Test Sans Arabic", "Test Serif", "Test Serif Black"}
+
+
+def test_compute_canonical_font_families_falls_back_when_fc_list_missing(qapp, monkeypatch):
+    fake_families = ["Test Sans", "Test Sans Thin"]
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: list(fake_families)))
+
+    def raise_missing(*a, **k):
+        raise FileNotFoundError("fc-list not found")
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+
+    canonical = FontFamilyWorker()._compute_canonical_font_families()
+
+    assert canonical == set(fake_families)

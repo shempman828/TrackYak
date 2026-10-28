@@ -144,114 +144,45 @@ def _clear_entity_cache():
     invalidate_entity_cache()
 
 
-def test_enter_key_does_not_bypass_minimum_length_gate(qapp):
-    controller = _FakeController()
-    view = _Host(controller)
-    builder = AlbumTabBuilder(view)
-
-    row = builder._build_add_artist_credit_row()
-    search_widgets = [w for w in row.findChildren(object) if hasattr(w, "returnPressed")]
-    assert len(search_widgets) == 2
-    artist_search, role_search = search_widgets
+def test_enter_key_submits_artist_credit_only_once_minimum_length_is_met(qapp):
+    view = _Host(_FakeController())
+    row = AlbumTabBuilder(view)._build_add_artist_credit_row()
+    artist_search, role_search = [w for w in row.findChildren(object) if hasattr(w, "returnPressed")]
 
     artist_search.setText("A")  # 1 char -- below the 2-char minimum
     role_search.setText("B")
     role_search.returnPressed.emit()
-
     assert view.helper.add_calls == []
-
-
-def test_enter_key_submits_once_minimum_length_is_met(qapp):
-    controller = _FakeController()
-    view = _Host(controller)
-    builder = AlbumTabBuilder(view)
-
-    row = builder._build_add_artist_credit_row()
-    search_widgets = [w for w in row.findChildren(object) if hasattr(w, "returnPressed")]
-    artist_search, role_search = search_widgets
 
     artist_search.setText("Beatles")
     role_search.setText("Performer")
     role_search.returnPressed.emit()
-
     assert len(view.helper.add_calls) == 1
 
 
-def test_publishers_section_bad_row_does_not_raise(qapp):
-    controller = _FakeController(raise_on_publishers=True)
-    view = _Host(controller)
-    builder = AlbumTabBuilder(view)
-
-    group = builder._build_publishers_section()  # must not raise
-    assert group is not None
+def test_sections_build_despite_a_bad_row(qapp):
+    assert AlbumTabBuilder(_Host(_FakeController(raise_on_publishers=True)))._build_publishers_section() is not None
+    assert AlbumTabBuilder(_Host(_FakeController(), raise_on_places=True))._build_places_section() is not None
 
 
-def test_places_section_bad_row_does_not_raise(qapp):
-    controller = _FakeController()
-    view = _Host(controller, raise_on_places=True)
-    builder = AlbumTabBuilder(view)
-
-    group = builder._build_places_section()  # must not raise
-    assert group is not None
+def _click(widget, text):
+    next(w for w in widget.findChildren(QPushButton) if w.text() == text).click()
 
 
-def _forbid_confirmation_dialog(monkeypatch):
-    """Fail the test if any code path still pops a confirmation QMessageBox."""
-
+def test_remove_buttons_call_through_without_confirmation(qapp, monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("Remove must not show a confirmation dialog")
 
     monkeypatch.setattr(QMessageBox, "question", staticmethod(_boom))
-
-
-def test_publisher_remove_button_calls_through_without_confirmation(qapp, monkeypatch):
-    controller = _FakeController(with_publisher=True)
-    view = _Host(controller)
+    view = _Host(_FakeController(with_publisher=True, place=_FakePlace()), place_associations=[_FakePlaceAssociation()])
     builder = AlbumTabBuilder(view)
-    _forbid_confirmation_dialog(monkeypatch)
 
-    group = builder._build_publishers_section()
-    remove_btn = next(w for w in group.findChildren(QPushButton) if w.text() == "Remove")
-    remove_btn.click()
+    _click(builder._build_publishers_section(), "Remove")
+    _click(builder._build_places_section(), "Remove")
+    _click(builder._build_award_widget(_FakeAward()), "Remove Award")
+    _click(builder._build_artist_credit_chip("Test Artist", _FakeRoleAssoc(), 0, 0), "Remove")
 
     assert len(view.helper.remove_publisher_calls) == 1
-
-
-def test_place_remove_button_calls_through_without_confirmation(qapp, monkeypatch):
-    controller = _FakeController(place=_FakePlace())
-    view = _Host(controller, place_associations=[_FakePlaceAssociation()])
-    builder = AlbumTabBuilder(view)
-    _forbid_confirmation_dialog(monkeypatch)
-
-    group = builder._build_places_section()
-    remove_btn = next(w for w in group.findChildren(QPushButton) if w.text() == "Remove")
-    remove_btn.click()
-
     assert len(view.helper.remove_place_calls) == 1
-
-
-def test_award_remove_button_calls_through_without_confirmation(qapp, monkeypatch):
-    controller = _FakeController()
-    view = _Host(controller)
-    builder = AlbumTabBuilder(view)
-    _forbid_confirmation_dialog(monkeypatch)
-
-    widget = builder._build_award_widget(_FakeAward())
-    remove_btn = next(w for w in widget.findChildren(QPushButton) if w.text() == "Remove Award")
-    remove_btn.click()
-
     assert len(view.helper.remove_award_calls) == 1
-
-
-def test_artist_credit_remove_button_calls_through_without_confirmation(qapp, monkeypatch):
-    controller = _FakeController()
-    view = _Host(controller)
-    builder = AlbumTabBuilder(view)
-    _forbid_confirmation_dialog(monkeypatch)
-
-    role_assoc = _FakeRoleAssoc()
-    chip = builder._build_artist_credit_chip("Test Artist", role_assoc, 0, 0)
-    remove_btn = next(w for w in chip.findChildren(QPushButton) if w.text() == "Remove")
-    remove_btn.click()
-
     assert len(view.helper.remove_artist_credit_calls) == 1

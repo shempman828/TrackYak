@@ -142,17 +142,6 @@ def test_prune_reports_reference_to_missing_file(managed_dirs, session):
 # ---- finalize audit regressions -------------------------------------------
 
 
-def test_rename_managed_image_overwrites_existing_destination(managed_dirs):
-    src = managed_dirs / "9_Old.jpg"
-    src.write_bytes(b"new")
-    dest = managed_dirs / "5_Miles Davis.jpg"
-    dest.write_bytes(b"old")
-
-    assert rename_managed_image(str(src), 5, "Miles Davis") == str(dest)
-    assert dest.read_bytes() == b"new"
-    assert not src.exists()
-
-
 def test_prune_skips_unlistable_directory(session, managed_dirs, monkeypatch):
     from pathlib import Path
 

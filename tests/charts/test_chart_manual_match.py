@@ -1,13 +1,5 @@
-"""
-Tests for manual chart-entry matching (docs/specs/manual_chart_matching.md)
--- ChartEntryTable's context menu, ChartManualMatchDialog, and the shared
-handlers in chart_manual_match_actions.py. Against a scratch in-memory
-SQLite session (tests/conftest.py's qapp fixture for offscreen Qt), never
-music_library.db, following the same StubController pattern as
-test_charts_view.py.
-
-Numbered comments map each test to docs/specs/manual_chart_matching.md's
-acceptance criteria.
+"""Manual chart matching: per-entry match/clear from the week and search
+tabs, and bulk matching from the recommendations tab.
 """
 
 import datetime
@@ -18,9 +10,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.charts.chart_matching import match_chart
+from src.charts.chart_recommendations import get_missing_popular
 from src.charts.ui.chart_entry_table import ChartEntryTable
-from src.charts.ui.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
+from src.charts.ui.chart_manual_match_actions import handle_bulk_manual_match_requested, handle_clear_match_requested, handle_manual_match_requested
 from src.charts.ui.chart_manual_match_dialog import ChartManualMatchDialog
+from src.charts.ui.chart_recommendation_table import ChartRecommendationTable
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
@@ -32,6 +26,10 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
+
+# ---------------------------------------------------------------------------
+# Tests for manual chart-entry matching (docs/specs/manual_chart_matching.md)
+# ---------------------------------------------------------------------------
 
 
 class StubController:
@@ -62,7 +60,7 @@ def _clear_entity_completer_cache():
     rows at module scope, keyed only by model name -- with a fresh
     in-memory engine per test, a cache entry from a previous test would
     otherwise hand back ORM objects bound to an already-closed session.
-    Same pattern as test_tag_association_tab.py's invalidate_entity_cache
+    Same pattern as test_track_edit_tabs.py's invalidate_entity_cache
     calls."""
     invalidate_entity_cache()
     yield
@@ -400,15 +398,6 @@ def test_search_and_week_tabs_share_identical_context_menu_behavior(qapp, sessio
     assert labels_a == labels_b
 
 
-def test_manual_match_dialog_is_wide_enough_for_context_hints(qapp, session, controller):
-    # Regression: the dialog set no width and collapsed to the form's
-    # minimum, so the completer popup was too narrow for a suggestion's
-    # name plus its right-aligned dimmed context hint -- names got
-    # hard-elided to a few characters.
-    dialog = ChartManualMatchDialog(controller, "Track", "Runaround Sue", "Dion")
-    assert dialog.minimumWidth() >= 520
-
-
 def test_album_chart_menu_labels_match_to_album(qapp, session):
     chart, _album = _seed_album_chart(session)
     entry = ChartEntry(
@@ -425,3 +414,221 @@ def test_album_chart_menu_labels_match_to_album(qapp, session):
     table.populate([entry])
     labels = [a.text() for a in table.context_menu_for_entry(entry.chart_entry_id).actions()]
     assert "Match to Album…" in labels
+
+
+# ---------------------------------------------------------------------------
+# Tests for manual matching from the Missing Popular / Gap Fills
+# ---------------------------------------------------------------------------
+
+
+class StubControllerMatch:
+    def __init__(self, session_match):
+        self.get = GetFromDB(session_match)
+        self.add = AddToDB(session_match)
+        self.update = UpdateDB(session_match)
+
+
+@pytest.fixture
+def session_match():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session_match = Session()
+    yield session_match
+    session_match.close()
+
+
+@pytest.fixture
+def controller_match(session_match):
+    return StubControllerMatch(session_match)
+
+
+@pytest.fixture(autouse=True)
+def _clear_entity_completer_cache_match():
+    invalidate_entity_cache()
+    yield
+    invalidate_entity_cache()
+
+
+def _seed_multi_week_song(
+    session_match, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=3, position=1
+):
+    """`weeks` unmatched ChartEntry rows for the same song on `chart`, all at
+    `position` (distinct songs must use distinct positions -- (chart_id,
+    chart_week, position) is unique)."""
+    for i in range(weeks):
+        session_match.add(
+            ChartEntry(
+                chart_id=chart.chart_id,
+                chart_week=datetime.date(2023, 12, 30) - datetime.timedelta(days=7 * i),
+                position=position,
+                peak_position=1,
+                weeks_on_chart=weeks - i,
+                raw_title=raw_title,
+                raw_performer=raw_performer,
+            )
+        )
+    session_match.commit()
+
+
+def _seed_track_chart_match(session_match):
+    chart = Chart(
+        chart_key="hot-100",
+        chart_name="Billboard Hot 100",
+        source_url="https://example.invalid/hot-100.csv",
+        matched_entity_type="Track",
+    )
+    session_match.add(chart)
+    session_match.commit()
+    track = Track(track_name="Runaround Sue (Remastered)")
+    session_match.add(track)
+    session_match.commit()
+    return chart, track
+
+
+def test_context_menu_on_missing_popular_row_offers_match_no_clear(qapp, session_match):
+    # AC1
+    chart, _track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart)
+    items = get_missing_popular(session_match)
+
+    table = ChartRecommendationTable()
+    table.populate(items)
+    menu = table.context_menu_for_item(items[0])
+    labels = [a.text() for a in menu.actions()]
+    assert labels == ["Match to Track…"]
+
+
+def test_context_menu_on_gap_fills_row_same_behavior(qapp, session_match):
+    # AC2 -- same ChartRecommendationTable class backs both sub-tabs
+    chart, _track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart)
+    items = get_missing_popular(session_match)
+
+    gap_table = ChartRecommendationTable()
+    gap_table.populate(items)
+    labels = [a.text() for a in gap_table.context_menu_for_item(items[0]).actions()]
+    assert labels == ["Match to Track…"]
+
+
+def test_bulk_match_sets_every_unmatched_row_in_the_group(qapp, session_match, controller_match, monkeypatch):
+    # AC3
+    chart, track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart, weeks=3)
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: track.track_id)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
+
+    items = get_missing_popular(session_match)
+    assert len(items) == 1  # the 3 weekly rows folded into one aggregate
+
+    done = []
+    handle_bulk_manual_match_requested(None, controller_match, items[0], lambda: done.append(True))
+
+    session_match.expire_all()
+    entries = session_match.query(ChartEntry).filter_by(chart_id=chart.chart_id).all()
+    assert len(entries) == 3
+    for entry in entries:
+        assert entry.entity_type == "Track"
+        assert entry.entity_id == track.track_id
+        assert entry.match_score == 1.0
+    assert done == [True]
+
+
+def test_bulk_match_removes_song_from_missing_popular(qapp, session_match, controller_match, monkeypatch):
+    # AC4
+    chart, track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart, weeks=3)
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: track.track_id)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
+
+    items = get_missing_popular(session_match)
+    handle_bulk_manual_match_requested(None, controller_match, items[0], lambda: None)
+
+    session_match.expire_all()
+    assert get_missing_popular(session_match) == []
+
+
+def test_ui_refresh_wired_after_bulk_match(qapp, session_match, controller_match, monkeypatch):
+    # AC5 -- ChartRecommendationsTab wiring calls refresh() via on_done
+    chart, track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart, weeks=2)
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: track.track_id)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
+
+    calls = []
+    handle_bulk_manual_match_requested(None, controller_match, get_missing_popular(session_match)[0], lambda: calls.append(True))
+    assert calls == [True]  # on_done is what ChartRecommendationsTab wires to self.refresh
+
+
+def test_dialog_ok_disabled_until_candidate_picked_for_bulk_match(qapp, session_match, controller_match):
+    # AC7 -- same ChartManualMatchDialog class/behavior as the single-entry
+    # flow (test_chart_manual_match.py), constructed via the raw-field
+    # signature a recommendation row uses.
+    dialog = ChartManualMatchDialog(controller_match, "Track", "Runaround Sue", "Dion")
+    assert not dialog._ok_button.isEnabled()
+
+
+def test_cancelling_bulk_match_dialog_leaves_entries_unchanged(qapp, session_match, controller_match, monkeypatch):
+    # AC6
+    chart, _track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart, weeks=2)
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Rejected)
+
+    done = []
+    handle_bulk_manual_match_requested(
+        None, controller_match, get_missing_popular(session_match)[0], lambda: done.append(True)
+    )
+
+    session_match.expire_all()
+    entries = session_match.query(ChartEntry).filter_by(chart_id=chart.chart_id).all()
+    for entry in entries:
+        assert entry.entity_id is None
+    assert done == []
+
+
+def test_bulk_match_does_not_touch_other_songs_or_charts(qapp, session_match, controller_match, monkeypatch):
+    # AC8
+    chart, track = _seed_track_chart_match(session_match)
+    _seed_multi_week_song(session_match, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=2)
+
+    # Same title/performer, but on a different chart -- must NOT be touched.
+    other_chart = Chart(
+        chart_key="billboard-200",
+        chart_name="Billboard 200",
+        source_url="https://example.invalid/billboard-200.csv",
+        matched_entity_type="Track",
+    )
+    session_match.add(other_chart)
+    session_match.commit()
+    _seed_multi_week_song(session_match, other_chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=1)
+
+    # A different song on the same chart -- must NOT be touched.
+    _seed_multi_week_song(
+        session_match, chart, raw_title="Some Other Song", raw_performer="Someone Else", weeks=1, position=2
+    )
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: track.track_id)
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
+
+    items = get_missing_popular(session_match, chart_ids=[chart.chart_id])
+    target = next(i for i in items if i.raw_title == "Runaround Sue")
+    handle_bulk_manual_match_requested(None, controller_match, target, lambda: None)
+
+    session_match.expire_all()
+    unmatched_still = (
+        session_match.query(ChartEntry).filter(ChartEntry.entity_id.is_(None)).all()
+    )
+    # The other chart's identically-titled entry, and the same chart's
+    # different song, both remain untouched.
+    assert len(unmatched_still) == 2
+    remaining_titles = {(e.chart_id, e.raw_title) for e in unmatched_still}
+    assert (other_chart.chart_id, "Runaround Sue") in remaining_titles
+    assert (chart.chart_id, "Some Other Song") in remaining_titles

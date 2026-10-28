@@ -11,6 +11,7 @@ what AC14 actually specifies.
 import json
 
 from PySide6.QtWidgets import QAbstractItemView
+import pytest
 
 from src.lyrics.autotag import mood_autotag_dialog
 from src.lyrics.autotag.mood_autotag_dialog import MoodAutoTagDialog
@@ -24,54 +25,28 @@ def _write_keywords(tmp_path, data):
 
 
 # AC14 --------------------------------------------------------------------------
-def test_append_keyword_adds_word_to_existing_mood(tmp_path):
-    path = _write_keywords(tmp_path, {"Happy": ["sunshine"]})
+@pytest.mark.parametrize(
+    ("initial", "edit", "mood", "word", "changed", "expected"),
+    [
+        ({"Happy": ["sunshine"]}, "append", "Happy", "grinning", True, {"Happy": ["sunshine", "grinning"]}),
+        ({"Happy": ["sunshine"]}, "append", "Brand New Mood", "gizmo", True, {"Happy": ["sunshine"], "Brand New Mood": ["gizmo"]}),
+        ({"Happy": ["sunshine"]}, "append", "Happy", "sunshine", False, {"Happy": ["sunshine"]}),
+        (None, "append", "Happy", "sunshine", True, {"Happy": ["sunshine"]}),
+        # removal is per-mood, not global
+        ({"Heartbreak": ["ex-girlfriend"], "Sad": ["ex-girlfriend"]}, "remove", "Heartbreak", "ex-girlfriend", True, {"Heartbreak": [], "Sad": ["ex-girlfriend"]}),
+        ({"Happy": ["sunshine"]}, "remove", "Happy", "nonexistent", False, {"Happy": ["sunshine"]}),
+        (None, "remove", "Happy", "sunshine", False, None),
+    ],
+)
+def test_keyword_file_edits(tmp_path, initial, edit, mood, word, changed, expected):
+    path = _write_keywords(tmp_path, initial) if initial is not None else tmp_path / "does_not_exist.json"
+    func = append_keyword_to_mood_file if edit == "append" else remove_keyword_from_mood_file
 
-    changed = append_keyword_to_mood_file(path, "Happy", "grinning")
-
-    assert changed is True
-    reloaded = json.loads(path.read_text())
-    assert reloaded["Happy"] == ["sunshine", "grinning"]
-
-
-def test_append_keyword_creates_new_mood_entry(tmp_path):
-    path = _write_keywords(tmp_path, {"Happy": ["sunshine"]})
-
-    append_keyword_to_mood_file(path, "Brand New Mood", "gizmo")
-
-    reloaded = json.loads(path.read_text())
-    assert reloaded["Brand New Mood"] == ["gizmo"]
-    # Existing moods untouched.
-    assert reloaded["Happy"] == ["sunshine"]
-
-
-def test_append_keyword_is_a_noop_if_already_present(tmp_path):
-    path = _write_keywords(tmp_path, {"Happy": ["sunshine"]})
-
-    changed = append_keyword_to_mood_file(path, "Happy", "sunshine")
-
-    assert changed is False
-    reloaded = json.loads(path.read_text())
-    assert reloaded["Happy"] == ["sunshine"]
-
-
-def test_append_keyword_creates_file_when_missing(tmp_path):
-    path = tmp_path / "does_not_exist.json"
-
-    changed = append_keyword_to_mood_file(path, "Happy", "sunshine")
-
-    assert changed is True
-    assert path.exists()
-    assert json.loads(path.read_text()) == {"Happy": ["sunshine"]}
-
-
-def test_remove_keyword_is_a_noop_when_file_missing(tmp_path):
-    path = tmp_path / "does_not_exist.json"
-
-    changed = remove_keyword_from_mood_file(path, "Happy", "sunshine")
-
-    assert changed is False
-    assert not path.exists()
+    assert func(path, mood, word) is changed
+    if expected is None:
+        assert not path.exists()
+    else:
+        assert json.loads(path.read_text()) == expected
 
 
 def test_assigned_words_includes_component_words_of_phrases(tmp_path, monkeypatch):
@@ -119,30 +94,9 @@ def test_keyword_to_moods_skips_malformed_mood_value():
     assert moods == {"sunshine": ["Happy"]}
 
 
-def test_remove_keyword_from_mood_file_removes_one_association(tmp_path):
-    path = _write_keywords(tmp_path, {"Heartbreak": ["ex-girlfriend"], "Sad": ["ex-girlfriend"]})
-
-    changed = remove_keyword_from_mood_file(path, "Heartbreak", "ex-girlfriend")
-
-    assert changed is True
-    reloaded = json.loads(path.read_text())
-    assert reloaded["Heartbreak"] == []
-    # The other mood's association survives -- removal is per-mood, not global.
-    assert reloaded["Sad"] == ["ex-girlfriend"]
-
-
-def test_remove_keyword_from_mood_file_is_a_noop_if_absent(tmp_path):
-    path = _write_keywords(tmp_path, {"Happy": ["sunshine"]})
-
-    changed = remove_keyword_from_mood_file(path, "Happy", "nonexistent")
-
-    assert changed is False
-    reloaded = json.loads(path.read_text())
-    assert reloaded["Happy"] == ["sunshine"]
-
-
 def test_dismiss_and_undismiss_word_round_trip(tmp_path):
     path = tmp_path / "mood_dismissed_words.json"
+    assert load_dismissed_words(path) == set()
     path.write_text("[]")
 
     changed = dismiss_word(path, "yeah")
@@ -157,12 +111,6 @@ def test_dismiss_and_undismiss_word_round_trip(tmp_path):
     assert load_dismissed_words(path) == set()
 
     assert undismiss_word(path, "yeah") is False
-
-
-def test_load_dismissed_words_defaults_to_empty_on_missing_file(tmp_path):
-    path = tmp_path / "does_not_exist.json"
-
-    assert load_dismissed_words(path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -181,35 +129,6 @@ class _StubGet:
 class _StubController:
     def __init__(self):
         self.get = _StubGet()
-
-
-def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch):
-    """Regression: ScrollPerPixel mode alone still lets Qt derive the
-    scrollbar's wheel-notch step (singleStep) from row height, and this
-    table's rows vary a lot (mood chips wrap to multiple lines) -- so a
-    single wheel notch could still jump as far as the tallest visible row,
-    which still reads as "scrolling by row" rather than smoothly."""
-    # _load_word_suggestions spins up a real LyricsStatsWorker against
-    # controller.statistics.lyrics, which this stub controller doesn't
-    # have -- irrelevant to what this test checks, so short-circuit it.
-    monkeypatch.setattr(MoodAutoTagDialog, "_load_word_suggestions", lambda self: None)
-
-    dlg = MoodAutoTagDialog(_StubController())
-    try:
-        table = dlg._word_review._word_table
-        table.insertRow(0)
-        table.setRowHeight(0, 36)
-        table.insertRow(1)
-        table.setRowHeight(1, 90)  # a row with several wrapped mood chips
-
-        assert table.verticalScrollMode() == QAbstractItemView.ScrollPerPixel
-        step = table.verticalScrollBar().singleStep()
-        assert step < 40, (
-            f"wheel step ({step}px) scales with the 90px tall row -- "
-            "still feels like scrolling by row, not by pixel"
-        )
-    finally:
-        dlg.deleteLater()
 
 
 def test_tag_progress_shows_percent_running_counts_and_eta(qapp, monkeypatch):

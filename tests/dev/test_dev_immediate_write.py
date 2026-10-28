@@ -34,7 +34,7 @@ _STREAMINFO = b"\x00" * 34
 def _make_flac(path) -> None:
     """A minimal but structurally valid FLAC: fLaC + STREAMINFO, no audio
     frames or existing tags -- enough for a Vorbis-comment UPDATE_EXISTING
-    write. Same recipe as test_flac_artwork_dedupe.py's _make_flac."""
+    write. Same recipe as tests/metadata/test_artwork_dedupe.py's _make_flac."""
     writer = FlacFileWriter()
     path.write_bytes(writer._serialize_blocks([(0, _STREAMINFO)], audio_tail=b"", prefix=b""))
 
@@ -83,25 +83,17 @@ def _flac_title(path) -> list:
 # --------------------------------------------------------------------------- #
 # AC1 -- flag default + round-trip
 # --------------------------------------------------------------------------- #
-def test_flag_defaults_off_and_round_trips():
+def test_flag_defaults_off_round_trips_and_survives_save_and_reload(tmp_path):
     cfg = _FakeConfig()
+    assert dev_immediate_write.is_enabled(cfg) is False
+    dev_immediate_write.set_enabled(cfg, False)
     assert dev_immediate_write.is_enabled(cfg) is False
 
     dev_immediate_write.set_enabled(cfg, True)
     assert dev_immediate_write.is_enabled(cfg) is True
-
-    dev_immediate_write.set_enabled(cfg, False)
-    assert dev_immediate_write.is_enabled(cfg) is False
-
-
-def test_flag_survives_save_and_reload(tmp_path):
     path = tmp_path / "config.ini"
-
-    cfg = _FakeConfig()
-    dev_immediate_write.set_enabled(cfg, True)
     with path.open("w") as fh:
         cfg.config.write(fh)
-
     reloaded = _FakeConfig()
     reloaded.config.read(path)
     assert dev_immediate_write.is_enabled(reloaded) is True

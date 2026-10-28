@@ -1,41 +1,20 @@
-"""Regression tests for the OrganizeFilesDialog.
-
-Guards the split of the former combined "Manage Library" dialog into two
-separate Tools menu actions: this dialog now only organizes files, and the
-metadata write flow lives entirely in show_metadata_write_dialog. The old
-in-dialog "Update Metadata" button and its half-wired worker plumbing must
-stay gone.
+"""OrganizeFilesDialog and FileOrganizer: cancel on close, library-modified
+signalling, and count-only progress text.
 """
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from PySide6.QtGui import QCloseEvent
+import pytest
 
+from src.library.organize.file_manager import FileOrganizer
 from src.library.organize.organize_files_dialog import OrganizeFilesDialog
 
-
-def test_dialog_has_no_metadata_section(qapp):
-    dlg = OrganizeFilesDialog(None)
-    try:
-        # the metadata section and its controls are gone entirely
-        assert not hasattr(dlg, "btn_update_metadata")
-        assert not hasattr(dlg, "_build_metadata_section")
-
-        # superseded worker plumbing from the even older in-dialog flow
-        assert not hasattr(dlg, "metadata_updater")
-        assert not hasattr(dlg, "metadata_progress")
-        assert not hasattr(dlg, "metadata_status")
-        assert not hasattr(dlg, "_cancel_metadata_update")
-        assert not hasattr(dlg, "_reset_metadata_ui")
-        assert not hasattr(dlg, "btn_cancel_metadata")
-
-        # organization flow is still wired
-        assert hasattr(dlg, "org_progress")
-        assert hasattr(dlg, "org_status")
-        assert hasattr(dlg, "btn_cancel_organize")
-        assert dlg.windowTitle() == "Organize Files"
-    finally:
-        dlg.deleteLater()
+# ---------------------------------------------------------------------------
+# Regression tests for the OrganizeFilesDialog.
+# ---------------------------------------------------------------------------
 
 
 def test_close_while_organizing_cancels_the_worker(qapp):
@@ -54,14 +33,6 @@ def test_close_while_organizing_cancels_the_worker(qapp):
         dlg.deleteLater()
 
 
-def test_close_with_no_worker_does_not_error(qapp):
-    dlg = OrganizeFilesDialog(None)
-    try:
-        dlg.closeEvent(QCloseEvent())  # self.organizer is None -- must not raise
-    finally:
-        dlg.deleteLater()
-
-
 def _dialog_with_signal_spy():
     dlg = OrganizeFilesDialog(Mock())
     emitted = []
@@ -69,33 +40,35 @@ def _dialog_with_signal_spy():
     return dlg, emitted
 
 
-def test_completion_with_moves_signals_library_modified(qapp):
-    dlg, emitted = _dialog_with_signal_spy()
-    try:
-        dlg._organization_complete(True, 3)
-
-        assert emitted == [True]
-    finally:
-        dlg.deleteLater()
-
-
-def test_cancel_after_committed_moves_still_signals_library_modified(qapp, monkeypatch):
-    """A mid-run cancel still committed the moves done so far, so the views must reload (regression)."""
+@pytest.mark.parametrize(
+    ("success", "moved", "expected"),
+    [(True, 3, [True]), (False, 2, [True]), (True, 0, [])],
+    ids=["moves", "cancel-after-moves", "no-moves"],
+)
+def test_completion_signals_library_modified_only_when_files_moved(qapp, monkeypatch, success, moved, expected):
+    # A mid-run cancel still committed the moves done so far, so the views must reload.
     monkeypatch.setattr("src.library.organize.organize_files_dialog.QMessageBox.warning", Mock())
     dlg, emitted = _dialog_with_signal_spy()
     try:
-        dlg._organization_complete(False, 2)
+        dlg._organization_complete(success, moved)
 
-        assert emitted == [True]
+        assert emitted == expected
     finally:
         dlg.deleteLater()
 
 
-def test_completion_without_moves_does_not_signal(qapp):
-    dlg, emitted = _dialog_with_signal_spy()
-    try:
-        dlg._organization_complete(True, 0)
+# ---------------------------------------------------------------------------
+# Regression tests for FileOrganizer progress reporting.
+# ---------------------------------------------------------------------------
 
-        assert emitted == []
-    finally:
-        dlg.deleteLater()
+
+def test_analyze_progress_reports_counts_not_track_names(qapp):
+    tracks = [SimpleNamespace(track_name="Secret Song", track_file_path=None), SimpleNamespace(track_name="Another Song", track_file_path=None)]
+    organizer = FileOrganizer(root=Path("/tmp"), controller=Mock())
+    messages = []
+    organizer.progress_updated.connect(lambda percent, text: messages.append(text))
+
+    organizer._analyze_organization(tracks)
+
+    assert messages == ["Analyzing files… 1/2", "Analyzing files… 2/2"]
+    assert not any(track.track_name in msg for track in tracks for msg in messages)

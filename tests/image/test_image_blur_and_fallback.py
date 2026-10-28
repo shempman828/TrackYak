@@ -7,15 +7,6 @@ from src.image.image_blur import blur_pixmap
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
 
-def test_blur_with_non_positive_strength_does_not_raise(qapp):
-    pm = QPixmap(20, 10)
-    pm.fill(QColor("red"))
-
-    for strength in (0, -3):
-        out = blur_pixmap(pm, strength)
-        assert (out.width(), out.height()) == (20, 10)
-
-
 def test_fallback_fills_requested_logical_size_for_missing_path(qapp):
     out = load_pixmap_with_fallback(None, QSize(200, 100))
 

@@ -71,45 +71,23 @@ def test_persist_rename_renaming_replaces_old_name(tmp_path):
     assert data["0"] == {"Cool Jazz": [1, 2, 3]}
 
 
-def test_migrate_legacy_anchor_names_converts_matching_anchors(tmp_path):
-    path = tmp_path / "community_identity.json"
-    legacy = {"3": "Bebop"}  # anchor artist id 3, as stored in config.ini (string keys)
-    community_levels = [{1: 0, 2: 0, 3: 0, 4: 1, 5: 1}]
-
-    community_identity.migrate_legacy_anchor_names(legacy, community_levels, path=path)
-
-    data = json.loads(path.read_text())
-    assert data["0"] == {"Bebop": [1, 2, 3]}
-
-
-def test_migrate_legacy_anchor_names_skips_missing_anchor(tmp_path):
-    path = tmp_path / "community_identity.json"
-    legacy = {"999": "Ghost Cluster"}  # anchor no longer present in the graph
-    community_levels = [{1: 0, 2: 0}]
-
-    community_identity.migrate_legacy_anchor_names(legacy, community_levels, path=path)
-
-    data = json.loads(path.read_text()) if path.exists() else {}
-    assert data.get("0", {}) == {}
-
-
-def test_migrate_legacy_anchor_names_empty_dict_writes_nothing(tmp_path):
+def test_migrate_legacy_anchor_names(tmp_path):
     path = tmp_path / "community_identity.json"
     community_identity.migrate_legacy_anchor_names({}, [{1: 0}], path=path)
     assert not path.exists()
+
+    # anchor artist ids are string keys, as stored in config.ini; 999 is no longer in the graph
+    community_identity.migrate_legacy_anchor_names({"3": "Bebop", "999": "Ghost Cluster"}, [{1: 0, 2: 0, 3: 0, 4: 1, 5: 1}], path=path)
+
+    assert json.loads(path.read_text())["0"] == {"Bebop": [1, 2, 3]}
 
 
 def test_load_ignores_malformed_structure(tmp_path):
     path = tmp_path / "community_identity.json"
     path.write_text(json.dumps({"not-a-level": {"X": [1]}, "1": ["wrong shape"], "2": {"Jazz": [1, 2]}}))
-
     assert community_identity._load(path) == {2: {"Jazz": [1, 2]}}
 
-
-def test_load_ignores_non_dict_root(tmp_path):
-    path = tmp_path / "community_identity.json"
     path.write_text(json.dumps(["a", "b"]))
-
     assert community_identity._load(path) == {}
 
 

@@ -4,7 +4,7 @@ GenreView.load_genres() runs GenreLoaderWorker on a real background QThread
 (see docs/specs/genre_sort_by_count.md) so opening the genre tab never
 blocks the UI. For deterministic tests, every test in this package runs the
 worker's run() directly instead of starting a real OS thread -- the same
-technique tests/charts/test_chart_import_worker.py uses for CancellableWorker
+technique tests/charts/test_chart_import.py uses for CancellableWorker
 subclasses -- applied here via a class-level patch so `GenreView(controller)`
 can be used exactly as it was before this feature, with no event-loop
 plumbing needed in each test.

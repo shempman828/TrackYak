@@ -1,8 +1,4 @@
-"""Regression test for delete_role() comparing QMessageBox.question()'s
-return value against QDialog.Yes (which doesn't exist -- only
-QMessageBox.Yes does), raising AttributeError before the role could ever be
-deleted. See src/role/role_view.py delete_role().
-"""
+"""RoleView: tree, filters, actions, and the role detail tab."""
 
 import threading
 from unittest.mock import MagicMock, patch
@@ -23,9 +19,14 @@ from src.db.db_tables.associations import AlbumRoleAssociation, TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
+from src.role.role_detail_tab import RoleDetailTab
 from src.role.role_loader_worker import RoleLoaderWorker
 from src.role.role_tree_builder import RoleTreeBuilder
 from src.role.role_view import RoleView
+
+# ---------------------------------------------------------------------------
+# Regression test for delete_role() comparing QMessageBox.question()'s
+# ---------------------------------------------------------------------------
 
 
 # ---- test_role_view_delete.py ------------------------------------------------
@@ -606,15 +607,6 @@ def test_role_loader_worker_releases_thread_local_session(qapp, tmp_path, monkey
     engine.dispose()
 
 
-# ---- test_role_view_change_parent.py ----------------------------------------
-# "Change Parent" context-menu submenu: lets the user re-parent a role
-# without drag-and-drop, built on the same shared populate_entity_submenu
-# used by the player dock's cascading "Add to Playlist" / "Add to Mood"
-# submenus. The clicked role and its own descendants must never appear as
-# choices, since picking either would create a cycle in the hierarchy.
-# See src/role/role_view.py show_context_menu / _populate_change_parent_submenu.
-
-
 def _leaf_texts(menu):
     """Non-separator action texts, in order, for a real QMenu."""
     return [a.text() for a in menu.actions() if not a.isSeparator()]
@@ -873,3 +865,35 @@ def test_create_new_child_role_sqlalchemy_error_shows_critical(session, qapp, co
         view.create_new_child_role(guitar.role_id)  # must not raise
 
     mock_critical.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Regression test for view_artist_tracks() silently doing nothing when an
+# ---------------------------------------------------------------------------
+
+
+class _StubGet:
+    """No albums/tracks/artists for any query -- exercises the empty path."""
+
+    def get_all_entities(self, *args, **kwargs):
+        return []
+
+    def get_entity_object(self, *args, **kwargs):
+        return None
+
+
+class _Controller_dt:
+    def __init__(self):
+        self.get = _StubGet()
+
+
+def test_view_artist_tracks_with_no_tracks_shows_status_message(qapp):
+    controller = _Controller_dt()
+    tab = RoleDetailTab(controller)
+    tab.role_id = 1
+
+    with patch("src.role.role_detail_tab.show_status_message") as mock_status:
+        tab.view_artist_tracks(artist_id=1)
+
+    mock_status.assert_called_once()
+    assert "No tracks found" in mock_status.call_args.args[1]

@@ -4,55 +4,26 @@ Confirms no gazetteer/new-Place-row behavior is involved -- this module
 only ever matches against names it's explicitly given.
 """
 
+import pytest
+
 from src.lyrics.autotag.place_matching import detect_known_places
 
 
-# AC7 -------------------------------------------------------------------------
-def test_matches_a_known_place_name():
-    lyrics = "I left my heart in Paris one cold December night"
-    assert detect_known_places(lyrics, ["Paris", "Tokyo"]) == ["Paris"]
-
-
-# AC8 -------------------------------------------------------------------------
-def test_place_not_in_known_list_never_matches():
-    lyrics = "I left my heart in Jamaica under the sun"
-    # "Jamaica" is not in the known list -- must not be invented/matched.
-    assert detect_known_places(lyrics, ["Paris", "Tokyo"]) == []
-
-
-def test_whole_word_case_insensitive_match():
-    lyrics = "we flew into TOKYO last night and the city was alive"
-    assert detect_known_places(lyrics, ["Tokyo"]) == ["Tokyo"]
-
-
-def test_substring_does_not_false_positive():
-    lyrics = "the London Bridge is falling, or so the song goes"
-    # "Ondon" as a made-up place name must not match inside "London".
-    assert detect_known_places(lyrics, ["Ondon"]) == []
-
-
-def test_empty_lyrics_matches_nothing():
-    assert detect_known_places("", ["Paris"]) == []
-    assert detect_known_places(None, ["Paris"]) == []
-
-
-def test_no_known_places_matches_nothing():
-    assert detect_known_places("Paris Tokyo London", []) == []
-
-
-def test_name_ending_in_punctuation_matches():
-    lyrics = "we drove all night to Washington, D.C. and back"
-    assert detect_known_places(lyrics, ["Washington, D.C."]) == ["Washington, D.C."]
-
-
-def test_name_ending_in_punctuation_still_needs_a_word_boundary():
-    assert detect_known_places("St. Louisville is far", ["St. Louis"]) == []
-
-
-def test_blank_place_names_never_match():
-    assert detect_known_places("any lyrics at all", ["", "   "]) == []
-
-
-def test_duplicate_place_names_are_reported_once_in_order():
-    lyrics = "from Tokyo to Paris and Tokyo again"
-    assert detect_known_places(lyrics, ["Tokyo", "Paris", "Tokyo"]) == ["Tokyo", "Paris"]
+@pytest.mark.parametrize(
+    ("lyrics", "known", "expected"),
+    [
+        ("I left my heart in Paris one cold December night", ["Paris", "Tokyo"], ["Paris"]),
+        ("I left my heart in Jamaica under the sun", ["Paris", "Tokyo"], []),  # never invents a place
+        ("we flew into TOKYO last night and the city was alive", ["Tokyo"], ["Tokyo"]),
+        ("the London Bridge is falling, or so the song goes", ["Ondon"], []),  # no substring match
+        ("", ["Paris"], []),
+        (None, ["Paris"], []),
+        ("Paris Tokyo London", [], []),
+        ("we drove all night to Washington, D.C. and back", ["Washington, D.C."], ["Washington, D.C."]),
+        ("St. Louisville is far", ["St. Louis"], []),
+        ("any lyrics at all", ["", "   "], []),
+        ("from Tokyo to Paris and Tokyo again", ["Tokyo", "Paris", "Tokyo"], ["Tokyo", "Paris"]),
+    ],
+)
+def test_detect_known_places(lyrics, known, expected):
+    assert detect_known_places(lyrics, known) == expected

@@ -1,8 +1,5 @@
-"""
-Tests for ChartPlaylistBuilder (src/charts/chart_playlist_builder.py) against
-a scratch in-memory SQLite session -- never music_library.db, never a real
-MusicController. Maps 1:1 to docs/specs/chart_playlists.md's acceptance
-criteria (numbers noted per test).
+"""Chart playlist builder (root/decade/year tree, year gate, incremental
+reruns, stale cleanup) and its worker signals.
 """
 
 import datetime
@@ -11,7 +8,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_playlist_builder import ChartPlaylistBuilder
+from src.charts.chart_playlist_builder import ChartPlaylistBuilder, ChartPlaylistStats
+from src.charts.workers.chart_playlist_worker import ChartPlaylistWorker
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
@@ -21,6 +19,10 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.track import Track
+
+# ---------------------------------------------------------------------------
+# Tests for ChartPlaylistBuilder (src/charts/chart_playlist_builder.py) against
+# ---------------------------------------------------------------------------
 
 
 class StubController:
@@ -107,11 +109,6 @@ def _track_ids_of(session, playlist_id):
     return {r.track_id for r in rows}
 
 
-# ---------------------------------------------------------------------------
-# AC1: tree creation (root/decade/year) with correct per-year contents
-# ---------------------------------------------------------------------------
-
-
 def test_creates_root_decade_year_tree_with_correct_contents(session, controller):
     chart = _make_hot100(session)
     t65 = _make_track(session, "1965 Song", 1965)
@@ -143,11 +140,6 @@ def test_creates_root_decade_year_tree_with_correct_contents(session, controller
     assert _track_ids_of(session, y66.playlist_id) == {t66.track_id}
 
 
-# ---------------------------------------------------------------------------
-# AC2: a track charting multiple weeks in the same year appears once
-# ---------------------------------------------------------------------------
-
-
 def test_multi_week_track_deduped_within_year(session, controller):
     chart = _make_hot100(session)
     track = _make_track(session, "Recurring Hit", 1965)
@@ -164,11 +156,6 @@ def test_multi_week_track_deduped_within_year(session, controller):
 
     year = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1965")
     assert _track_ids_of(session, year.playlist_id) == {track.track_id}
-
-
-# ---------------------------------------------------------------------------
-# AC3 / AC4: decade = union of its years; root = union of its decades
-# ---------------------------------------------------------------------------
 
 
 def test_decade_and_root_materialize_union_of_children(session, controller):
@@ -200,11 +187,6 @@ def test_decade_and_root_materialize_union_of_children(session, controller):
     }
 
 
-# ---------------------------------------------------------------------------
-# AC5: Billboard 200 (Album-matched) entries expand to the album's tracks
-# ---------------------------------------------------------------------------
-
-
 def test_album_matched_entry_expands_to_its_tracks(session, controller):
     chart = _make_bb200(session)
     album = Album(album_name="Greatest Hits", release_year=1967)
@@ -226,11 +208,6 @@ def test_album_matched_entry_expands_to_its_tracks(session, controller):
     assert _track_ids_of(session, year.playlist_id) == {t1.track_id, t2.track_id}
 
 
-# ---------------------------------------------------------------------------
-# AC6: unmatched entries contribute nothing
-# ---------------------------------------------------------------------------
-
-
 def test_unmatched_entries_are_skipped(session, controller):
     chart = _make_hot100(session)
     session.add(_entry(chart, datetime.date(1965, 6, 1), 1))  # no entity_id/type
@@ -249,14 +226,6 @@ def test_unmatched_entries_are_skipped(session, controller):
         .count()
         == 0
     )
-
-
-# ---------------------------------------------------------------------------
-# Real-data regression: ChartEntry.entity_id/entity_type is a manual
-# polymorphic link, not a real FK -- a matched track can later be deleted
-# from the library, leaving a stale entity_id. Found via the live smoke
-# test against a scratch copy of the real DB (392MB / ~974K chart_entries).
-# ---------------------------------------------------------------------------
 
 
 def test_stale_track_match_does_not_poison_the_whole_sync(session, controller):
@@ -282,11 +251,6 @@ def test_stale_track_match_does_not_poison_the_whole_sync(session, controller):
     root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
     assert _track_ids_of(session, year.playlist_id) == {live_track.track_id}
     assert _track_ids_of(session, root.playlist_id) == {live_track.track_id}
-
-
-# ---------------------------------------------------------------------------
-# AC7: re-running with no new data is a fully idempotent no-op
-# ---------------------------------------------------------------------------
 
 
 def test_rerun_with_no_new_data_is_idempotent(session, controller):
@@ -315,11 +279,6 @@ def test_rerun_with_no_new_data_is_idempotent(session, controller):
     assert stats.tracks_removed == 0
 
 
-# ---------------------------------------------------------------------------
-# AC8: every Chart row is always processed, unconditionally
-# ---------------------------------------------------------------------------
-
-
 def test_every_chart_row_processed_even_with_no_entries(session, controller):
     _make_hot100(session)
     _make_bb200(session)  # no ChartEntry rows for this one at all
@@ -333,11 +292,6 @@ def test_every_chart_row_processed_even_with_no_entries(session, controller):
     assert hot100_root.playlist_name == "Billboard Hot 100"
     assert bb200_root.playlist_name == "Billboard 200"
     assert _track_ids_of(session, bb200_root.playlist_id) == set()
-
-
-# ---------------------------------------------------------------------------
-# AC9: a subsequent run with newly-matched data only touches affected nodes
-# ---------------------------------------------------------------------------
 
 
 def test_incremental_rerun_only_affects_changed_year(session, controller):
@@ -369,12 +323,6 @@ def test_incremental_rerun_only_affects_changed_year(session, controller):
     y71_after = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1971")
     assert _track_ids_of(session, y65.playlist_id) == {t65.track_id, t65b.track_id}
     assert _track_ids_of(session, y71_after.playlist_id) == y71_tracks_before
-
-
-# ---------------------------------------------------------------------------
-# AC10: unmarked, user-created playlists nested under a generated node
-# survive regeneration untouched
-# ---------------------------------------------------------------------------
 
 
 def test_user_playlist_under_generated_root_is_untouched(session, controller):
@@ -412,11 +360,6 @@ def test_user_playlist_under_generated_root_is_untouched(session, controller):
     assert _track_ids_of(session, user_playlist_id) == {user_track.track_id}
 
 
-# ---------------------------------------------------------------------------
-# AC11: renaming a generated playlist doesn't cause duplicate creation
-# ---------------------------------------------------------------------------
-
-
 def test_renamed_generated_playlist_is_found_by_marker_not_duplicated(
     session, controller
 ):
@@ -439,14 +382,6 @@ def test_renamed_generated_playlist_is_found_by_marker_not_duplicated(
     )
     assert len(matches) == 1
     assert matches[0].playlist_name == "My Renamed Hot 100"
-
-
-# ---------------------------------------------------------------------------
-# Year-proximity gate: a matched track only belongs in a chart *year*
-# playlist when its own release/recorded year is within _YEAR_TOLERANCE of
-# that year. Catalog re-entries and hits-comps ("Let It Be" charting again
-# in 2010) link to a recent chart week but are decades-old recordings.
-# ---------------------------------------------------------------------------
 
 
 def test_track_charting_decades_after_release_is_excluded(session, controller):
@@ -535,14 +470,6 @@ def test_album_entry_year_gate_uses_album_release_year(session, controller):
 
     root = _playlist_by_marker(session, "__chart_playlist__:root:billboard-200")
     assert _track_ids_of(session, root.playlist_id) == set()
-
-
-# ---------------------------------------------------------------------------
-# Match-cleared cleanup: a track added to a year playlist by a match must be
-# removed from that year (and its decade / chart root) on the next run once
-# the match is cleared -- including when clearing it drops the year to zero
-# matched tracks, the case _build_chart_tree's build loop never revisits.
-# ---------------------------------------------------------------------------
 
 
 def _clear_match(session, entry):
@@ -686,3 +613,104 @@ def test_stale_year_with_user_playlist_child_is_emptied_but_kept(session, contro
     assert _track_ids_of(session, kept.playlist_id) == set()
     assert session.get(Playlist, mine_id) is not None
     assert _track_ids_of(session, mine_id) == {my_track.track_id}
+
+
+# ---------------------------------------------------------------------------
+# Tests for ChartPlaylistWorker (src/charts/workers/chart_playlist_worker.py) against
+# ---------------------------------------------------------------------------
+
+
+class StubControllerWorker:
+    def __init__(self, session_worker):
+        self.get = GetFromDB(session_worker)
+        self.add = AddToDB(session_worker)
+        self.update = UpdateDB(session_worker)
+
+
+@pytest.fixture
+def session_worker():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session_worker = Session()
+    yield session_worker
+    session_worker.close()
+
+
+@pytest.fixture
+def controller_worker(session_worker):
+    return StubControllerWorker(session_worker)
+
+
+def _seed_one_matched_entry(session_worker):
+    chart = Chart(
+        chart_key="hot-100",
+        chart_name="Billboard Hot 100",
+        source_url="https://example.invalid/hot-100.csv",
+        matched_entity_type="Track",
+        last_synced_week=datetime.date(2023, 12, 30),
+    )
+    track = Track(track_name="Song", recorded_year=1965)
+    session_worker.add_all([chart, track])
+    session_worker.commit()
+    session_worker.add(
+        ChartEntry(
+            chart_id=chart.chart_id,
+            chart_week=datetime.date(1965, 6, 1),
+            position=1,
+            raw_title="Song",
+            raw_performer="Someone",
+            entity_type="Track",
+            entity_id=track.track_id,
+            match_score=1.0,
+        )
+    )
+    session_worker.commit()
+
+
+def test_finished_signal_emits_stats(session_worker, controller_worker):
+    _seed_one_matched_entry(session_worker)
+
+    worker = ChartPlaylistWorker(controller_worker)
+    results = []
+    errors = []
+    worker.finished.connect(results.append)
+    worker.error.connect(errors.append)
+
+    worker.run()
+
+    assert errors == []
+    assert len(results) == 1
+    stats = results[0]
+    assert isinstance(stats, ChartPlaylistStats)
+    assert stats.playlists_created > 0
+    assert stats.tracks_added > 0
+
+
+def test_progress_signal_emits_at_least_once(session_worker, controller_worker):
+    _seed_one_matched_entry(session_worker)
+
+    worker = ChartPlaylistWorker(controller_worker)
+    progress_calls = []
+    worker.progress.connect(lambda done, total: progress_calls.append((done, total)))
+
+    worker.run()
+
+    assert progress_calls
+    last_done, last_total = progress_calls[-1]
+    assert last_done == last_total
+
+
+def test_run_releases_db_session_without_error(session_worker, controller_worker, monkeypatch):
+    """AC14: the worker must release its pooled DB session_worker on completion.
+    Patch Session.remove so we can assert it was actually called, without
+    the real music_library.db engine being touched."""
+    calls = []
+    monkeypatch.setattr(
+        "src.db.db_engine.Session.remove", lambda: calls.append(True)
+    )
+    _seed_one_matched_entry(session_worker)
+
+    ChartPlaylistWorker(controller_worker).run()
+
+    assert calls == [True]

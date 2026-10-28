@@ -11,6 +11,7 @@ both properties so nobody shrinks the charts back.
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QSizePolicy
+import pytest
 
 from src.statistics.stats.helpers import DistributionStats
 from src.statistics.widgets.bar_distribution_chart import BarDistributionChart
@@ -32,49 +33,19 @@ def _surface_differs_at(widget, x, y, height=420):
     return QColor(image.pixel(x, y)) != surface
 
 
-def test_bar_chart_minimum_height_is_readable(qapp):
-    chart = BarDistributionChart()
+_HISTOGRAM_DATA = DistributionStats(buckets=[(0.0, 1.0, 10), (1.0, 2.0, 4), (2.0, 3.0, 1)], n=15, minimum=0.0, maximum=3.0, mean=1.0, median=1.0, stdev=0.5)
+
+
+@pytest.mark.parametrize(("chart_cls", "data"), [(BarDistributionChart, {"A": 10, "B": 3, "C": 1}), (HistogramChart, _HISTOGRAM_DATA)], ids=["bar", "histogram"])
+def test_distribution_chart_is_readable_and_bars_scale_to_height(qapp, chart_cls, data):
+    chart = chart_cls()
     assert chart.minimumHeight() >= _READABLE_MIN_HEIGHT
     assert chart.sizeHint().height() >= _READABLE_MIN_HEIGHT
-
-
-def test_bar_chart_vertical_policy_is_not_fixed(qapp):
-    chart = BarDistributionChart()
     assert chart.sizePolicy().verticalPolicy() != QSizePolicy.Policy.Fixed
 
-
-def test_bar_chart_bars_scale_to_widget_height(qapp):
-    chart = BarDistributionChart()
-    chart.set_data({"A": 10, "B": 3, "C": 1})
+    chart.set_data(data)
     # y=320 is far below the old fixed 96px bar baseline; the tallest bar
     # must extend there now that the bar area tracks widget height.
-    assert _surface_differs_at(chart, x=40, y=320)
-
-
-def test_histogram_minimum_height_is_readable(qapp):
-    chart = HistogramChart()
-    assert chart.minimumHeight() >= _READABLE_MIN_HEIGHT
-    assert chart.sizeHint().height() >= _READABLE_MIN_HEIGHT
-
-
-def test_histogram_vertical_policy_is_not_fixed(qapp):
-    chart = HistogramChart()
-    assert chart.sizePolicy().verticalPolicy() != QSizePolicy.Policy.Fixed
-
-
-def test_histogram_bars_scale_to_widget_height(qapp):
-    chart = HistogramChart()
-    chart.set_data(
-        DistributionStats(
-            buckets=[(0.0, 1.0, 10), (1.0, 2.0, 4), (2.0, 3.0, 1)],
-            n=15,
-            minimum=0.0,
-            maximum=3.0,
-            mean=1.0,
-            median=1.0,
-            stdev=0.5,
-        )
-    )
     assert _surface_differs_at(chart, x=40, y=320)
 
 

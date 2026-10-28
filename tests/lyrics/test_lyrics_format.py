@@ -7,6 +7,7 @@ Storing that dict as ``[00.00] line`` baked fake timing into the field.
 """
 
 from lyriq import Lyrics
+import pytest
 
 from src.lyrics.lyrics_format import format_lyrics_for_storage
 
@@ -31,43 +32,19 @@ def test_real_synced_result_is_stored_verbatim_as_lrc():
     assert format_lyrics_for_storage(obj) == synced
 
 
-def test_plain_string_passthrough():
-    assert format_lyrics_for_storage("already plain\ntext") == "already plain\ntext"
-
-
-def test_bare_dict_with_fabricated_keys_drops_the_placeholders():
-    fabricated = {f"{i:02d}.00": f"line {i}" for i in range(5)}
-
-    out = format_lyrics_for_storage(fabricated)
-
-    assert out == "line 0\nline 1\nline 2\nline 3\nline 4"
-
-
-def test_bare_dict_with_real_timestamps_is_rendered_as_lrc():
-    real = {"00:08.33": "one", "00:14.01": "two", "00:24.39": "three"}
-
-    out = format_lyrics_for_storage(real)
-
-    assert out == "[00:08.33] one\n[00:14.01] two\n[00:24.39] three"
-
-
-def test_bare_dict_with_over_100_fabricated_lines_keeps_numeric_order():
-    fabricated = {(f"0{i}" if i < 10 else str(i)) + ".00": f"line {i}" for i in range(120)}
-
-    out = format_lyrics_for_storage(fabricated)
-
-    assert out.splitlines() == [f"line {i}" for i in range(120)]
-    assert "[" not in out
-
-
-def test_bare_dict_with_one_or_two_fabricated_lines_is_plain():
-    assert format_lyrics_for_storage({"00.00": "only"}) == "only"
-    assert format_lyrics_for_storage({"00.00": "a", "01.00": "b"}) == "a\nb"
-
-
-def test_bare_dict_with_gap_in_index_run_is_not_treated_as_fabricated():
-    assert format_lyrics_for_storage({"00.00": "a", "05.00": "b"}) == "[00.00] a\n[05.00] b"
-
-
-def test_none_is_stored_as_empty_string():
-    assert format_lyrics_for_storage(None) == ""
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, ""),
+        ("already plain\ntext", "already plain\ntext"),
+        ({f"{i:02d}.00": f"line {i}" for i in range(5)}, "line 0\nline 1\nline 2\nline 3\nline 4"),  # fabricated keys dropped
+        ({"00:08.33": "one", "00:14.01": "two", "00:24.39": "three"}, "[00:08.33] one\n[00:14.01] two\n[00:24.39] three"),
+        ({(f"0{i}" if i < 10 else str(i)) + ".00": f"line {i}" for i in range(120)}, "\n".join(f"line {i}" for i in range(120))),
+        ({"00.00": "only"}, "only"),
+        ({"00.00": "a", "01.00": "b"}, "a\nb"),
+        ({"00.00": "a", "05.00": "b"}, "[00.00] a\n[05.00] b"),  # gap in index run: not fabricated
+    ],
+    ids=["none", "plain-string", "fabricated-dict", "real-timestamps", "over-100-fabricated", "one-fabricated", "two-fabricated", "index-gap"],
+)
+def test_bare_values_are_formatted_for_storage(value, expected):
+    assert format_lyrics_for_storage(value) == expected

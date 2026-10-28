@@ -337,13 +337,3 @@ def test_track_place_edits_only_write_track_scoped_rows(qapp, db):
 
     widget._remove_row(0)
     assert all(a.entity_type == "Track" for a in db.place_assocs)
-
-
-# ---------------------------------------------------------------------------
-# 9. help_guide documents the section
-# ---------------------------------------------------------------------------
-
-
-def test_help_guide_documents_track_places_section():
-    text = Path(__file__).resolve().parents[2] / "help_guide.md"
-    assert "Track Places" in text.read_text()

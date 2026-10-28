@@ -1,21 +1,29 @@
-"""Regression tests for bug #247: an extra track on a MusicBrainz release
-that has no counterpart in the user's local album must be clearly flagged as
-an error, not blended in as an ordinary "no suggestion" unmatched row.
-
-Root cause: _match_tracks() iterates over MB's tracks and computes
-remaining_mb/remaining_local, but the review dialog's UI never distinguished
-"this MB track failed to auto-match but some local track might still cover
-it" from "there is no local track left at all -- this MB track simply isn't
-in the user's album." Both rendered as a plain "No suggestion" row.
+"""AlbumMusicBrainzReviewDialog: track matching, error flags, publisher
+section, manual matches and their credits, and label text.
 """
 
 from types import SimpleNamespace
 
 from PySide6.QtWidgets import QLabel
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from src.album.musicbrainz import album_musicbrainz_review_import
 from src.album.musicbrainz.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
-from src.album.musicbrainz.album_musicbrainz_review_import import _track_scalar_update
+from src.album.musicbrainz.album_musicbrainz_review_import import _ReviewAcceptWorker, _track_scalar_update
+from src.db.db_helpers.add import AddToDB
+from src.db.db_helpers.get import GetFromDB
+from src.db.db_helpers.update import UpdateDB
+from src.db.db_tables.album import Album
+from src.db.db_tables.associations import TrackArtistRole
+from src.db.db_tables.base import Base
+from src.db.db_tables.track import Track
 from src.musicbrainz.musicbrainz_release import MBFounderRelation, MBLabelInfo, MBReleaseDetail, MBReleaseTrack, MBTrackCredit
+
+# ---------------------------------------------------------------------------
+# Regression tests for bug #247: an extra track on a MusicBrainz release
+# ---------------------------------------------------------------------------
 
 
 def _local_track(track_id, track_number, title):
@@ -267,3 +275,63 @@ def test_manual_combo_hides_track_claimed_by_another_row_by_identity(qapp):
     assert ids(combos[2]) == [id(twin_b)]
     assert combos[0].currentData() is twin_a
     assert combos[1].currentData() is other
+
+
+# ---------------------------------------------------------------------------
+# Track credits must be written for manually matched tracks, not only for
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def controller():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    yield SimpleNamespace(get=GetFromDB(session), add=AddToDB(session), update=UpdateDB(session))
+    session.close()
+
+
+def _credited_mb_track(number, title, artist):
+    return MBReleaseTrack(
+        disc_number=1,
+        disc_title=None,
+        track_number=number,
+        side=None,
+        title=title,
+        recording_mbid=f"rec-{number}",
+        credits=[MBTrackCredit(artist_mbid=f"mbid-{artist}", artist_name=artist, role_name="Composer", canonical_name=artist)],
+    )
+
+
+def test_manual_match_gets_track_credits(qapp, controller, monkeypatch):
+    # New artists carry an MBID, which would otherwise start a network award lookup.
+    monkeypatch.setattr(album_musicbrainz_review_import, "import_awards_for_entity", lambda *a, **k: None)
+    session = controller.get.session
+    album = Album(album_name="Album")
+    session.add(album)
+    session.commit()
+    auto_local = Track(track_name="Auto", album_id=album.album_id, track_number=1)
+    manual_local = Track(track_name="Local Title", album_id=album.album_id, track_number=7)
+    session.add_all([auto_local, manual_local])
+    session.commit()
+
+    auto_mb = _credited_mb_track(1, "Auto", "Auto Composer")
+    manual_mb = _credited_mb_track(2, "MB Title", "Manual Composer")
+    detail = MBReleaseDetail(release_group_mbid=None, tracks=[auto_mb, manual_mb])
+
+    worker = _ReviewAcceptWorker(
+        controller,
+        album.album_id,
+        detail,
+        {id(auto_mb): auto_local.track_id},
+        {id(manual_mb): manual_local.track_id},
+        [],
+        [],
+        [],
+        [(id(mbt), credit) for mbt in detail.tracks for credit in mbt.credits],
+        [],
+    )
+    worker._run()
+
+    credited = {row.track_id for row in session.query(TrackArtistRole).all()}
+    assert credited == {auto_local.track_id, manual_local.track_id}

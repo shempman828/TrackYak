@@ -11,10 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
-from src.album.musicbrainz.album_musicbrainz_known_entities import (
-    known_place_mbids,
-    known_publisher_mbids,
-)
+from src.album.musicbrainz.album_musicbrainz_known_entities import known_place_mbids, known_publisher_mbids
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.place import Place
@@ -30,48 +27,27 @@ def controller():
     session.close()
 
 
-def test_known_publisher_mbids_returns_only_linked_publishers(controller):
+def test_known_mbids_return_only_linked_rows(controller):
+    assert known_publisher_mbids(controller) == frozenset()
+    assert known_place_mbids(controller) == frozenset()
+
     session = controller.get.session
     session.add_all(
         [
             Publisher(publisher_name="Atlantic Records", MBID="atlantic-mbid"),
             Publisher(publisher_name="Some Indie Label", MBID=None),
-        ]
-    )
-    session.commit()
-
-    assert known_publisher_mbids(controller) == frozenset({"atlantic-mbid"})
-
-
-def test_known_place_mbids_returns_only_linked_places(controller):
-    session = controller.get.session
-    session.add_all(
-        [
             Place(place_name="Church of the Holy Trinity", MBID="church-mbid"),
             Place(place_name="Unlinked Stub", MBID=None),
         ]
     )
     session.commit()
 
+    assert known_publisher_mbids(controller) == frozenset({"atlantic-mbid"})
     assert known_place_mbids(controller) == frozenset({"church-mbid"})
 
 
-def test_empty_database_returns_empty_sets(controller):
-    assert known_publisher_mbids(controller) == frozenset()
-    assert known_place_mbids(controller) == frozenset()
-
-
-def test_known_publisher_mbids_returns_empty_frozenset_on_db_error():
-    failing_controller = SimpleNamespace(
-        get=Mock(get_all_entities=Mock(side_effect=SQLAlchemyError("db down")))
-    )
+def test_known_mbids_are_empty_on_db_error():
+    failing_controller = SimpleNamespace(get=Mock(get_all_entities=Mock(side_effect=SQLAlchemyError("db down"))))
 
     assert known_publisher_mbids(failing_controller) == frozenset()
-
-
-def test_known_place_mbids_returns_empty_frozenset_on_db_error():
-    failing_controller = SimpleNamespace(
-        get=Mock(get_all_entities=Mock(side_effect=SQLAlchemyError("db down")))
-    )
-
     assert known_place_mbids(failing_controller) == frozenset()

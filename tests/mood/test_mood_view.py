@@ -1,11 +1,12 @@
-"""Regression test: MoodView must support deleting several selected moods at
-once. Previously the context menu only offered a delete action for a single
-selection, and MoodView.delete_selected_mood only removed self.current_mood_id,
-so a multi-selection could not be deleted from the moods view.
+"""Mood view and dialog: tree build, recursive track counts and loading,
+delete confirmations, and the Remove from This Mood action.
 """
 
-from PySide6.QtWidgets import QMessageBox
-from sqlalchemy import create_engine
+from types import SimpleNamespace
+
+from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
+import pytest
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from src.db.db_helpers.delete import DeleteDB
@@ -13,7 +14,15 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
+from src.mood import mood_tracks
+from src.mood.mood_dialog import MoodDialog
+from src.mood.mood_track_view_context import add_remove_from_mood_action
+from src.mood.mood_tracks import MoodTracksWindow
 from src.mood.mood_view import MoodView
+
+# ---------------------------------------------------------------------------
+# Regression test: MoodView must support deleting several selected moods at
+# ---------------------------------------------------------------------------
 
 
 # ---- test_mood_view_multi_delete.py ------------------------------------------
@@ -272,3 +281,192 @@ def test_delete_selected_moods_confirmation_defaults_to_no(qapp, monkeypatch):
     assert session.query(Mood).count() == 2
 
     session.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests for MoodTracksWindow.load_tracks (src/mood/mood_tracks.py): direct
+# ---------------------------------------------------------------------------
+
+
+class _Controller:
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+
+
+class _StubTrackView(QWidget):
+    def __init__(self, controller, tracks, title):
+        super().__init__()
+        self.loaded = None
+
+    def load_data(self, tracks):
+        self.loaded = tracks
+
+
+@pytest.fixture
+def setup(qapp, monkeypatch):
+    monkeypatch.setattr(mood_tracks, "BaseTrackView", _StubTrackView)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    # Match the app session: query_entities commits after each read.
+    session = sessionmaker(bind=engine, expire_on_commit=False)()
+
+    happy = Mood(mood_name="Happy")
+    session.add(happy)
+    session.flush()
+    joyful = Mood(mood_name="Joyful", parent_id=happy.mood_id)
+    session.add(joyful)
+    session.flush()
+    ecstatic = Mood(mood_name="Ecstatic", parent_id=joyful.mood_id)
+    sad = Mood(mood_name="Sad")
+    session.add_all([ecstatic, sad])
+    session.flush()
+
+    tracks = {name: Track(track_name=name) for name in ("own", "child", "grandchild", "shared", "unrelated")}
+    session.add_all(tracks.values())
+    session.flush()
+    for mood, name in [(happy, "own"), (joyful, "child"), (ecstatic, "grandchild"), (happy, "shared"), (ecstatic, "shared"), (sad, "unrelated")]:
+        session.add(MoodTrackAssociation(mood_id=mood.mood_id, track_id=tracks[name].track_id))
+    session.commit()
+
+    selects = []
+    event.listen(engine, "before_cursor_execute", lambda _conn, _cur, stmt, *_a: selects.append(stmt) if stmt.lstrip().upper().startswith("SELECT") else None)
+    return _Controller(session), happy, selects
+
+
+def _names(window):
+    return sorted(t.track_name for t in window.base_track_view.loaded)
+
+
+def test_direct_mode_loads_only_own_tracks_in_one_query(setup):
+    controller, happy, selects = setup
+
+    window = MoodTracksWindow(controller, happy)
+
+    assert _names(window) == ["own", "shared"]
+    assert len(selects) == 1
+    assert window.track_count_label.text() == "Found 2 tracks"
+
+
+def test_recursive_mode_includes_all_descendants_deduped_in_two_queries(setup):
+    controller, happy, selects = setup
+    window = MoodTracksWindow(controller, happy)
+    selects.clear()
+
+    window.toggle_recursive()
+
+    assert _names(window) == ["child", "grandchild", "own", "shared"]
+    assert len(selects) == 2  # one Mood query + one Track query
+    assert window.track_count_label.text() == "Found 4 tracks (including all sub-moods)"
+
+
+# ---------------------------------------------------------------------------
+# Tests for src/mood/mood_dialog.py.
+# ---------------------------------------------------------------------------
+
+
+class _Track:
+    def __init__(self, track_id):
+        self.track_id = track_id
+        self.track_name = f"Track {track_id}"
+        # BaseTrackView now renders the full TRACK_FIELDS column set (shared
+        # with TrackView) rather than a hardcoded few, so a stand-in track
+        # needs the attributes those columns read even when unset.
+        self.album_id = None
+        self.disc_id = None
+        self.artist_roles = []
+
+
+class _Association:
+    def __init__(self, track):
+        self.track = track
+
+
+class _StubGet:
+    def __init__(self, associations):
+        self._associations = associations
+
+    def get_all_entities(self, model_name, **kwargs):
+        if model_name == "MoodTrackAssociation":
+            return self._associations
+        return []
+
+
+class _StubController:
+    def __init__(self, associations=()):
+        self.get = _StubGet(list(associations))
+
+
+def _mood(mood_id=1, name="Happy"):
+    return SimpleNamespace(mood_id=mood_id, mood_name=name, mood_description="")
+
+
+def test_load_associated_tracks_shows_success_label_not_error(qapp):
+    """Regression: load_associated_tracks used to always overwrite the
+    success label with "Error loading tracks" because that line sat
+    outside the try/except block, so it ran even when loading succeeded.
+    """
+    tracks = [_Track(1), _Track(2)]
+    controller = _StubController([_Association(t) for t in tracks])
+
+    dlg = MoodDialog(mood_data=_mood(), controller=controller)
+    try:
+        assert dlg.track_view.info_label.text() == "Showing 2 tracks"
+    finally:
+        dlg.deleteLater()
+
+
+def test_remove_from_mood_action_added_once_across_reloads(qapp):
+    """Regression: enhance_track_view_context_menu runs on every tracks
+    reload (init plus each recursive-mode toggle); the action must not be
+    duplicated on the shared context menu."""
+    tracks = [_Track(1)]
+    controller = _StubController([_Association(t) for t in tracks])
+
+    dlg = MoodDialog(mood_data=_mood(), controller=controller)
+    try:
+        dlg.toggle_recursive_mode()
+        dlg.toggle_recursive_mode()
+
+        actions = [action.text() for action in dlg.track_view.context_menu.actions()]
+        assert actions.count("Remove from This Mood") == 1
+    finally:
+        dlg.deleteLater()
+
+
+def test_ok_button_disabled_until_name_entered(qapp):
+    controller = _StubController()
+    dlg = MoodDialog(controller=controller)
+    try:
+        ok_button = dlg._ok_button
+        assert ok_button.isEnabled() is False
+
+        dlg.mood_name_edit.setText("   ")
+        assert ok_button.isEnabled() is False
+
+        dlg.mood_name_edit.setText("Chill")
+        assert ok_button.isEnabled() is True
+
+        dlg.mood_name_edit.setText("")
+        assert ok_button.isEnabled() is False
+    finally:
+        dlg.deleteLater()
+
+
+# ---------------------------------------------------------------------------
+# Tests for src/mood/mood_track_view_context.py.
+# ---------------------------------------------------------------------------
+
+
+def test_add_remove_from_mood_action_is_added_once_and_wired(qapp):
+    # MoodDialog calls this on every tracks reload, so repeated calls must not add duplicates.
+    add_remove_from_mood_action(SimpleNamespace(), lambda: None)  # no context menu: no-op
+
+    menu = QMenu()
+    track_view = SimpleNamespace(context_menu=menu)
+    calls = []
+    for _ in range(3):
+        add_remove_from_mood_action(track_view, lambda: calls.append(1))
+
+    assert [action.text() for action in menu.actions()].count("Remove from This Mood") == 1
+    menu.actions()[-1].trigger()
+    assert calls == [1]

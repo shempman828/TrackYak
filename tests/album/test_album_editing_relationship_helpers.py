@@ -18,6 +18,7 @@ Motivating bugs:
 from types import SimpleNamespace
 
 from PySide6.QtWidgets import QMessageBox, QWidget
+import pytest
 
 from src.album.edit.album_editing_relationship_helpers import RelationshipHelpers
 
@@ -82,84 +83,37 @@ def _helper(controller, album=None):
     return helper, refreshed
 
 
-def test_add_publisher_none_from_add_entity_does_not_raise(qapp, monkeypatch):
-    controller = _Controller(
-        get=_Get(entity_objects={"Publisher": None}), add=_Add(returns={"Publisher": None})
-    )
+@pytest.mark.parametrize(
+    ("model", "method", "inputs"),
+    [
+        ("Publisher", "add_publisher", {"publisher_name": "New Publisher"}),
+        ("Place", "add_place", {"place_name": "New Place", "association_type": ""}),
+        ("Award", "add_album_award", {"award_name": "New Award"}),
+    ],
+)
+def test_failed_create_from_add_entity_does_not_raise_or_refresh(qapp, monkeypatch, model, method, inputs):
+    controller = _Controller(get=_Get(entity_objects={model: None}), add=_Add(returns={model: None}))
     helper, refreshed = _helper(controller)
-
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
-        staticmethod(lambda *a, **k: {"publisher_name": "New Publisher"}),
-    )
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs", staticmethod(lambda *a, **k: inputs))
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: [])
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
 
-    helper.add_publisher()  # must not raise AttributeError
+    getattr(helper, method)()
 
     assert refreshed == []
 
 
-def test_add_place_none_from_add_entity_does_not_raise(qapp, monkeypatch):
-    controller = _Controller(
-        get=_Get(entity_objects={"Place": None}), add=_Add(returns={"Place": None})
-    )
-    helper, refreshed = _helper(controller)
-
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
-        staticmethod(lambda *a, **k: {"place_name": "New Place", "association_type": ""}),
-    )
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: []
-    )
-    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
-
-    helper.add_place()  # must not raise AttributeError
-
-    assert refreshed == []
-
-
-def test_add_album_award_none_from_add_entity_does_not_raise(qapp, monkeypatch):
-    controller = _Controller(
-        get=_Get(entity_objects={"Award": None}), add=_Add(returns={"Award": None})
-    )
-    helper, refreshed = _helper(controller)
-
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs",
-        staticmethod(lambda *a, **k: {"award_name": "New Award"}),
-    )
-    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
-
-    helper.add_album_award()  # must not raise AttributeError
-
-    assert refreshed == []
-
-
-def test_move_artist_credit_surfaces_warning_when_update_fails(qapp, monkeypatch):
+@pytest.mark.parametrize(("update_ok", "expected_refresh"), [(True, [True]), (False, [])])
+def test_move_artist_credit_refreshes_only_when_update_succeeds(qapp, monkeypatch, update_ok, expected_refresh):
     ra1 = SimpleNamespace(association_id=1, role_id=10, sort_order=0)
     ra2 = SimpleNamespace(association_id=2, role_id=10, sort_order=1)
     album = SimpleNamespace(album_id=1, album_roles=[ra1, ra2], tracks=[])
-    controller = _Controller(update=_Update(ok=False))
-    helper, refreshed = _helper(controller, album=album)
-
+    helper, refreshed = _helper(_Controller(update=_Update(ok=update_ok)), album=album)
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
 
     helper.move_artist_credit(ra1, 1)
 
-    assert refreshed == []
-
-
-def test_move_artist_credit_succeeds_when_update_ok(qapp):
-    ra1 = SimpleNamespace(association_id=1, role_id=10, sort_order=0)
-    ra2 = SimpleNamespace(association_id=2, role_id=10, sort_order=1)
-    album = SimpleNamespace(album_id=1, album_roles=[ra1, ra2], tracks=[])
-    controller = _Controller(update=_Update(ok=True))
-    helper, refreshed = _helper(controller, album=album)
-
-    helper.move_artist_credit(ra1, 1)
-
-    assert refreshed == [True]
+    assert refreshed == expected_refresh
 
 
 def test_move_artist_credit_stale_role_assoc_does_not_raise(qapp):

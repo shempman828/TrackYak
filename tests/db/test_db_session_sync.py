@@ -1,4 +1,5 @@
-"""Regression tests for src/db/db_session_sync.py.
+"""Regression tests for src/db/db_session_sync.py and its Qt glue in
+src/common/main_session_sync.py.
 
 Bug: `Session` is a scoped_session, so a worker thread commits through its own
 session and `_commit()`'s `expire_all()` never reaches the main thread's one.
@@ -9,11 +10,18 @@ reconcile wrote to the old, missing paths ("not writable").
 
 import threading
 
+from PySide6.QtCore import QObject
 import pytest
 from sqlalchemy import Column, Integer, String, create_engine, select, text
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker
 
+from src.common import main_session_sync
 from src.db import db_session_sync
+
+# ---------------------------------------------------------------------------
+# Regression tests for src/db/db_session_sync.py.
+# ---------------------------------------------------------------------------
+
 
 _Base = declarative_base()
 
@@ -182,3 +190,27 @@ def test_expire_refuses_to_run_off_the_main_thread(registry):
     t.join()
 
     assert len(errors) == 1
+
+
+# ---------------------------------------------------------------------------
+# The Qt glue must run the main-session expire on the main thread, even when notified from a worker thread.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_notification_runs_expire_on_main_thread(qapp, monkeypatch):
+    monkeypatch.setattr(db_session_sync, "_notifier", None)
+    ran_on = []
+    monkeypatch.setattr(db_session_sync, "expire_main_session_if_stale", lambda: ran_on.append(threading.current_thread()))
+    owner = QObject()
+    try:
+        main_session_sync.install_main_session_sync(owner)
+
+        worker = threading.Thread(target=db_session_sync._notifier)
+        worker.start()
+        worker.join()
+
+        assert ran_on == []  # queued, not run on the worker
+        qapp.processEvents()
+        assert ran_on == [threading.main_thread()]
+    finally:
+        owner.deleteLater()

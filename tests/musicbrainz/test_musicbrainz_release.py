@@ -14,6 +14,8 @@ Covers:
 
 from unittest.mock import patch
 
+import pytest
+
 from src.musicbrainz import musicbrainz_credits as mcred, musicbrainz_release as mc
 
 
@@ -645,112 +647,42 @@ class TestFetchReleaseDetailWorkCredits:
 # And covers the split_and_merge_aliases.md change: a performer relation with
 # multiple independent attribute values (e.g. one person playing both viola
 # and violin) now yields one name per value instead of joining them into a
-# single "Viola & Violin" string -- see TestMultiValuePerformerRelationSplits.
+# single "Viola & Violin" string.
 def _rel(type_, attributes=None):
     return {"type": type_, "attribute-list": attributes or []}
 
 
-class TestPerformerRoleName:
-    def test_plain_instrument_no_qualifier(self):
-        assert mcred._relation_role_names(_rel("instrument", ["trumpet"])) == ["Trumpet"]
-
-    def test_qualifier_before_instrument_is_dropped(self):
-        # The real-world case: qualifier ("additional") sits at index 0,
-        # ahead of the actual instrument value. The qualifier is discarded
-        # entirely, not kept as a prefix.
-        rel = _rel("instrument", ["additional", "trumpet"])
-        assert mcred._relation_role_names(rel) == ["Trumpet"]
-
-    def test_guest_qualifier_is_dropped(self):
-        rel = _rel("instrument", ["guest", "guitar"])
-        assert mcred._relation_role_names(rel) == ["Guitar"]
-
-    def test_solo_qualifier_is_dropped(self):
-        rel = _rel("instrument", ["solo", "violin"])
-        assert mcred._relation_role_names(rel) == ["Violin"]
-
-    def test_qualifier_with_no_instrument_value_falls_back_to_type_name(self):
-        rel = _rel("instrument", ["additional"])
-        assert mcred._relation_role_names(rel) == ["Instrument"]
-
-    def test_vocal_relation_unaffected(self):
-        assert mcred._relation_role_names(_rel("vocal", ["lead vocals"])) == ["Lead Vocals"]
-
-    def test_no_attributes_falls_back_to_type_name(self):
-        assert mcred._relation_role_names(_rel("performing orchestra")) == ["Performing Orchestra"]
-
-
-class TestMultiValuePerformerRelationSplits:
-    """A single performer relation can carry more than one independent
-    attribute value (MB's own shape for "this person played two
-    instruments on this recording"). These used to be joined into one
-    "X & Y" role name; they're now reported as separate names so the
-    importer creates separate credits instead of one combined role that
-    then has to be split by hand."""
-
-    def test_multiple_instrument_values_yield_separate_names(self):
-        rel = _rel("instrument", ["piano", "organ"])
-        assert mcred._relation_role_names(rel) == ["Piano", "Organ"]
-
-    def test_qualifier_is_dropped_from_every_split_value(self):
-        rel = _rel("instrument", ["additional", "viola", "violin"])
-        assert mcred._relation_role_names(rel) == ["Viola", "Violin"]
+@pytest.mark.parametrize(
+    ("rel_type", "attributes", "expected"),
+    [
+        # performer relations: qualifiers ("additional", "guest", "solo") are dropped,
+        # and every independent value becomes its own name
+        ("instrument", ["trumpet"], ["Trumpet"]),
+        ("instrument", ["additional", "trumpet"], ["Trumpet"]),
+        ("instrument", ["guest", "guitar"], ["Guitar"]),
+        ("instrument", ["solo", "violin"], ["Violin"]),
+        ("instrument", ["additional"], ["Instrument"]),
+        ("vocal", ["lead vocals"], ["Lead Vocals"]),
+        ("performing orchestra", None, ["Performing Orchestra"]),
+        ("instrument", ["piano", "organ"], ["Piano", "Organ"]),
+        ("instrument", ["additional", "viola", "violin"], ["Viola", "Violin"]),
+        # production relations: the modifier prefixes one combined name
+        ("engineer", ["assistant"], ["Assistant Engineer"]),
+        ("producer", None, ["Producer"]),
+        ("sound", None, ["Sound Engineer"]),  # bug #326: not just "Sound"
+        ("sound", ["additional"], ["Additional Sound Engineer"]),
+        ("mix", None, ["Mixer"]),
+        ("mix", ["assistant"], ["Assistant Mixer"]),
+        ("recording", None, ["Recording Engineer"]),
+        ("recording", ["assistant"], ["Assistant Recording Engineer"]),
+    ],
+)
+def test_relation_role_names(rel_type, attributes, expected):
+    assert mcred._relation_role_names(_rel(rel_type, attributes)) == expected
 
 
-class TestProductionRoleNameUnaffected:
-    """Production relations combine type+modifier into one name, unlike
-    performer relations -- that's a real modifier relationship (the
-    attribute describes the type), not multiple independent values, so
-    these still return exactly one name."""
-
-    def test_modifier_still_prefixes_type(self):
-        assert mcred._relation_role_names(_rel("engineer", ["assistant"])) == ["Assistant Engineer"]
-
-    def test_sound_with_additional_modifier(self):
-        assert mcred._relation_role_names(_rel("sound", ["additional"])) == ["Additional Sound Engineer"]
-
-    def test_no_modifier_falls_back_to_type_name(self):
-        assert mcred._relation_role_names(_rel("producer")) == ["Producer"]
-
-    def test_sound_with_no_modifier_reports_sound_engineer(self):
-        # Bug #326: "sound" is the one production relation type whose own
-        # name ("sound") isn't the full credited role -- MB's link phrase is
-        # the compound "sound engineer", unlike "mastering"/"mix"/etc. which
-        # are single words. Naive rel_type.title() silently dropped
-        # "Engineer" from every plain sound-engineer credit.
-        assert mcred._relation_role_names(_rel("sound")) == ["Sound Engineer"]
-
-    def test_mix_with_no_modifier_reports_mixer(self):
-        # Same root cause as #326: MB's "mix" relation type credits as
-        # "Mixer", not "Mix" -- confirmed live on Nirvana's Nevermind, where
-        # Andy Wallace's mix relation has an empty attribute-list. Naive
-        # rel_type.title() produced "Mix", not a real credit noun.
-        assert mcred._relation_role_names(_rel("mix")) == ["Mixer"]
-
-    def test_mix_with_modifier_prefixes_mixer_not_mix(self):
-        assert mcred._relation_role_names(_rel("mix", ["assistant"])) == ["Assistant Mixer"]
-
-    def test_recording_with_no_modifier_reports_recording_engineer(self):
-        # "recording" was entirely missing from the credit-type whitelist
-        # (silently dropped, not mislabeled) until this was added alongside
-        # the sound/mix display-name fixes. Confirmed live on Nirvana's
-        # Nevermind ("Something in the Way" credits James Johnson, Jeff
-        # Sheehan, and Butch Vig via a plain "recording" relation).
-        assert mcred._relation_role_names(_rel("recording")) == ["Recording Engineer"]
-
-    def test_recording_with_modifier_prefixes_recording_engineer(self):
-        assert mcred._relation_role_names(_rel("recording", ["assistant"])) == ["Assistant Recording Engineer"]
-
-
-class TestCreditRelationTypesIncludesPreviouslyDropped:
-    def test_performing_orchestra_is_a_credit_type(self):
-        assert "performing orchestra" in mcred._CREDIT_RELATION_TYPES
-
-    def test_sound_is_a_credit_type(self):
-        assert "sound" in mcred._CREDIT_RELATION_TYPES
-
-    def test_recording_is_a_credit_type(self):
-        assert "recording" in mcred._CREDIT_RELATION_TYPES
+def test_previously_dropped_relation_types_are_credit_types():
+    assert {"performing orchestra", "sound", "recording"} <= set(mcred._CREDIT_RELATION_TYPES)
 
 
 class TestParseArtistCreditsIntegration:
@@ -788,21 +720,18 @@ class TestParseArtistCreditsIntegration:
 # "/"-joined; a release whose media carry no format is left None (not
 # guessed). Surfaced on MBReleaseDetail.media_format and reused by
 # search_canonical_releases' picker label.
-class TestMediaFormatStr:
-    def test_single_format_across_two_media(self):
-        media = [{"format": "CD"}, {"format": "CD"}]
-        assert mc._media_format_str(media) == "CD"
-
-    def test_mixed_formats_sorted_and_slash_joined(self):
-        media = [{"format": "DVD-Video"}, {"format": "CD"}]
-        assert mc._media_format_str(media) == "CD/DVD-Video"
-
-    def test_no_format_key_returns_none(self):
-        assert mc._media_format_str([{"title": "bonus disc"}, {}]) is None
-
-    def test_empty_or_none_list_returns_none(self):
-        assert mc._media_format_str([]) is None
-        assert mc._media_format_str(None) is None
+@pytest.mark.parametrize(
+    ("media", "expected"),
+    [
+        ([{"format": "CD"}, {"format": "CD"}], "CD"),
+        ([{"format": "DVD-Video"}, {"format": "CD"}], "CD/DVD-Video"),
+        ([{"title": "bonus disc"}, {}], None),
+        ([], None),
+        (None, None),
+    ],
+)
+def test_media_format_str(media, expected):
+    assert mc._media_format_str(media) == expected
 
 
 _MF_RELEASE_ID = "faada5d1-971b-499c-b902-5bab9e03bc1b"

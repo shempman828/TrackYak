@@ -9,7 +9,9 @@ should replace it rather than accumulate alongside it.
 """
 
 import pytest
+from sqlalchemy import text
 
+from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.split import SplitDB
 from src.db.db_tables.artist import Artist, ArtistSplitAlias
 from src.db.db_tables.genre import Genre, GenreSplitAlias
@@ -143,3 +145,23 @@ def test_deleting_split_alias_member_role_cascades(session):
     rows = session.query(RoleSplitAlias).filter_by(alias_name="Viola & Violin").all()
     assert len(rows) == 1
     assert rows[0].role_id == violin.role_id
+
+
+def test_resolve_split_alias_orders_targets_and_tells_no_rule_from_orphaned_rule(session):
+    viola = Role(role_name="Viola")
+    violin = Role(role_name="Violin")
+    session.add_all([viola, violin])
+    session.commit()
+    session.add_all([RoleSplitAlias(alias_name="Viola & Violin", role_id=violin.role_id, sort_order=1), RoleSplitAlias(alias_name="Viola & Violin", role_id=viola.role_id, sort_order=0)])
+    session.commit()
+    getter = GetFromDB(session)
+
+    assert [r.role_name for r in getter.resolve_split_alias("Role", "Viola & Violin")] == ["Viola", "Violin"]
+    assert getter.resolve_split_alias("Role", "Nonexistent Combined Role") is None
+
+    # Bypass the FK cascade to leave a rule whose targets are all gone: that must be [] not None.
+    session.execute(text("PRAGMA foreign_keys=OFF"))
+    session.execute(text("DELETE FROM roles"))
+    session.commit()
+    session.execute(text("PRAGMA foreign_keys=ON"))
+    assert getter.resolve_split_alias("Role", "Viola & Violin") == []

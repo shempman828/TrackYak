@@ -1,4 +1,6 @@
-"""Tests for PublisherTreeWidget: drop cycle check, inline rename, data cycles, and filtering."""
+"""Publisher tree and hierarchy: tree build, parent/child rules, and
+recursive album counts.
+"""
 
 from types import SimpleNamespace
 
@@ -8,10 +10,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.db.db_helpers.get import GetFromDB
+from src.db.db_tables.album import Album
+from src.db.db_tables.associations import AlbumPublisher
 from src.db.db_tables.base import Base
 from src.db.db_tables.publisher import Publisher
+from src.publisher.publisher_hierarchy import get_descendant_publisher_ids, get_publisher_albums
 import src.publisher.publisher_tree as publisher_tree_module
 from src.publisher.publisher_tree import MBID_LINKED, MBID_NOT_LINKED, PublisherTreeWidget, publisher_name
+
+# ---------------------------------------------------------------------------
+# Tests for PublisherTreeWidget: drop cycle check, inline rename, data cycles, and filtering.
+# ---------------------------------------------------------------------------
 
 
 class _RecordingUpdate:
@@ -143,3 +152,118 @@ def test_filter_items_uses_keys_and_returns_counts(session, monkeypatch, qapp):
         assert tree.filter_items("\U0001f517") == (0, 3)
     finally:
         tree.deleteLater()
+
+
+# ---------------------------------------------------------------------------
+# Tests for src/publisher/publisher_hierarchy.py.
+# ---------------------------------------------------------------------------
+
+
+class _ControllerHierarchy:
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+
+
+def _add_album(session, name, publisher_id, year=None, month=None, day=None):
+    album = Album(album_name=name, release_year=year, release_month=month, release_day=day)
+    session.add(album)
+    session.flush()
+    session.add(AlbumPublisher(album_id=album.album_id, publisher_id=publisher_id))
+    return album
+
+
+def test_get_publisher_albums_orders_chronologically_with_unknown_dates_last():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _ControllerHierarchy(session)
+
+    major = Publisher(publisher_name="Major Label")
+    imprint = Publisher(publisher_name="Imprint", parent=major)
+    session.add_all([major, imprint])
+    session.commit()
+
+    # Deliberately inserted out of chronological order, spanning parent + child.
+    _add_album(session, "No date", major.publisher_id)
+    _add_album(session, "1999-05-01", imprint.publisher_id, 1999, 5, 1)
+    _add_album(session, "1999-01-15", major.publisher_id, 1999, 1, 15)
+    _add_album(session, "1980", major.publisher_id, 1980)
+    _add_album(session, "2010-12-31", imprint.publisher_id, 2010, 12, 31)
+    session.commit()
+
+    albums = get_publisher_albums(controller, major.publisher_id)
+
+    assert [a.album_name for a in albums] == ["1980", "1999-01-15", "1999-05-01", "2010-12-31", "No date"]
+
+    session.close()
+
+
+def test_get_publisher_albums_lists_album_tagged_at_two_levels_once():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _ControllerHierarchy(session)
+
+    major = Publisher(publisher_name="Major Label")
+    imprint = Publisher(publisher_name="Imprint", parent=major)
+    session.add_all([major, imprint])
+    session.commit()
+    album = _add_album(session, "Shared", major.publisher_id)
+    session.add(AlbumPublisher(album_id=album.album_id, publisher_id=imprint.publisher_id))
+    session.commit()
+
+    assert [a.album_name for a in get_publisher_albums(controller, major.publisher_id)] == ["Shared"]
+    session.close()
+
+
+def test_get_descendant_publisher_ids_terminates_on_parent_cycle():
+    publishers = [SimpleNamespace(publisher_id=1, parent_id=2), SimpleNamespace(publisher_id=2, parent_id=1)]
+    controller = SimpleNamespace(get=SimpleNamespace(get_all_entities=lambda *a, **k: publishers))
+
+    assert sorted(get_descendant_publisher_ids(controller, 1)) == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Regression test: PublisherTreeWidget.calculate_recursive_album_counts must
+# ---------------------------------------------------------------------------
+
+
+class _ControllerCounts:
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+
+
+def _make_publisher(session, name, parent=None):
+    publisher = Publisher(publisher_name=name, parent=parent)
+    session.add(publisher)
+    session.commit()
+    return publisher
+
+
+def test_recursive_album_count_dedupes_album_tagged_at_multiple_levels(qapp):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _ControllerCounts(session)
+
+    major = _make_publisher(session, "Major Label")
+    imprint = _make_publisher(session, "Imprint", parent=major)
+
+    album = Album(album_name="Overlap album")
+    session.add(album)
+    session.flush()
+    # Tagged with both Major Label (parent) and Imprint (child) -- one
+    # physical album.
+    session.add(AlbumPublisher(album_id=album.album_id, publisher_id=major.publisher_id))
+    session.add(AlbumPublisher(album_id=album.album_id, publisher_id=imprint.publisher_id))
+    session.commit()
+
+    tree = PublisherTreeWidget(controller)
+    totals = tree.calculate_recursive_album_counts([major, imprint])
+
+    # Naive summation would give 2 (1 own + 1 from Imprint); the correct
+    # recursive count is 1 unique album.
+    assert totals[major.publisher_id] == 1
+    assert totals[imprint.publisher_id] == 1
+
+    session.close()

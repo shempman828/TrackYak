@@ -11,62 +11,34 @@ import ast
 from pathlib import Path
 
 from PySide6.QtWidgets import QLabel
+import pytest
 
 from src.foundation.display_settings import DisplaySettings, scale_qss_pixel_values
 
 
-# ---- test_display_settings__self_base.py -------------------------------------
-def test_scales_font_size_px():
-    assert scale_qss_pixel_values("font-size: 10px;", 1.5) == "font-size: 15px;"
-
-
-def test_scales_padding_and_margin():
-    qss = "padding: 8px;\nmargin-left: 4px;"
-    assert scale_qss_pixel_values(qss, 0.5) == "padding: 4px;\nmargin-left: 2px;"
-
-
-def test_scales_width_height_and_border_radius():
-    qss = "min-width: 20px;\nheight: 40px;\nborder-radius: 8px;"
-    expected = "min-width: 30px;\nheight: 60px;\nborder-radius: 12px;"
-    assert scale_qss_pixel_values(qss, 1.5) == expected
-
-
-def test_scales_every_value_in_multi_value_shorthand():
-    """Regression: padding/margin/border-radius shorthand can carry 2-4
-    space-separated px values (e.g. "padding: 2px 8px;") -- every value
-    must scale independently, not just the first.
-    """
-    assert scale_qss_pixel_values("padding: 2px 8px;", 2.0) == "padding: 4px 16px;"
-    assert scale_qss_pixel_values("border-radius: 8px 8px 0 0;", 1.5) == "border-radius: 12px 12px 0 0;"
-
-
-def test_scales_only_the_width_in_border_shorthand():
-    qss = "border-bottom: 2px solid rgba(133, 153, 234, 0.4);"
-    expected = "border-bottom: 3px solid rgba(133, 153, 234, 0.4);"
-    assert scale_qss_pixel_values(qss, 1.5) == expected
-
-
-def test_leaves_non_px_units_untouched():
-    qss = "font-size: 1.05em; padding: 8%; border-radius: 4pt;"
-    assert scale_qss_pixel_values(qss, 2.0) == qss
-
-
-def test_leaves_properties_outside_allow_list_untouched():
-    qss = "background-position: 10px 5px;"
-    assert scale_qss_pixel_values(qss, 2.0) == qss
-
-
-def test_scale_of_one_is_identity_modulo_formatting():
-    qss = "font-size: 12px;"
-    assert scale_qss_pixel_values(qss, 1.0) == "font-size: 12px;"
-
-
-def test_negative_margin_scales_correctly():
-    assert scale_qss_pixel_values("margin-top: -10px;", 0.5) == "margin-top: -5px;"
-
-
-def test_fractional_result_is_not_truncated():
-    assert scale_qss_pixel_values("font-size: 12px;", 1.1) == "font-size: 13.2px;"
+@pytest.mark.parametrize(
+    ("qss", "factor", "expected"),
+    [
+        ("font-size: 10px;", 1.5, "font-size: 15px;"),
+        ("padding: 8px;\nmargin-left: 4px;", 0.5, "padding: 4px;\nmargin-left: 2px;"),
+        ("min-width: 20px;\nheight: 40px;\nborder-radius: 8px;", 1.5, "min-width: 30px;\nheight: 60px;\nborder-radius: 12px;"),
+        ("padding: 2px 8px;", 2.0, "padding: 4px 16px;"),
+        ("border-radius: 8px 8px 0 0;", 1.5, "border-radius: 12px 12px 0 0;"),
+        ("border-bottom: 2px solid rgba(133, 153, 234, 0.4);", 1.5, "border-bottom: 3px solid rgba(133, 153, 234, 0.4);"),
+        ("margin-top: -10px;", 0.5, "margin-top: -5px;"),
+        ("font-size: 12px;", 1.1, "font-size: 13.2px;"),
+        ("font-size: 12px;", 1.0, "font-size: 12px;"),
+        # non-px units and properties outside the allow-list are untouched
+        ("font-size: 1.05em; padding: 8%; border-radius: 4pt;", 2.0, "font-size: 1.05em; padding: 8%; border-radius: 4pt;"),
+        ("background-position: 10px 5px;", 2.0, "background-position: 10px 5px;"),
+        # hairlines never scale below one px
+        ("border: 1px solid red;", 0.8, "border: 1px solid red;"),
+        ("margin-top: -1px;", 0.5, "margin-top: -1px;"),
+        ("padding: 0px;", 0.5, "padding: 0px;"),
+    ],
+)
+def test_scale_qss_pixel_values(qss, factor, expected):
+    assert scale_qss_pixel_values(qss, factor) == expected
 
 
 def test_ui_scale_change_reapplies_from_original_not_from_already_scaled(tmp_path, qapp):
@@ -181,13 +153,6 @@ def test_no_raw_setstylesheet_with_scalable_sizing_outside_display_settings():
         "src.foundation.display_settings.apply_scaled_style(widget, qss) "
         "instead:\n" + "\n".join(violations)
     )
-
-
-# ---- finalize audit: display robustness --------------------------------------
-def test_hairline_px_values_never_scale_below_one_px():
-    assert scale_qss_pixel_values("border: 1px solid red;", 0.8) == "border: 1px solid red;"
-    assert scale_qss_pixel_values("margin-top: -1px;", 0.5) == "margin-top: -1px;"
-    assert scale_qss_pixel_values("padding: 0px;", 0.5) == "padding: 0px;"
 
 
 def test_ui_scale_and_font_size_are_clamped(qapp):

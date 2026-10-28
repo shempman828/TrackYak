@@ -84,5 +84,5 @@ def test_numeric_criteria_fallback_is_numeric_not_string():
     host._sort_filtered()
     # No TypeError raised, and the two well-formed albums still land in
     # numeric order around the failed one.
-    names = [getattr(a, "album_name") for a in host.filtered_albums]
+    names = [a.album_name for a in host.filtered_albums]
     assert names.index("Low") < names.index("High")

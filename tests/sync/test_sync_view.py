@@ -1,12 +1,23 @@
-"""SyncView tests: Options page layout and persistence, selection toolbar, device linking, shutdown."""
+"""SyncView tests: Options page layout and persistence, selection toolbar,
+device linking, shutdown, the device card, and the activity panel.
+"""
 
 from unittest.mock import Mock
 
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QComboBox, QScrollArea, QWidget
 import pytest
 
+from src.sync.device_card import DeviceCard, format_file_size
+from src.sync.sync_activity_panel import SyncActivityPanel
 from src.sync.sync_profile import SyncProfile
 from src.sync.sync_view import SyncView
+
+# ---------------------------------------------------------------------------
+# SyncView tests: Options page layout and persistence, selection toolbar, device linking, shutdown.
+# ---------------------------------------------------------------------------
+
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -43,13 +54,6 @@ def test_short_viewport_scrolls_instead_of_crunching(qapp):
     assert tab.verticalScrollBar().maximum() > 0
 
     tab.hide()
-
-
-# ---------------------------------------------------------------------------
-# "Music folder on device" — a dropdown of common MTP locations plus a
-# free-text fallback, so setting the on-device destination is as easy as the
-# fallback folder's Browse button (previously a bare, hand-typed line edit).
-# ---------------------------------------------------------------------------
 
 
 def _view_with_settings_tab():
@@ -92,12 +96,6 @@ def test_on_music_path_changed_persists_combo_text():
     view.profile_store.save.reset_mock()
     view._on_music_path_changed()
     view.profile_store.save.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# "Convert lossless files to MP3" — the option is gated on ffmpeg being
-# present, exposes a bitrate picker, and round-trips through the profile.
-# ---------------------------------------------------------------------------
 
 
 def test_transcode_widgets_disabled_without_ffmpeg(monkeypatch):  # AC13
@@ -164,12 +162,6 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
     assert view.bitrate_combo.currentText() == "256"
     assert view.bitrate_combo.isEnabled() is True
     assert fired == []  # signals stayed blocked during the load
-
-
-# ---------------------------------------------------------------------------
-# Transcode cache size row: a "Max cache size" spinbox (global, persisted to
-# app_config) plus the existing "Clear MP3 cache (NN MB)" button.
-# ---------------------------------------------------------------------------
 
 
 def test_cache_max_spinbox_seeds_from_config_and_persists_on_change(monkeypatch):  # AC11
@@ -243,13 +235,6 @@ def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
     assert view._update_selected_items.call_count >= 2
 
 
-# ---------------------------------------------------------------------------
-# "Files on the destination" -- one 3-way switch (Keep / Remove untracked /
-# Wipe, then copy) over the profile's clear_before_sync + prune_untracked
-# pair; round-trips through the profile and is restored on load silently.
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(("index", "clear", "prune"), [(0, False, False), (1, False, True), (2, True, False)])
 def test_cleanup_mode_persists_to_profile(index, clear, prune):  # AC11
     view = _view_with_settings_tab()
@@ -289,11 +274,6 @@ def test_load_profile_reflects_cleanup_mode_without_signals(monkeypatch, clear, 
     assert view.cleanup_mode.currentIndex() == expected
     assert fired == []
     view.profile_store.save.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Expand All / Collapse All for the playlist+mood selection tree.
-# ---------------------------------------------------------------------------
 
 
 def _selection_tab_view():
@@ -352,11 +332,6 @@ def test_expand_collapse_no_crash_on_empty_tree():  # AC3
     assert view.sync_tree.topLevelItemCount() == 0
 
 
-# ---------------------------------------------------------------------------
-# Linking a device enumerates MTP devices on a worker thread, never inline.
-# ---------------------------------------------------------------------------
-
-
 def test_link_device_scans_off_the_gui_thread(monkeypatch):
     import src.sync.sync_device_mixin as sv
 
@@ -386,11 +361,6 @@ def test_link_device_scans_off_the_gui_thread(monkeypatch):
     assert len(started) == 1
     assert view.link_device_btn.text() == "Scanning…"
     assert not view.link_device_btn.isEnabled()
-
-
-# ---------------------------------------------------------------------------
-# Music path normalization, link target, shutdown, and polling while hidden.
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(("typed", "saved"), [("", "Music"), ("  /../Music/ ", "Music"), ("SD card//Music/", "SD card/Music")])
@@ -461,3 +431,81 @@ def test_poll_runs_only_while_view_is_visible(monkeypatch):
 
     view._stop_mtp_polling()
     assert not view._mtp_poll_timer.isActive()
+
+
+# ---------------------------------------------------------------------------
+# DeviceCard keyboard access and the shared size formatter.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space])
+def test_card_activates_from_keyboard(key):
+    on_click = Mock()
+    card = DeviceCard(SyncProfile(name="Phone", path="/x"), on_click)
+
+    card.keyPressEvent(QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
+
+    on_click.assert_called_once_with(card)
+
+
+def test_card_is_focusable_and_named_for_screen_readers():
+    card = DeviceCard(SyncProfile(name="Phone", path="/x"), Mock())
+
+    assert card.focusPolicy() == Qt.StrongFocus
+    assert card.accessibleName() == "Sync profile Phone"
+
+
+@pytest.mark.parametrize(("size", "text"), [(0, "0 B"), (None, "0 B"), (512, "512 B"), (1536, "1.50 KB"), (5 * 1024**3, "5.00 GB")])
+def test_format_file_size(size, text):
+    assert format_file_size(size) == text
+
+
+# ---------------------------------------------------------------------------
+# SyncActivityPanel: stat tiles + per-playlist result rows for a sync run.
+# ---------------------------------------------------------------------------
+
+
+def _result(name, success=True, copied=0, skipped=0, failed=0, transcoded=0, failures=()):
+    return {
+        "playlist_name": name,
+        "success": success,
+        "message": "done",
+        "tracks_copied": copied,
+        "tracks_skipped": skipped,
+        "tracks_failed": failed,
+        "tracks_transcoded": transcoded,
+        "failures": list(failures),
+    }
+
+
+def test_results_accumulate_into_tiles_and_rows():
+    panel = SyncActivityPanel()
+    panel.begin("Pixel 8")
+    panel.add_result(_result("A", copied=3, skipped=2, transcoded=1))
+    panel.add_result(
+        _result("B", success=False, failed=1, failures=[{"artist": "X", "title": "Y", "reason": "source file not found"}])
+    )
+    panel.add_removed(["old.mp3", "Old.m3u"])
+
+    values = {key: tile.value_label.text() for key, tile in panel._tiles.items()}
+    assert values == {"copied": "3", "skipped": "2", "transcoded": "1", "failed": "1", "removed": "2"}
+    assert panel.results_tree.topLevelItemCount() == 3
+    failed_row = panel.results_tree.topLevelItem(1)
+    assert failed_row.text(0).startswith("✗")
+    assert failed_row.child(0).text(1) == "source file not found"
+    assert failed_row.isExpanded()
+
+
+def test_begin_resets_and_clear_returns_to_empty_state():
+    panel = SyncActivityPanel()
+    panel.begin("dest")
+    panel.add_result(_result("A", copied=5))
+    panel.begin("dest")
+    assert panel.results_tree.topLevelItemCount() == 0
+    assert panel._tiles["copied"].value_label.text() == "0"
+    assert not panel.clear_btn.isEnabled()  # can't clear a running sync
+
+    panel.finish("Sync complete", "ok")
+    assert panel.clear_btn.isEnabled()
+    panel.clear()
+    assert panel._stack.currentIndex() == 0

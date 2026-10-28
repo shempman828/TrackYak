@@ -5,24 +5,16 @@ import pytest
 from src.core import installation_check as ic
 
 
-def test_check_python_version_ok_for_current_interpreter():
+def test_check_python_version(monkeypatch):
     assert ic.check_python_version() is None
 
-
-def test_check_python_version_flags_old_interpreter(monkeypatch):
-    monkeypatch.setattr(ic.sys, "version_info", (3, 8, 0, "final", 0))
-
-    error = ic.check_python_version()
-
-    assert error is not None
-    assert "3.11" in error
-    assert "3.8.0" in error
-
-
-def test_check_python_version_flags_3_10_because_code_needs_datetime_utc(monkeypatch):
+    # 3.10 is too old because the code needs datetime.UTC.
     monkeypatch.setattr(ic.sys, "version_info", (3, 10, 12, "final", 0))
-
     assert ic.check_python_version() is not None
+
+    monkeypatch.setattr(ic.sys, "version_info", (3, 8, 0, "final", 0))
+    error = ic.check_python_version()
+    assert "3.11" in error and "3.8.0" in error
 
 
 def test_requirement_names_skip_environment_marker_lines(tmp_path):

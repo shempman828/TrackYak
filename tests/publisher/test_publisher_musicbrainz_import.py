@@ -1,7 +1,6 @@
 """Tests for src/publisher/publisher_musicbrainz_import.py -- the shared,
-GUI-free resolve/create logic used both by the interactive "Lookup
-MusicBrainz" album review dialog and the headless
-scripts/backfill_album_publishers.py script.
+GUI-free resolve/create logic used by the interactive "Lookup
+MusicBrainz" album review dialog.
 
 Uses a real in-memory SQLite session (same style as tests/db/test_add.py)
 so AddToDB/GetFromDB/UpdateDB's actual conflict-checking and composite-PK

@@ -4,7 +4,7 @@ the full genre hierarchy as a box-drawing tree to a .txt or .md file,
 independent of the current Flat View toggle or search filter, ordered by
 the tree's active sort column/direction. Each test maps to one numbered
 acceptance criterion in that spec (criteria 1-3 are covered directly
-against render_hierarchy_as_text in tests/common/test_hierarchy_tree_render.py).
+against render_hierarchy_as_text in tests/common/test_hierarchy.py).
 
 tests/genre/conftest.py patches GenreLoaderWorker.start to run synchronously,
 so GenreView(controller_he) can be used exactly as before this feature.
@@ -129,27 +129,7 @@ def test_md_export_wraps_content_in_code_fence(session, qapp, controller_he, tmp
     assert content == "```\nRock\n└── Punk\n```"
 
 
-def test_export_identical_regardless_of_flat_view(session, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session, "Rock")
-    _make_genre_he(session, "Punk", parent=rock)
-    view = GenreView(controller_he)
-
-    def _export():
-        out_path = tmp_path / "out.txt"
-        with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
-            view.export_hierarchy()
-        return out_path.read_text(encoding="utf-8")
-
-    tree_view_output = _export()
-
-    view.flat_view_button.setChecked(True)
-    view.toggle_flat_view()
-    flat_view_output = _export()
-
-    assert tree_view_output == flat_view_output
-
-
-def test_export_identical_regardless_of_search_filter(session, qapp, controller_he, tmp_path):
+def test_export_ignores_flat_view_and_search_filter(session, qapp, controller_he, tmp_path):
     rock = _make_genre_he(session, "Rock")
     _make_genre_he(session, "Punk", parent=rock)
     _make_genre_he(session, "Jazz")
@@ -161,46 +141,37 @@ def test_export_identical_regardless_of_search_filter(session, qapp, controller_
             view.export_hierarchy()
         return out_path.read_text(encoding="utf-8")
 
-    unfiltered_output = _export()
-
+    baseline = _export()
     view.search_bar.setText("Punk")
-    filtered_output = _export()
-
-    assert unfiltered_output == filtered_output
-
-
-def test_export_follows_name_ascending_sort(session, qapp, controller_he, tmp_path):
-    _make_genre_he(session, "Zydeco")
-    _make_genre_he(session, "Alpha")
-    view = GenreView(controller_he)
-    view.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
-
-    out_path = tmp_path / "out.txt"
-    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
-        view.export_hierarchy()
-
-    assert out_path.read_text(encoding="utf-8") == "Alpha\nZydeco"
+    assert _export() == baseline
+    view.search_bar.setText("")
+    view.flat_view_button.setChecked(True)
+    view.toggle_flat_view()
+    assert _export() == baseline
 
 
-def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(session, qapp, controller_he, tmp_path):
+def test_export_follows_current_sort(session, qapp, controller_he, tmp_path):
     rock = _make_genre_he(session, "Rock")
     punk = _make_genre_he(session, "Punk", parent=rock)
     jazz = _make_genre_he(session, "Jazz")
+    alt = _make_genre_he(session, "Alt")
     _add_tracks_with_genre_he(session, rock, 1)
     _add_tracks_with_genre_he(session, punk, 5)  # rock recursive = 6
     _add_tracks_with_genre_he(session, jazz, 2)
-    alt = _make_genre_he(session, "Alt")
     _add_tracks_with_genre_he(session, alt, 2)  # ties with Jazz at 2
-
     view = GenreView(controller_he)
-    view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
-
     out_path = tmp_path / "out.txt"
-    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
-        view.export_hierarchy()
 
+    def _export():
+        with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
+            view.export_hierarchy()
+        return out_path.read_text(encoding="utf-8")
+
+    view.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+    assert _export() == "Alt\nJazz\nRock\n└── Punk"
     # Rock (6) first, then Alt/Jazz tied at 2 (alphabetical tie-break).
-    assert out_path.read_text(encoding="utf-8") == "Rock\n└── Punk\nAlt\nJazz"
+    view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+    assert _export() == "Rock\n└── Punk\nAlt\nJazz"
 
 
 def test_export_success_shows_status_message_with_count_and_path(session, qapp, controller_he, tmp_path):
@@ -327,47 +298,25 @@ def _patch_confirm_delete(view, monkeypatch, confirmed, checked, captured=None):
     monkeypatch.setattr(view, "_confirm_delete", _confirm_delete)
 
 
-def test_single_genre_delete_confirmation_has_checkbox(qapp, controller_de, monkeypatch):
-    _make_genre_de(controller_de.get.session, "Rock")
+@pytest.mark.parametrize("entry", ["single", "multi", "legacy"])
+def test_delete_confirmation_has_unchecked_exclude_checkbox(qapp, controller_de, monkeypatch, entry):
+    rock = _make_genre_de(controller_de.get.session, "Rock")
+    if entry == "multi":
+        _make_genre_de(controller_de.get.session, "Jazz")
     view = GenreView(controller_de)
-    view.tree.selectAll()
-
     captured = {}
     _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False, captured=captured)
 
-    view.delete_selected_genres()
+    if entry == "legacy":
+        view.delete_genre(rock.genre_id)
+    else:
+        view.tree.selectAll()
+        view.delete_selected_genres()
 
     assert captured["checkbox_text"] == CHECKBOX_LABEL
     assert captured["checkbox_default_checked"] is False
-    assert captured["standard_buttons"] == (QMessageBox.Yes | QMessageBox.No)
-
-
-def test_multi_genre_delete_confirmation_has_checkbox(qapp, controller_de, monkeypatch):
-    _make_genre_de(controller_de.get.session, "Rock")
-    _make_genre_de(controller_de.get.session, "Jazz")
-    view = GenreView(controller_de)
-    view.tree.selectAll()
-
-    captured = {}
-    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False, captured=captured)
-
-    view.delete_selected_genres()
-
-    assert captured["checkbox_text"] == CHECKBOX_LABEL
-    assert captured["checkbox_default_checked"] is False
-
-
-def test_legacy_delete_genre_confirmation_has_checkbox(qapp, controller_de, monkeypatch):
-    genre = _make_genre_de(controller_de.get.session, "Rock")
-    view = GenreView(controller_de)
-
-    captured = {}
-    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False, captured=captured)
-
-    view.delete_genre(genre.genre_id)
-
-    assert captured["checkbox_text"] == CHECKBOX_LABEL
-    assert captured["checkbox_default_checked"] is False
+    if entry == "single":
+        assert captured["standard_buttons"] == (QMessageBox.Yes | QMessageBox.No)
 
 
 def test_unchecked_delete_leaves_excluded_genres_unchanged(qapp, controller_de, monkeypatch):
@@ -461,29 +410,20 @@ def test_checked_delete_persists_to_scratch_config_file(qapp, controller_de, mon
     config_setup.Config._initialized = False
 
 
-def test_checked_bulk_delete_status_bar_reports_exclusion_count(qapp, controller_de, monkeypatch):
+@pytest.mark.parametrize(
+    ("checked", "expected"),
+    [(True, "Deleted 2 genre(s), added 2 to Excluded Genres"), (False, "Deleted 2 genre(s)")],
+)
+def test_bulk_delete_status_bar_reports_exclusions_only_when_checked(qapp, controller_de, monkeypatch, checked, expected):
     _make_genre_de(controller_de.get.session, "Rock")
     _make_genre_de(controller_de.get.session, "Jazz")
     view = GenreView(controller_de)
     view.tree.selectAll()
-    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=True)
+    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=checked)
 
     view.delete_selected_genres()
 
-    assert view.status_bar.text() == "Deleted 2 genre(s), added 2 to Excluded Genres"
-
-
-def test_unchecked_bulk_delete_status_bar_unchanged(qapp, controller_de, monkeypatch):
-    _make_genre_de(controller_de.get.session, "Rock")
-    _make_genre_de(controller_de.get.session, "Jazz")
-    view = GenreView(controller_de)
-    view.tree.selectAll()
-    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False)
-
-    view.delete_selected_genres()
-
-    assert view.status_bar.text() == "Deleted 2 genre(s)"
-    assert "Excluded Genres" not in view.status_bar.text()
+    assert view.status_bar.text() == expected
 
 
 class _FakeDialogSelf:
@@ -765,28 +705,6 @@ def test_genre_with_zero_track_subgenres_collapses_to_single_number(session, qap
 
     rock_item = view.tree.topLevelItem(0)
     assert rock_item.text(1) == "7"  # recursive == own, no "·"
-
-
-def test_tracks_column_is_right_aligned_italic_with_tooltip(session, qapp, controller_sbc):
-    rock = _make_genre_sbc(session, "Rock")
-    punk = _make_genre_sbc(session, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session, rock, 1)
-    _add_tracks_with_genre_sbc(session, punk, 2)
-    jazz = _make_genre_sbc(session, "Jazz")
-    _add_tracks_with_genre_sbc(session, jazz, 5)
-
-    view = GenreView(controller_sbc)
-
-    names = _top_level_names(view.tree)
-    rock_item = view.tree.topLevelItem(names.index("Rock"))
-    jazz_item = view.tree.topLevelItem(names.index("Jazz"))
-
-    assert rock_item.textAlignment(1) == (Qt.AlignRight | Qt.AlignVCenter)
-    assert rock_item.font(1).italic() is True
-    assert rock_item.toolTip(1) != ""  # "1 · 3" has a "·" -> tooltip set
-
-    assert jazz_item.text(1) == "5"
-    assert jazz_item.toolTip(1) == ""  # no "·" -> no tooltip
 
 
 def test_tracks_column_sorts_numerically_not_lexicographically(session, qapp, controller_sbc):

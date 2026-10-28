@@ -5,6 +5,7 @@
 - The empty-state placeholder shows/hides with the directory list.
 - The progress bar (added to replace the dead progress_updated signal)
   reflects ImportWorker.progress.
+- Worker error and resource-warning signals reach the dialog handlers.
 """
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -97,6 +98,21 @@ def test_progress_bar_reflects_worker_progress(dialog, tmp_path):
     assert dialog.progress_bar.minimum() == 0
     assert dialog.progress_bar.maximum() == 10
     assert dialog.progress_bar.value() == 3
+
+
+def test_worker_errors_and_resource_warnings_reach_the_dialog(dialog, tmp_path):
+    dialog.dir_list.addItem(_checked_item(tmp_path))
+    errors_seen = []
+    warnings_seen = []
+    dialog._handle_import_error = errors_seen.append
+    dialog._handle_resource_warning = lambda t, v: warnings_seen.append((t, v))
+    dialog._start_import()
+
+    dialog.import_worker.error_occurred.emit("boom")
+    dialog.import_worker.resource_warning.emit("memory", 999.0)
+
+    assert errors_seen == ["boom"]
+    assert warnings_seen == [("memory", 999.0)]
 
 
 if __name__ == "__main__":

@@ -24,25 +24,17 @@ class _FakeConfig:
 # --------------------------------------------------------------------------- #
 # AC1 — flag default + round-trip
 # --------------------------------------------------------------------------- #
-def test_flag_defaults_off_and_round_trips_in_memory():
+def test_flag_defaults_off_round_trips_and_survives_save_and_reload(tmp_path):
     cfg = _FakeConfig()
+    assert dev_mode.is_enabled(cfg) is False
+    dev_mode.set_enabled(cfg, False)
     assert dev_mode.is_enabled(cfg) is False
 
     dev_mode.set_enabled(cfg, True)
     assert dev_mode.is_enabled(cfg) is True
-
-    dev_mode.set_enabled(cfg, False)
-    assert dev_mode.is_enabled(cfg) is False
-
-
-def test_flag_survives_save_and_reload(tmp_path):
     path = tmp_path / "config.ini"
-
-    cfg = _FakeConfig()
-    dev_mode.set_enabled(cfg, True)
     with path.open("w") as fh:
         cfg.config.write(fh)
-
     reloaded = _FakeConfig()
     reloaded.config.read(path)
     assert dev_mode.is_enabled(reloaded) is True

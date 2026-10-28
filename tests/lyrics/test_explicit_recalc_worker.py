@@ -2,7 +2,7 @@
 the library-wide backfill half of docs/specs/explicit_content_detection.md
 (Option 2). Each test maps 1:1 to a numbered acceptance criterion.
 
-Follows tests/charts/test_chart_playlist_worker.py's pattern: a scratch
+Follows tests/charts/test_chart_playlist_builder.py's pattern: a scratch
 in-memory SQLite session (never music_library.db) plus a StubController
 wrapping the real GetFromDB/UpdateDB helpers, calling .run() synchronously
 rather than through a real QThread/event loop.

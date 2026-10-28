@@ -16,11 +16,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtWidgets import QDialog, QLineEdit
 
 from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
-from src.common.widgets.nullable_numeric_field import (
-    create_nullable_int_field,
-    nullable_field_value,
-    set_nullable_field_value,
-)
+from src.common.widgets.nullable_numeric_field import create_nullable_int_field, nullable_field_value, set_nullable_field_value
 
 
 # ---- test_album_musicbrainz_enrichment.py ------------------------------------

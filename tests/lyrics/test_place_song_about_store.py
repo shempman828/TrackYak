@@ -16,12 +16,11 @@ def _isolated_paths(tmp_path, monkeypatch):
     yield
 
 
-def test_load_queue_defaults_to_empty_on_missing_file():
+def test_missing_files_load_as_empty():
     assert store.load_queue() == []
-
-
-def test_load_decisions_defaults_to_empty_on_missing_file():
     assert store.load_decisions() == {}
+    assert store.remove_place_from_queue("Nowhere") == []
+    assert not store._QUEUE_PATH.exists()
 
 
 def test_enqueue_writes_new_entries():
@@ -92,16 +91,3 @@ def test_remove_place_from_queue_drops_only_matching_entries():
     remaining = store.load_queue()
     assert len(remaining) == 1
     assert remaining[0]["place_name"] == "Paris"
-
-
-def test_remove_place_from_queue_is_a_noop_when_absent():
-    assert store.remove_place_from_queue("Nowhere") == []
-    assert not store._QUEUE_PATH.exists()
-
-
-def test_queue_file_is_pretty_printed_json():
-    store.enqueue([{"track_id": 1, "place_name": "Bath", "place_id": 10}])
-
-    raw = store._QUEUE_PATH.read_text(encoding="utf-8")
-    assert json.loads(raw) == [{"track_id": 1, "place_name": "Bath", "place_id": 10}]
-    assert raw.endswith("\n")

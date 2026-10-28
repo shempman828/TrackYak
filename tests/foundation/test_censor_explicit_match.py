@@ -28,31 +28,20 @@ def _isolated_wordlist(tmp_path, monkeypatch):
     censor._cache["pattern"] = None
 
 
-def test_no_match_returns_false():
-    assert censor.text_contains_explicit_words("just a clean lyric line") is False
-
-
-def test_whole_word_match_returns_true():
-    assert censor.text_contains_explicit_words("this shit is real") is True
-
-
-# AC5 -------------------------------------------------------------------------
-def test_substring_does_not_false_positive():
-    assert censor.text_contains_explicit_words("take a class, polish the brass") is False
-
-
-def test_match_is_case_insensitive():
-    assert censor.text_contains_explicit_words("What the FUCK") is True
-
-
-# AC6 -------------------------------------------------------------------------
-def test_phrase_entry_matches():
-    assert censor.text_contains_explicit_words("I saw you kiss the sky last night") is True
-
-
-def test_empty_or_none_text_returns_false():
-    assert censor.text_contains_explicit_words("") is False
-    assert censor.text_contains_explicit_words(None) is False
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("just a clean lyric line", False),
+        ("this shit is real", True),
+        ("take a class, polish the brass", False),  # substring of a listed word
+        ("What the FUCK", True),
+        ("I saw you kiss the sky last night", True),  # phrase entry
+        ("", False),
+        (None, False),
+    ],
+)
+def test_whole_word_case_insensitive_matching(text, expected):
+    assert censor.text_contains_explicit_words(text) is expected
 
 
 def test_missing_wordlist_file_returns_false(tmp_path, monkeypatch):
@@ -63,7 +52,6 @@ def test_missing_wordlist_file_returns_false(tmp_path, monkeypatch):
     assert censor.text_contains_explicit_words("shit happens") is False
 
 
-# AC14 ------------------------------------------------------------------------
 def test_wordlist_hot_reloads_on_change(tmp_path, monkeypatch):
     monkeypatch.setattr(censor, "_RECHECK_INTERVAL_S", 0.0)
     wordlist = tmp_path / "explicit_words.txt"
