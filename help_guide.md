@@ -1133,7 +1133,9 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   that don't share filenames or tags.
 - **Find Missing Tracks** — checks for library entries whose file no longer
   exists on disk (moved, renamed outside the app, deleted) so you can clean
-  up dangling entries.
+  up dangling entries. The scan runs in the background with its progress in
+  the status line, so you can keep using the app; the list opens when the
+  scan is done.
 
 ## View Menu
 

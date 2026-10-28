@@ -549,6 +549,7 @@ class GUI(QMainWindow, MenuBar):
 
         # A running QThread destroyed with the window aborts the process.
         self._stop_explicit_recalc_worker()
+        self._stop_missing_tracks_scan()
         # Child views never receive closeEvent, so views that own worker threads expose shutdown().
         for widget in getattr(self, "_view_cache", {}).values():
             shutdown = getattr(widget, "shutdown", None)

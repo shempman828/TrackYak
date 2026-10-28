@@ -446,5 +446,15 @@ class MenuBar:
         self._mini_player.raise_()
 
     def show_missing_tracks(self):
-        """Scan for tracks whose files are missing and show them."""
+        """Start a background scan for tracks whose files are missing; the result dialog opens when it finishes."""
+        scan = getattr(self, "_missing_tracks", None)
+        if scan is not None and scan.is_running:
+            return
         self._missing_tracks = MissingTracks(self.controller, parent=self)
+        self._missing_tracks.start()
+
+    def _stop_missing_tracks_scan(self):
+        """Cancel and join a running missing-track scan, if one exists."""
+        scan = getattr(self, "_missing_tracks", None)
+        if scan is not None:
+            scan.stop()
