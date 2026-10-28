@@ -13,8 +13,8 @@ from src.album.edit.base_album_widget import AlbumWidget
 from src.album.view.album_context_menu import AlbumContextMenuMixin
 from src.album.view.album_filtering import AlbumFilteringMixin
 from src.album.view.album_sorting import AlbumSortingMixin
-from src.common.widgets.flow_layout import FlowLayout
-from src.common.widgets.layout_utils import FlowLayoutContainer, clear_layout
+from src.common.widgets.flow_layout import ChipArea, FlowLayout
+from src.common.widgets.layout_utils import clear_layout
 from src.db.db_tables import Album, AlbumRoleAssociation
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
@@ -116,10 +116,10 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         main_layout.addLayout(self._build_top_controls())
 
         # Filter bar is a QWidget so we can show/hide it cleanly. It's a
-        # FlowLayoutContainer (not a plain QWidget) so the row wraps onto a
+        # ChipArea (not a plain QWidget) so the row wraps onto a
         # second line -- and reserves the height for it -- instead of
         # crushing/overlapping when a larger UI font won't fit in one row.
-        self._filter_row_widget = FlowLayoutContainer()
+        self._filter_row_widget = ChipArea()
         self._build_filter_bar(self._filter_row_widget)
         main_layout.addWidget(self._filter_row_widget)
 

@@ -87,9 +87,7 @@ def test_skipped_roles_tab_follows_skipped_genres_and_lists_config(qapp, session
     assert labels[0] == "Skipped Genres"
     assert labels[1] == "Skipped Roles"
 
-    listed = [
-        dialog.excluded_roles_list.item(i).text() for i in range(dialog.excluded_roles_list.count())
-    ]
+    listed = [dialog.excluded_roles_list.item(i).text() for i in range(dialog.excluded_roles_list.count())]
     assert listed == ["Composer", "Remixer"]
 
 
@@ -133,3 +131,43 @@ def test_remove_selected_role_persists_removal(qapp, session):
     fake._remove_excluded("excluded_roles_list", config.set_excluded_roles)
 
     assert config.get_excluded_roles() == ["Composer"]
+
+
+# --- finalize audit: lazy alias tabs, edit-alias target kept ---------------
+
+
+def test_alias_tabs_are_built_on_first_view(qapp, session):
+    from src.common.alias.global_merge_alias_tab import GlobalMergeAliasTab
+
+    dialog = AliasManagementDialog(_Controller(session, _StubConfig()))
+    try:
+        genre_tab = dialog.tabs.widget(2)
+        assert genre_tab.findChildren(GlobalMergeAliasTab) == []
+
+        dialog.tabs.setCurrentIndex(2)
+
+        assert len(genre_tab.findChildren(GlobalMergeAliasTab)) == 1
+    finally:
+        dialog.deleteLater()
+
+
+def test_edit_alias_dialog_keeps_current_target_until_the_text_changes(qapp, session):
+    from src.common.alias.global_merge_alias_tab import _MergeAliasEditDialog
+    from src.common.widgets.entity_completer_edit import invalidate_entity_cache
+    from src.db.db_tables.genre import Genre
+
+    rock = Genre(genre_name="Rock")
+    session.add(rock)
+    session.commit()
+    invalidate_entity_cache("Genre")
+    controller = _Controller(session, _StubConfig())
+
+    dlg = _MergeAliasEditDialog(controller, "Genre", "genre_name", "genre_id", "Rock Music", rock.genre_id)
+    try:
+        assert dlg.target_id == rock.genre_id
+
+        dlg.target_edit.setText("Something else")
+        assert dlg.target_id is None
+    finally:
+        dlg.deleteLater()
+        invalidate_entity_cache("Genre")

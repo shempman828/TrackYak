@@ -5,14 +5,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 
 class DetailCard(QFrame):
-    """A titled, styled section container for a detail-pane widget.
-
-    Add content to `.body` (a QVBoxLayout) the way you would to any layout:
-    `card.body.addWidget(...)` / `card.body.addLayout(...)`.
-
-    The header row can also carry a count badge (`set_count`) and/or a
-    right-aligned action widget (`add_header_action`); neither is required.
-    """
+    """A titled, styled section container for a detail-pane widget; add content to `.body`."""
 
     def __init__(self, title: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -52,12 +45,9 @@ class DetailCard(QFrame):
         outer.addLayout(self.body)
 
     def set_count(self, count: int, noun: str = "") -> None:
-        """Show a small pill badge next to the title, e.g. "4 places".
-
-        `noun` is the singular form; an "s" is appended when count != 1.
-        Call with `count=0` to hide the badge again.
-        """
-        if not count:
+        """Show a pill badge next to the title, e.g. "4 places"; count <= 0 hides it."""
+        # `noun` is singular; an "s" is appended when count != 1.
+        if not count or count < 0:
             self.count_badge.hide()
             return
         label = f"{count} {noun}{'s' if noun and count != 1 else ''}".strip()

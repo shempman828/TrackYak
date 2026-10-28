@@ -79,3 +79,18 @@ def test_dismiss_pair_persists_across_a_fresh_read(tmp_path):
     reloaded = json.loads(path.read_text())
     assert reloaded == {"Album": ["3-7"]}
     assert load_dismissed_pairs(path, "Album") == {(3, 7)}
+
+
+def test_missing_file_reads_as_empty_without_a_warning(tmp_path, caplog):
+    assert load_dismissed_pairs(tmp_path / "absent.json", "Artist") == set()
+    assert "Failed to read" not in caplog.text
+
+
+def test_dismiss_pair_reports_a_failed_write(tmp_path):
+    read_only_dir = tmp_path / "ro"
+    read_only_dir.mkdir()
+    read_only_dir.chmod(0o500)
+    try:
+        assert dismiss_pair(read_only_dir / "dismissed_duplicates.json", "Artist", 1, 2) is False
+    finally:
+        read_only_dir.chmod(0o700)

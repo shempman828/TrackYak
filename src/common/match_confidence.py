@@ -1,12 +1,4 @@
-"""
-match_confidence.py
-
-Shared color/label convention for fuzzy string-match confidence scores
-(0.0-1.0, typically a SequenceMatcher ratio) used wherever the UI
-auto-suggests an entity match a human should confirm -- e.g. MusicBrainz
-track matching. Centralized so every such view reads the same score the
-same way instead of each picking its own thresholds.
-"""
+"""Shared color/label convention for 0.0-1.0 fuzzy-match confidence scores."""
 
 from __future__ import annotations
 
@@ -18,6 +10,7 @@ MEDIUM_CONFIDENCE = 0.6
 
 
 def confidence_color(score: float) -> QColor:
+    """Color for a match score: green (strong), blue (possible), red (weak)."""
     if score > HIGH_CONFIDENCE:
         return QColor(Qt.darkGreen)
     if score > MEDIUM_CONFIDENCE:
@@ -26,6 +19,7 @@ def confidence_color(score: float) -> QColor:
 
 
 def confidence_label(score: float) -> str:
+    """Short human-readable label for a match score."""
     if score > HIGH_CONFIDENCE:
         return "Strong match"
     if score > MEDIUM_CONFIDENCE:

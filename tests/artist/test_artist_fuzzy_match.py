@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog, _blocking_keys, _tokens_match_with_initials, artist_name_similarity
 from src.common.dialogs import fuzzy_match_dialog
-from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker
+from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker, make_merge_job
 from src.common.dismissed_duplicates import dismiss_pair, load_dismissed_pairs
 from src.db.db_helpers.merge import MergeDB
 from src.db.db_tables.artist import Artist
@@ -314,7 +314,7 @@ def test_resolved_field_lands_on_the_merged_survivor(qapp):
     class _StubController:
         merge = MergeDB(session)
 
-    worker = BaseMergeWorker(_StubController(), "Artist", "artist_id", "artist_name", [(source, target, {"biography": "Session guitarist.", "artist_name": "Lew"})])
+    worker = BaseMergeWorker(_StubController(), "Artist", [make_merge_job(source, target, "artist_id", "artist_name", {"biography": "Session guitarist.", "artist_name": "Lew"})])
     worker.run()
 
     survivor = session.get(Artist, target.artist_id)
@@ -334,7 +334,7 @@ def test_discarded_artist_name_is_still_aliased_regardless_of_resolved_fields(qa
     class _StubController:
         merge = MergeDB(session)
 
-    worker = BaseMergeWorker(_StubController(), "Artist", "artist_id", "artist_name", [(source, target, {"biography": "Session guitarist."})])
+    worker = BaseMergeWorker(_StubController(), "Artist", [make_merge_job(source, target, "artist_id", "artist_name", {"biography": "Session guitarist."})])
     worker.run()
 
     survivor = session.get(Artist, target.artist_id)

@@ -2,8 +2,8 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QL
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.alias.entity_alias_tab import EntityAliasesTab
+from src.common.hierarchy_ops import hierarchy_descendant_ids
 from src.common.widgets.hierarchy_picker_button import HierarchyPickerButton
-from src.common.widgets.hierarchy_tree_style import hierarchy_descendant_ids
 from src.foundation.logger_config import logger
 
 

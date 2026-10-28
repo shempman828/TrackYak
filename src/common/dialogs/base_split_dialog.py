@@ -1,3 +1,5 @@
+"""Dialog for splitting one combined entity (e.g. "Simon & Garfunkel") into several."""
+
 import re
 
 from PySide6.QtCore import QStringListModel, Qt
@@ -25,17 +27,17 @@ _SPLIT_DELIMITER_PATTERN = re.compile(
 _entity_name_cache = {}
 
 
-def _find_name_attr_for_entity(entity, model_name: str):
-    """Find the name attribute for an entity of the given model type."""
-    for attr in (f"{model_name.lower()}_name", "name", "title", f"{model_name.lower()}_title"):
-        if hasattr(entity, attr):
+def _find_name_attr(obj, model_name: str | None = None) -> str | None:
+    """Name attribute of `obj`: `<model>_name`, `name`, `title`, or `<model>_title`; None if absent."""
+    prefix = (model_name or type(obj).__name__).lower()
+    for attr in (f"{prefix}_name", "name", "title", f"{prefix}_title"):
+        if hasattr(obj, attr):
             return attr
     return None
 
 
 def _get_cached_entity_names(get_helper, model_name: str) -> list:
-    """Return cached display names for a model type, fetching once via
-    get_helper.get_all_entities() and reusing the result on subsequent calls."""
+    """Cached completer names for a model type, fetched once via get_helper.get_all_entities()."""
     if model_name in _entity_name_cache:
         return _entity_name_cache[model_name]
 
@@ -43,7 +45,7 @@ def _get_cached_entity_names(get_helper, model_name: str) -> list:
     if get_helper is not None:
         try:
             for entity in get_helper.get_all_entities(model_name) or []:
-                attr = _find_name_attr_for_entity(entity, model_name)
+                attr = _find_name_attr(entity, model_name)
                 value = getattr(entity, attr, None) if attr else None
                 if value:
                     names.add(value)
@@ -82,7 +84,7 @@ class SplitDBDialog(QDialog):
         layout.addWidget(QLabel(f"Splitting {self.model_name}:"))
 
         # Display the original entity name
-        name_attr = self._find_name_attribute()
+        name_attr = _find_name_attr(self.entity_obj, self.model_name) or "name"
         original_name = getattr(self.entity_obj, name_attr, "Unknown")
         self.original_name = QLineEdit(original_name)
         self.original_name.setReadOnly(True)
@@ -144,14 +146,7 @@ class SplitDBDialog(QDialog):
         self.cancel_btn.clicked.connect(self.reject)
 
         self._update_tab_order()
-
-    def _find_name_attribute(self) -> str:
-        """Find the name attribute for the current entity."""
-        name_attrs_to_try = [f"{self.model_name.lower()}_name", "name", "title", f"{self.model_name.lower()}_title"]
-        for name_attr in name_attrs_to_try:
-            if hasattr(self.entity_obj, name_attr):
-                return name_attr
-        return "name"  # fallback
+        self._validate_input()
 
     def _load_relationship_info(self):
         """Load and display information about current relationships."""
@@ -177,7 +172,7 @@ class SplitDBDialog(QDialog):
                         # Try to get a meaningful name for the related object
                         related_name = "Unknown"
                         try:
-                            name_attr = self._find_name_attribute_for_obj(related_value)
+                            name_attr = _find_name_attr(related_value)
                             if name_attr:
                                 related_name = getattr(related_value, name_attr, "Unknown")
                         except (AttributeError, SQLAlchemyError):
@@ -193,18 +188,8 @@ class SplitDBDialog(QDialog):
             logger.error(f"Failed to load relationship info for {self.model_name}: {e}")
             self.relationship_info.setText(f"Could not load relationship info: {e}")
 
-    def _find_name_attribute_for_obj(self, obj) -> str:
-        """Find name attribute for a related object."""
-        name_attrs_to_try = ["name", "title"]
-        for name_attr in name_attrs_to_try:
-            if hasattr(obj, name_attr):
-                return name_attr
-        return None
-
     def _suggest_split_names(self, original_name: str) -> list:
-        """Suggest split names by breaking the original name on common
-        multi-entity delimiters (comma, semicolon, slash, ampersand,
-        feat./ft./featuring, vs., and, x)."""
+        """Suggest split names by breaking the original name on common multi-entity delimiters."""
         if not original_name:
             return []
 
@@ -250,17 +235,21 @@ class SplitDBDialog(QDialog):
         self._update_tab_order()
 
     def _remove_selected_row(self):
-        """Remove selected name row."""
+        """Remove the row whose line edit has focus, else the list's current row."""
+        # A click into a row's QLineEdit does not change the list's current row.
         row = self.split_list.currentRow()
+        focused = self.focusWidget()
+        for i in range(self.split_list.count()):
+            if self.split_list.itemWidget(self.split_list.item(i)) is focused:
+                row = i
+                break
         if row >= 0:
             self.split_list.takeItem(row)
         self._validate_input()
         self._update_tab_order()
 
     def _update_tab_order(self):
-        """Rebuild the Tab focus chain so it walks through every split-name
-        row (including ones added/removed after dialog init) before reaching
-        the action buttons."""
+        """Rebuild the Tab chain through every split-name row, then the action buttons."""
         if not hasattr(self, "add_btn"):
             # Buttons aren't built yet (called while pre-populating the
             # initial rows during __init__); the chain is finalized once
@@ -327,10 +316,13 @@ class SplitDBDialog(QDialog):
         entity_id = getattr(self.entity_obj, id_attr)
 
         try:
-            # Call SplitDB using the split_helper
-            self.split_helper.split_entity(self.model_name, entity_id, split_attributes)
+            if not self.split_helper.split_entity(self.model_name, entity_id, split_attributes):
+                QMessageBox.critical(self, "Split Failed", f"Could not split the {self.model_name.lower()}. Please check the logs.")
+                return
 
             logger.info(f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}")
+            # The completer names are stale now that new entities exist.
+            _entity_name_cache.pop(self.model_name, None)
 
             # Accept the dialog to close it
             self.accept()

@@ -3,15 +3,8 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.hierarchy_tree_style import (
-    collect_expanded_ids,
-    configure_hierarchy_tree,
-    create_colored_icon,
-    filter_tree_widget,
-    icon_for_depth,
-    is_hierarchy_descendant,
-    restore_expanded_ids_or_expand_all,
-)
+from src.common.hierarchy_ops import is_hierarchy_descendant
+from src.common.widgets.hierarchy_tree_style import collect_expanded_ids, configure_hierarchy_tree, create_colored_icon, filter_tree_widget, icon_for_depth, restore_expanded_ids_or_expand_all
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 from src.mood.mood_view_actions import MoodActionsMixin

@@ -11,7 +11,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDialog, QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.hierarchy_tree_style import handle_insert_as_new_relative
+from src.common.hierarchy_ops import handle_insert_as_new_relative
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 from src.mood.mood_dialog import MoodDialog

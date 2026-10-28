@@ -1,18 +1,6 @@
-"""
-fuzzy_match_dialog.py
+"""Shared merge orchestration for the fuzzy-duplicate-scan dialogs (checked rows -> background merge)."""
 
-Shared scaffold for "scan for fuzzy-duplicate entities, let the user pick
-which pairs to merge and which name to keep" dialogs (currently used by
-artist and publisher dedup). Finding candidate pairs stays entity-specific
-(different blocking/similarity logic per entity type) and lives upstream of
-this dialog; so does each dialog's match-row UI, since that differs enough
-between entities (role-count display vs. name elision/autosize) that forcing
-a shared layout isn't worth it. What's shared is the actual merge
-orchestration: building jobs from the checked rows, running them off the UI
-thread, and reporting progress/completion.
-"""
-
-from collections.abc import Callable
+from typing import NamedTuple
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
@@ -23,29 +11,36 @@ from src.common.dismissed_duplicates import DEFAULT_DISMISSED_DUPLICATES_PATH, d
 from src.foundation.logger_config import logger
 
 
-class BaseMergeWorker(CancellableWorker):
-    """Runs checked entity-merge pairs off the UI thread so a large batch
-    doesn't freeze the dialog, reporting progress as each pair completes.
+class MergeJob(NamedTuple):
+    """One pair to merge, as plain values read on the main thread."""
 
-    `on_pair_merged(old_entity, new_entity)`, if given, runs immediately
-    after a successful merge for entity-specific side effects (e.g. artist
-    dedup recording the old name as an alias of the survivor) -- if it
-    raises, the pair is counted as failed even though the merge itself
-    succeeded, matching how the original artist-only worker this was
-    extracted from treated alias-creation failures.
-    """
+    old_id: int
+    old_name: str
+    new_id: int
+    new_name: str
+    resolved_fields: dict
+
+
+def make_merge_job(old_entity, new_entity, id_attr: str, name_attr: str, resolved_fields: dict) -> MergeJob:
+    """Build a MergeJob from two ORM rows; call on the main thread that owns their session."""
+    return MergeJob(getattr(old_entity, id_attr), getattr(old_entity, name_attr), getattr(new_entity, id_attr), getattr(new_entity, name_attr), resolved_fields)
+
+
+class BaseMergeWorker(CancellableWorker):
+    """Runs MergeJobs off the UI thread, reporting progress after each pair."""
+
+    # Takes plain ids/names, never ORM rows: those belong to the main thread's
+    # session, and reading an attribute expired by a commit would refresh it
+    # through that session from this thread.
 
     progress = Signal(int, int)  # current, total
     finished = Signal(int, int, list)  # success_count, total, error_messages
 
-    def __init__(self, controller, entity_type: str, id_attr: str, name_attr: str, jobs: list, on_pair_merged: Callable | None = None, parent=None):
+    def __init__(self, controller, entity_type: str, jobs: list[MergeJob], parent=None):
         super().__init__(parent)
         self.controller = controller
         self.entity_type = entity_type
-        self.id_attr = id_attr
-        self.name_attr = name_attr
-        self.jobs = jobs  # list of (old_entity, new_entity, resolved_fields)
-        self.on_pair_merged = on_pair_merged
+        self.jobs = list(jobs)
 
     def run(self) -> None:
         total = len(self.jobs)
@@ -53,28 +48,19 @@ class BaseMergeWorker(CancellableWorker):
         errors: list[str] = []
 
         try:
-            for idx, (old_entity, new_entity, resolved_fields) in enumerate(self.jobs):
-                old_name = getattr(old_entity, self.name_attr)
-                new_name = getattr(new_entity, self.name_attr)
-                old_id = getattr(old_entity, self.id_attr)
-                new_id = getattr(new_entity, self.id_attr)
+            for idx, job in enumerate(self.jobs):
                 try:
-                    logger.info(f"Merging {old_name} (ID: {old_id}) into {new_name} (ID: {new_id})")
-                    merged = self.controller.merge.merge_entities(self.entity_type, old_id, new_id, resolved_fields)
-                    if not merged:
-                        msg = f"Failed to merge {old_name} → {new_name}: merge_entities returned False"
+                    logger.info(f"Merging {job.old_name} (ID: {job.old_id}) into {job.new_name} (ID: {job.new_id})")
+                    if self.controller.merge.merge_entities(self.entity_type, job.old_id, job.new_id, job.resolved_fields):
+                        success_count += 1
+                    else:
+                        msg = f"Failed to merge {job.old_name} → {job.new_name}: merge_entities returned False"
                         logger.error(msg)
                         errors.append(msg)
-                    else:
-                        if self.on_pair_merged:
-                            self.on_pair_merged(old_entity, new_entity)
-                        success_count += 1
                 except Exception as e:
                     # Intentional broad boundary catch: this runs on a QThread
-                    # and merge_entities (or a merged-pair side effect) can
-                    # fail in many ways per pair -- one bad pair must not kill
-                    # the whole batch, so log and keep going.
-                    msg = f"Failed to merge {old_name} → {new_name}: {e}"
+                    # and one bad pair must not kill the whole batch.
+                    msg = f"Failed to merge {job.old_name} → {job.new_name}: {e}"
                     logger.exception(msg)
                     errors.append(msg)
 
@@ -86,26 +72,13 @@ class BaseMergeWorker(CancellableWorker):
 
 
 class BaseFuzzyMatchDialog(QDialog):
-    """Shared merge orchestration for fuzzy-duplicate dialogs.
+    """Shared merge orchestration for fuzzy-duplicate dialogs."""
 
-    Subclasses must:
-      - set `_ENTITY_TYPE` / `_ID_ATTR` / `_NAME_ATTR` class attributes
-      - implement `init_ui()`, populating `self.match_widgets` as a list of
-        (checkbox, radio_a, radio_b) tuples with `radio_a.entity` /
-        `radio_b.entity` set to the entity each radio represents, wiring
-        `self.btn_merge`/`self.btn_cancel` to `self._perform_merge`/
-        `self.reject`, and creating `self._progress` (QProgressBar) /
-        `self._status_label` (QLabel), both hidden until a merge starts
-      - implement `_notify_no_jobs()` to report "nothing was checked"
-        however that dialog normally surfaces messages
-      - optionally override `_on_pair_merged()` for a per-pair side effect
-        after a successful merge (e.g. alias creation)
-      - to offer a per-row "Dismiss" action, call `self._dismiss_pair(entity_a,
-        entity_b, row_widget, widgets_tuple)` from a button click handler in
-        `init_ui()` -- it persists the pair as permanently not-a-duplicate
-        (via `dismissed_duplicates.py`, filtered back out on every future
-        scan) and removes the row from view
-    """
+    # Subclasses set _ENTITY_TYPE/_ID_ATTR/_NAME_ATTR and implement init_ui()
+    # (fill self.match_widgets with (checkbox, radio_a, radio_b) tuples whose
+    # radios carry `.entity`; create btn_merge, btn_cancel, _progress and a
+    # hidden _status_label) and _notify_no_jobs(). A row "Dismiss" button
+    # calls _dismiss_pair().
 
     _ENTITY_TYPE: str = ""
     _ID_ATTR: str = ""
@@ -129,18 +102,12 @@ class BaseFuzzyMatchDialog(QDialog):
     def _notify_no_jobs(self) -> None:
         raise NotImplementedError
 
-    def _on_pair_merged(self, old_entity, new_entity) -> None:
-        """Optional per-pair side effect after a successful merge. No-op by default."""
-
     def _dismiss_pair(self, entity_a, entity_b, row_widgets: QWidget | list[QWidget], widgets_tuple: tuple) -> None:
-        """Record entity_a/entity_b as permanently not-a-duplicate and drop
-        their row from the current view. row_widgets is either the row's
-        single container frame, or (for a grid-based layout with no single
-        per-row container, e.g. publisher) every widget that makes up the
-        row. widgets_tuple is the exact (checkbox, radio_a, radio_b) tuple
-        this row appended to self.match_widgets, so it can be removed
-        without disturbing other rows' merge state."""
-        dismiss_pair(DEFAULT_DISMISSED_DUPLICATES_PATH, self._ENTITY_TYPE, getattr(entity_a, self._ID_ATTR), getattr(entity_b, self._ID_ATTR))
+        """Persist the pair as not-a-duplicate and remove its row (container or widget list) from view."""
+        id_a, id_b = getattr(entity_a, self._ID_ATTR), getattr(entity_b, self._ID_ATTR)
+        dismiss_pair(DEFAULT_DISMISSED_DUPLICATES_PATH, self._ENTITY_TYPE, id_a, id_b)
+        if normalize_pair(id_a, id_b) not in load_dismissed_pairs(DEFAULT_DISMISSED_DUPLICATES_PATH, self._ENTITY_TYPE):
+            QMessageBox.warning(self, "Not Saved", "The pair is hidden for now, but could not be saved. It will show again in the next scan.")
         if widgets_tuple in self.match_widgets:
             self.match_widgets.remove(widgets_tuple)
         widgets = row_widgets if isinstance(row_widgets, (list, tuple)) else [row_widgets]
@@ -149,8 +116,7 @@ class BaseFuzzyMatchDialog(QDialog):
             widget.deleteLater()
 
     def _perform_merge(self) -> None:
-        """Kick off a background merge of the checked pairs with the
-        user-selected canonical entity, showing progress as it runs."""
+        """Start a background merge of the checked pairs into each row's chosen survivor."""
         jobs = []
         for chk_merge, radio_a, radio_b in self.match_widgets:
             if not chk_merge.isChecked():
@@ -180,21 +146,14 @@ class BaseFuzzyMatchDialog(QDialog):
         self._status_label.setText(f"Merging 0/{len(resolved_jobs)}…")
         self._status_label.show()
 
-        self._worker = BaseMergeWorker(self.controller, self._ENTITY_TYPE, self._ID_ATTR, self._NAME_ATTR, resolved_jobs, on_pair_merged=self._on_pair_merged, parent=self)
+        merge_jobs = [make_merge_job(old, new, self._ID_ATTR, self._NAME_ATTR, fields) for old, new, fields in resolved_jobs]
+        self._worker = BaseMergeWorker(self.controller, self._ENTITY_TYPE, merge_jobs, parent=self)
         self._worker.progress.connect(self._on_merge_progress)
         self._worker.finished.connect(self._on_merge_finished)
         self._worker.start()
 
     def _resolve_conflicts(self, jobs: list[tuple]) -> list[tuple] | None:
-        """Walk each checked pair and, for any pair whose canonical and
-        discarded entities have differing scalar fields, let the user pick
-        which values survive before the batch merge runs -- without this
-        step every field on the discarded entity is silently thrown away.
-
-        Returns (old_entity, new_entity, resolved_fields) triples ready for
-        `BaseMergeWorker`, or None if the user cancelled the whole batch
-        from a conflict dialog (nothing has been merged yet at that point).
-        """
+        """Let the user pick surviving values per conflicting pair; (old, new, fields) triples or None if cancelled."""
         resolved: list[tuple] = []
         skip_all = False
         for old_entity, new_entity in jobs:
@@ -232,10 +191,15 @@ class BaseFuzzyMatchDialog(QDialog):
         self.btn_cancel.setEnabled(True)
 
         if success_count > 0:
-            QMessageBox.information(self, "Merge Complete", f"Successfully merged {success_count}/{total} pairs")
-            self.accept()
+            box = QMessageBox(QMessageBox.Information if not errors else QMessageBox.Warning, "Merge Complete", f"Successfully merged {success_count}/{total} pairs", parent=self)
         else:
-            QMessageBox.warning(self, "No Merges", "No pairs were merged (none checked or errors occurred)")
+            box = QMessageBox(QMessageBox.Warning, "No Merges", "No pairs were merged.", parent=self)
+        if errors:
+            box.setInformativeText(f"{len(errors)} pair(s) failed. See Show Details.")
+            box.setDetailedText("\n".join(errors))
+        box.exec()
+        if success_count > 0:
+            self.accept()
 
     def reject(self) -> None:
         # Cancel button is disabled while a merge is running, but guard

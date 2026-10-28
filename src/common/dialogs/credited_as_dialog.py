@@ -1,9 +1,4 @@
-"""CreditedAsDialog — lets a specific artist credit (an AlbumRoleAssociation
-or TrackArtistRole row) be attributed to one of the artist's existing
-aliases instead of their canonical name, e.g. crediting Prince as
-"The Artist Formerly Known As" on one specific album without renaming the
-artist everywhere else.
-"""
+"""Dialog that credits one artist credit row to one of the artist's existing aliases."""
 
 from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel
 
@@ -11,14 +6,11 @@ from src.foundation.logger_config import logger
 
 
 class CreditedAsDialog(QDialog):
-    """Combo-box picker: the artist's canonical name plus each of their
-    existing aliases. Selecting the canonical name clears any override."""
+    """Pick the canonical name (clears the override) or one of the artist's aliases."""
 
     def __init__(self, artist, aliases, current_alias_id=None, parent=None):
         super().__init__(parent)
-        logger.debug(
-            f"Opening credited-as dialog for {artist.artist_name} ({len(aliases)} aliases)"
-        )
+        logger.debug(f"Opening credited-as dialog for {artist.artist_name} ({len(aliases)} aliases)")
         self.setWindowTitle(f"Credit {artist.artist_name} as…")
         self.setMinimumWidth(320)
 

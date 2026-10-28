@@ -1,8 +1,4 @@
-"""Wrapping flow layout and the container widgets that size themselves from it.
-
-Arranges child widgets in left-to-right rows that wrap onto the next line
-when the available width is exhausted, similar to CSS flexbox wrap.
-"""
+"""Wrapping flow layout and the container widgets that size themselves from it."""
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QLayout, QWidget
@@ -11,12 +7,7 @@ from src.foundation.logger_config import logger
 
 
 class FlowLayout(QLayout):
-    """Custom wrapping flow layout.
-
-    Items are placed left-to-right; when a new item would exceed the available
-    width the row wraps.  Both horizontal and vertical spacing are configurable
-    independently either at construction time or via the property setters.
-    """
+    """Left-to-right layout whose rows wrap when the width runs out (like CSS flex-wrap)."""
 
     def __init__(self, parent=None, margin: int = 0, spacing: int = 20, h_spacing: int | None = None, v_spacing: int | None = None):
         """Build a flow layout, with optional per-axis spacing overriding *spacing*."""
@@ -164,24 +155,17 @@ class FlowLayout(QLayout):
 
 
 class ChipArea(QWidget):
-    """Container widget for a FlowLayout of chips.
+    """Widget whose minimumHeight tracks its FlowLayout's wrapped height at its current width."""
 
-    FlowLayout.sizeHint()/minimumSize() can only account for a single chip
-    (a flow layout's real height depends on how many rows it wraps into at
-    a given width, which isn't knowable until it's actually given that
-    width). Left alone, the enclosing group box reserves space for just one
-    row, so once enough chips are added to wrap onto a second or third row,
-    they get squished/overlapped instead of the group box growing to fit
-    them. Recomputing minimumHeight from heightForWidth() whenever the width
-    changes (or a chip is added/removed, via refresh_height()) keeps the
-    reserved space accurate.
-    """
+    # FlowLayout's sizeHint/minimumSize only cover one row; without this the
+    # parent reserves a single row and wrapped rows get squashed/overlapped.
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.refresh_height()
 
     def refresh_height(self):
+        """Recompute minimumHeight from heightForWidth(); call after adding/removing items."""
         layout = self.layout()
         if layout is None:
             return

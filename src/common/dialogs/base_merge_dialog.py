@@ -1,3 +1,5 @@
+"""Two-step dialog: search and pick a source/target pair, then resolve field conflicts and merge."""
+
 from difflib import SequenceMatcher
 import html
 import re
@@ -7,8 +9,14 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidg
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.conflict_resolution import ConflictGridWidget
+from src.common.match_confidence import MEDIUM_CONFIDENCE, confidence_color
+from src.common.widgets.item_foreground_delegate import ItemForegroundDelegate
 from src.common.widgets.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
+
+# Rows shown per list; a broad search over a large table (e.g. Artist) would
+# otherwise rebuild thousands of items on every keystroke.
+_MAX_LIST_ROWS = 500
 
 
 class MergeDBDialog(QDialog):
@@ -36,18 +44,16 @@ class MergeDBDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.stack)
 
+        self._init_search_ui()
         if preload_source and preload_target:
-            # Both entities known — skip search page, go straight to conflict resolution
-            self._init_search_ui()  # still build it so the stack index is consistent
-            self.stack.widget(0).hide()
+            # Both entities known: open straight on the conflict page (the
+            # search page stays at index 0 for "Back").
             self._build_conflict_ui()
-        else:
-            self._init_search_ui()
 
     # --- SEARCH & SELECTION FEATURES ---
 
     def _init_search_ui(self):
-        """Initialize the search and selection UI with enhanced features."""
+        """Build the search-and-select page (stack index 0)."""
         search_page = QWidget()
         main_layout = QVBoxLayout(search_page)
 
@@ -87,6 +93,7 @@ class MergeDBDialog(QDialog):
         source_col.addLayout(source_search_layout)
 
         self.source_list = QListWidget()
+        self.source_list.setItemDelegate(ItemForegroundDelegate(self.source_list))  # QSS would hide the score colours
         self.source_list.itemClicked.connect(lambda i: self._select_entity(i, "source"))
         source_col.addWidget(self.source_list)
 
@@ -116,6 +123,7 @@ class MergeDBDialog(QDialog):
         target_col.addLayout(target_search_layout)
 
         self.target_list = QListWidget()
+        self.target_list.setItemDelegate(ItemForegroundDelegate(self.target_list))
         self.target_list.itemClicked.connect(lambda i: self._select_entity(i, "target"))
         target_col.addWidget(self.target_list)
 
@@ -151,12 +159,8 @@ class MergeDBDialog(QDialog):
         self.stack.addWidget(search_page)
 
     def _update_list(self, text, side):
-        """Populate the list using a plain case-insensitive substring search.
-
-        Fuzzy/similarity scoring is reserved for the 'Find Similar' button.
-        Using it here caused short names (e.g. '3io') to score below threshold
-        and disappear from the list entirely.
-        """
+        """Fill one side's list with a case-insensitive substring match, capped at _MAX_LIST_ROWS."""
+        # Plain substring on purpose: fuzzy scoring dropped short names (e.g. '3io').
         l_widget = self.source_list if side == "source" else self.target_list
         l_widget.clear()
 
@@ -169,13 +173,21 @@ class MergeDBDialog(QDialog):
 
         text_lower = text.strip().lower()
 
+        shown = 0
         for e in self.all_entities_cache:
             name = getattr(e, self.name_attr, "Unknown") or ""
             # Show everything when the box is empty; otherwise do a substring match
-            if not text_lower or text_lower in name.lower():
-                item = QListWidgetItem(name)
-                item.setData(Qt.UserRole, getattr(e, self.id_attr))
-                l_widget.addItem(item)
+            if text_lower and text_lower not in name.lower():
+                continue
+            if shown == _MAX_LIST_ROWS:
+                more = QListWidgetItem(f"More than {_MAX_LIST_ROWS} matches. Type more to refine the search.")
+                more.setFlags(Qt.NoItemFlags)
+                l_widget.addItem(more)
+                break
+            item = QListWidgetItem(name)
+            item.setData(Qt.UserRole, getattr(e, self.id_attr))
+            l_widget.addItem(item)
+            shown += 1
 
     def _normalize_name(self, name):
         """Simple normalization - just lowercase and remove common punctuation."""
@@ -238,24 +250,23 @@ class MergeDBDialog(QDialog):
 
         return min(sum(scores), 1.0)
 
-    def _find_similar_entities_by_name(self, base_name, entities, limit=10):
-        """Find entities similar to a given name using multiple strategies."""
+    def _find_similar_entities_by_name(self, base_name, entities, limit=10, exclude_id=None):
+        """Return up to `limit` (entity, score) pairs similar to `base_name`, skipping `exclude_id`."""
         if not base_name:
             return []
 
         similarities = []
         base_name_lower = str(base_name).lower()
+        base_tokens = set(self._normalize_name(base_name).split())
 
         for entity in entities:
-            entity_name = getattr(entity, self.name_attr, "")
-            selected_entity = self.source_entity if hasattr(self, "source_entity") else None
-            if selected_entity is not None and getattr(entity, self.id_attr, None) == getattr(selected_entity, self.id_attr, None):
+            if exclude_id is not None and getattr(entity, self.id_attr, None) == exclude_id:
                 continue
+            entity_name = getattr(entity, self.name_attr, "")
 
             score = self._calculate_name_similarity(base_name, entity_name)
 
             # Apply heuristics for common patterns
-            base_tokens = set(self._normalize_name(base_name).split())
             entity_tokens = set(self._normalize_name(entity_name).split())
 
             # Boost score if one name contains the other
@@ -279,7 +290,7 @@ class MergeDBDialog(QDialog):
         return similarities[:limit]
 
     def _select_entity(self, item, side):
-        """Select an entity with enhanced info display and auto-suggest."""
+        """Select a list item's entity for `side` and auto-suggest matches on the other side."""
         eid = item.data(Qt.UserRole)
         try:
             entity = self.controller.get.get_entity_object(self.model_name, **{self.id_attr: eid})
@@ -335,7 +346,7 @@ class MergeDBDialog(QDialog):
         return 0
 
     def _auto_suggest_similar(self, selected_entity, target_list_type):
-        """Automatically suggest similar entities in the opposite list."""
+        """Fill `target_list_type`'s list with entities similar to `selected_entity`."""
         if not selected_entity:
             return
 
@@ -344,7 +355,7 @@ class MergeDBDialog(QDialog):
             selected_name = getattr(selected_entity, self.name_attr, "")
 
             # Use our enhanced similarity finder
-            similar_entities = self._find_similar_entities_by_name(selected_name, entities, limit=10)
+            similar_entities = self._find_similar_entities_by_name(selected_name, entities, limit=10, exclude_id=getattr(selected_entity, self.id_attr, None))
 
             list_widget = self.source_list if target_list_type == "source" else self.target_list
 
@@ -363,11 +374,8 @@ class MergeDBDialog(QDialog):
                     item.setData(Qt.UserRole, getattr(entity, self.id_attr))
                     item.setData(Qt.UserRole + 1, similarity)
 
-                    # Color code based on similarity
-                    if similarity > 0.8:
-                        item.setForeground(Qt.darkGreen)
-                    elif similarity > 0.6:
-                        item.setForeground(Qt.darkBlue)
+                    if similarity > MEDIUM_CONFIDENCE:
+                        item.setForeground(confidence_color(similarity))
 
                     list_widget.addItem(item)
             else:
@@ -395,7 +403,7 @@ class MergeDBDialog(QDialog):
             logger.error(f"Error finding similar entities: {e!s}")
 
     def _swap_selection(self):
-        """Enhanced swap with highlighting and info updates."""
+        """Swap the source and target entities and refresh both sides."""
         if not self.source_entity or not self.target_entity:
             return
 
@@ -455,7 +463,12 @@ class MergeDBDialog(QDialog):
     # --- CONFLICT RESOLUTION FEATURES ---
 
     def _build_conflict_ui(self):
-        """Conflict resolution UI: one column per entity, one row per field."""
+        """Build (or rebuild) the conflict page at stack index 1 for the current pair."""
+        # Drop the previous pair's page: index 1 must always be the current grid.
+        while self.stack.count() > 1:
+            old_page = self.stack.widget(1)
+            self.stack.removeWidget(old_page)
+            old_page.deleteLater()
         resolve_page = QWidget()
         layout = QVBoxLayout(resolve_page)
 
@@ -503,19 +516,11 @@ class MergeDBDialog(QDialog):
         self.stack.setCurrentIndex(1)
 
     def _on_merge(self):
-        """Confirm, then execute the merge. Subclasses that show their own
-        confirmation should call `_execute_merge()` directly instead of
-        overriding this, to avoid a double confirmation prompt."""
-
+        """Confirm, then execute the merge (own-prompt subclasses call `_execute_merge()` directly)."""
         reply = QMessageBox.question(
             self,
             "Final Confirmation",
-            (
-                f"Are you sure you want to merge "
-                f"'{_esc_amp(str(getattr(self.source_entity, self.name_attr)))}' "
-                f"into '{_esc_amp(str(getattr(self.target_entity, self.name_attr)))}'?\n\n"
-                "This action cannot be undone."
-            ),
+            (f"Are you sure you want to merge '{getattr(self.source_entity, self.name_attr)}' into '{getattr(self.target_entity, self.name_attr)}'?\n\nThis action cannot be undone."),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

@@ -263,3 +263,20 @@ def test_branch_self_label_override_replaces_add_to_wording(qapp, session):
     populate_entity_submenu(menu, controller=_Controller(session), entity_type="Role", on_trigger=lambda *_: None, branch_self_label=lambda disp: disp)
     band_menu = _submenu(menu, "Band")
     assert [text for text, *_ in _rows(band_menu)] == ["Drummer", "Band"]
+
+
+def test_orphans_and_cycles_still_appear(qapp):
+    from types import SimpleNamespace
+
+    orphan = SimpleNamespace(genre_id=1, genre_name="Orphan", parent_id=99)
+    loop_a = SimpleNamespace(genre_id=2, genre_name="Loop A", parent_id=3)
+    loop_b = SimpleNamespace(genre_id=3, genre_name="Loop B", parent_id=2)
+    menu = QMenu()
+
+    populate_entity_submenu(menu, controller=None, entity_type="Genre", on_trigger=lambda: None, entities_override=[orphan, loop_a, loop_b])
+
+    top = [text for text, *_ in _rows(menu)]
+    assert "Orphan" in top
+    assert "Loop A" in top
+    loop_menu = _submenu(menu, "Loop A")
+    assert [text for text, *_ in _rows(loop_menu)] == ["Loop B", "Add to 'Loop A'"]

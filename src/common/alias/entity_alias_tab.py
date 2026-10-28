@@ -1,34 +1,11 @@
-"""
-entity_alias_tab.py
+"""Alias table embeddable in an entity's edit dialog, for any `<Model>Alias` model."""
 
-Generic alias-management table embeddable in an entity's edit dialog.
-Works for any `<Model>Alias` table with `alias_id`, `alias_name`, and a
-`<id_field>` FK column, e.g. PublisherAlias, GenreAlias.
-
-Aliases resolve to their entity both when merging duplicates (the
-merged-away entity's name is kept as an alias automatically, see
-MergeDB._preserve_alias_on_merge) and when importing/adding tracks (an
-alias name resolves to the canonical entity instead of creating a
-duplicate, see GetFromDB.resolve_entity_or_alias).
-
-Three optional hooks let a subclass cover richer alias models without
-forking the whole widget:
-  - extra_field: adds a second free-text column (e.g. an alias "type")
-    with autocomplete, backed by an attribute of that name on the alias
-    model. Override _extra_completions() to add fixed suggestions beyond
-    the values already present in the table (see artist_edit_alias.py).
-  - on_swap: adds a per-row "Use as Name" action that promotes an alias
-    to the entity's primary name. Receives (alias_id, new_primary_name,
-    extra_value) and should return True if the swap was performed (so the
-    table reloads).
-  - on_before_add: called with the proposed alias name just before it is
-    saved. Return False to abort the add (e.g. because the name already
-    belongs to another entity and the subclass handled it, such as
-    offering a merge instead — see AliasesTab._check_existing_artist in
-    artist_edit_alias.py). Return True to proceed as normal.
-"""
+# Optional hooks: extra_field (second free-text column with autocomplete; see
+# _extra_completions), on_swap(alias_id, new_name, extra) -> bool ("Use as
+# Name"), and on_before_add(name) -> bool (False aborts the add).
 
 from collections.abc import Callable
+import html
 
 from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
@@ -55,12 +32,7 @@ from src.foundation.logger_config import logger
 
 
 class EntityAliasEditDialog(QDialog):
-    """
-    Small dialog for editing an existing alias's name, with an optional
-    second free-text field (e.g. an alias "type") for entities that need
-    per-alias metadata beyond the name. Adding a new alias instead uses the
-    inline row in EntityAliasesTab.
-    """
+    """Dialog for editing an existing alias's name and optional extra field (e.g. a "type")."""
 
     def __init__(
         self,
@@ -119,18 +91,17 @@ class EntityAliasEditDialog(QDialog):
 
     @property
     def alias_name(self) -> str:
+        """The edited alias name, trimmed."""
         return self.name_edit.text().strip()
 
     @property
     def extra_value(self) -> str:
+        """The edited extra-field value, trimmed ("" when there is no extra field)."""
         return self.extra_edit.text().strip() if self.extra_edit else ""
 
 
 class EntityAliasRowWidget(QWidget):
-    """
-    Compact Edit / [Use as Name] / ✕ buttons rendered inside a table cell.
-    The swap button only appears when swap_cb is provided.
-    """
+    """Compact Edit / [Use as Name] / ✕ buttons for one alias row; swap appears only with swap_cb."""
 
     def __init__(self, edit_cb, delete_cb, swap_cb=None, swap_label: str = "↕ Use as Name", swap_tooltip: str = "Promote this alias to the entity's primary name", parent=None):
         super().__init__(parent)
@@ -288,6 +259,7 @@ class EntityAliasesTab(QWidget):
         self._extra_completer.setModel(QStringListModel(self._extra_completions(), self._extra_completer))
 
     def load(self, entity):
+        """Show `entity`'s aliases."""
         self.entity = entity
         self._reload_table()
 
@@ -318,7 +290,7 @@ class EntityAliasesTab(QWidget):
         try:
             aliases = self.controller.get.get_all_entities(self.alias_model_name, **{self.id_field: self._entity_id()})
         except (AttributeError, SQLAlchemyError):
-            logger.exception("EntityAliasesTab: failed to fetch %s for %s=%s", self.alias_model_name, self.id_field, self._entity_id())
+            logger.exception("EntityAliasesTab: failed to fetch %s for %s", self.alias_model_name, self.id_field)
             aliases = []
 
         for alias in aliases:
@@ -409,12 +381,7 @@ class EntityAliasesTab(QWidget):
         return sorted(values)
 
     def _extra_completions(self) -> list[str]:
-        """
-        Autocomplete suggestions offered for the extra field, both on the
-        inline add row and in the edit dialog. Override to add fixed
-        suggestions beyond values already in use (see
-        artist_edit_alias.AliasesTab._extra_completions).
-        """
+        """Extra-field suggestions for the add row and edit dialog; override to add fixed values."""
         return self._existing_extra_values()
 
     def _add_alias(self):
@@ -428,11 +395,9 @@ class EntityAliasesTab(QWidget):
         kwargs = {self.id_field: self._entity_id(), "alias_name": alias_name}
         if self.extra_field:
             kwargs[self.extra_field] = extra_value or None
-        try:
-            self.controller.add.add_entity(self.alias_model_name, **kwargs)
-        except SQLAlchemyError as exc:
-            logger.exception("EntityAliasesTab: failed to add alias %r", alias_name)
-            QMessageBox.critical(self, "Error", f"Could not add alias:\n{exc}")
+        # add/update/delete_entity log and return None/False on failure; they do not raise.
+        if self.controller.add.add_entity(self.alias_model_name, **kwargs) is None:
+            QMessageBox.critical(self, "Error", f"Could not add alias '{alias_name}'. The name may already be in use.")
             return
         self.name_edit.clear()
         if self.extra_edit:
@@ -466,14 +431,11 @@ class EntityAliasesTab(QWidget):
     def _delete_alias(self, row: int):
         alias_id = self._row_alias_id(row)
         alias_name = self._row_alias_name(row)
-        reply = QMessageBox.question(self, "Delete Alias", f"Delete alias <b>{alias_name}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(self, "Delete Alias", f"Delete alias <b>{html.escape(alias_name)}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
-        try:
-            self.controller.delete.delete_entity(self.alias_model_name, alias_id)
-        except SQLAlchemyError as exc:
-            logger.exception("EntityAliasesTab: failed to delete alias_id=%s", alias_id)
-            QMessageBox.critical(self, "Error", f"Could not delete alias:\n{exc}")
+        if not self.controller.delete.delete_entity(self.alias_model_name, alias_id):
+            QMessageBox.critical(self, "Error", f"Could not delete alias '{alias_name}'.")
             return
         self._reload_table()
 

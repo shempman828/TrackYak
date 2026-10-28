@@ -1,27 +1,15 @@
-"""Shared field-conflict detection and resolution UI for entity merges.
-
-Used by both the manual one-pair merge dialog (`MergeDBDialog` in
-base_merge_dialog.py) and the batch fuzzy-duplicate-scan merge flow
-(`BaseFuzzyMatchDialog` in fuzzy_match_dialog.py), so a reconciled field
-choice behaves identically wherever a merge happens.
-"""
+"""Shared field-conflict detection and resolution UI for manual and batch entity merges."""
 
 import html
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.common.widgets.qt_text import esc_amp as _esc_amp
+from src.common.widgets.style_utils import refresh_style
 
 
 def _is_skippable_field(attr, value):
-    """Return True for fields that should never be shown as merge choices.
-
-    Skipped categories:
-    - Relationship fields: lists or ORM-mapped objects (not plain Python types)
-    - Auto-generated IDs: any attribute ending in '_id'
-    - Timestamps: any attribute ending in '_at' or named 'created_*' / 'updated_*'
-    """
+    """True for IDs/FKs (`*_id`), timestamps, and non-scalar values, which are never merge choices."""
     if attr.endswith("_id"):
         return True
 
@@ -44,19 +32,14 @@ def _format_value_for_display(value):
 
 
 def get_entity_conflicts(source_entity, target_entity, id_attr):
-    """Detect differing scalar fields between two mapped ORM entities of the
-    same class, excluding IDs, timestamps, and relationship/list fields.
-
-    Returns {field_name: (source_value, target_value)}. Uses the mapper's
-    column list rather than vars(entity): the instance __dict__ is emptied
-    by SQLAlchemy whenever the shared session commits (expire_on_commit),
-    which would otherwise report zero conflicts after the first merge in a
-    batch.
-    """
+    """Return {field: (source_value, target_value)} for differing scalar columns of two same-class rows."""
+    # id_attr is kept for callers; it ends in "_id", so _is_skippable_field skips it.
     conflicts = {}
+    # The mapper's columns, not vars(entity): expire_on_commit empties __dict__
+    # after each commit, which would report zero conflicts mid-batch.
     attr_names = type(source_entity).__mapper__.column_attrs.keys()
     for attr in attr_names:
-        if attr.startswith("_") or attr in ("metadata", id_attr):
+        if attr.startswith("_") or attr == "metadata":
             continue
 
         s_val = getattr(source_entity, attr)
@@ -71,18 +54,15 @@ def get_entity_conflicts(source_entity, target_entity, id_attr):
 
 
 class _ConflictValueCell(QWidget):
-    """One clickable value in the conflict-resolution grid.
-
-    Behaves like a radio option shaped as a table cell: clicking it selects
-    this side's value for the row and notifies the dialog to deselect the
-    sibling cell in the same row.
-    """
+    """One radio-like value cell in the conflict grid; click, Space or Enter chooses it."""
 
     def __init__(self, display_text, on_select, parent=None):
         super().__init__(parent)
         self.setProperty("mergeCell", True)
         self.setProperty("chosen", False)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(display_text)
         self._on_select = on_select
 
         layout = QHBoxLayout(self)
@@ -102,26 +82,27 @@ class _ConflictValueCell(QWidget):
         layout.addWidget(value_label, 1)
 
     def set_chosen(self, chosen):
+        """Show or clear this cell's tick and `chosen` QSS state."""
         self._check.setText("✓" if chosen else "")
+        self.setAccessibleDescription("chosen" if chosen else "")
         self.setProperty("chosen", chosen)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        refresh_style(self)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._on_select()
         super().mousePressEvent(event)
 
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            self._on_select()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class ConflictGridWidget(QWidget):
-    """Field / source-entity / target-entity conflict grid for one pair.
-
-    Renders one row per differing scalar field, each a click-to-choose pair
-    of `_ConflictValueCell`s, and tracks which side the user picked.
-    Defaults to the source side when it's non-blank, otherwise the target
-    side -- matching the default `MergeDBDialog` has always used, kept
-    as-is here for consistency between the manual and batch merge paths.
-    """
+    """Field / source / target grid for one pair; each row defaults to the source unless it is blank."""
 
     def __init__(self, source_entity, target_entity, id_attr, source_label, target_label, parent=None):
         super().__init__(parent)
@@ -196,12 +177,11 @@ class ConflictGridWidget(QWidget):
         t_cell.set_chosen(side == 1)
 
     def has_conflicts(self):
+        """True if at least one scalar field differs."""
         return bool(self.conflicts)
 
     def get_resolved_fields(self):
-        """Return {field: value} for every conflicting field, using
-        whichever side the user chose (or the default choice, if
-        untouched)."""
+        """Return {field: value} for every conflicting field from the chosen (or default) side."""
         resolved = {}
         for field, side in self._choices.items():
             entity = self.source_entity if side == 0 else self.target_entity
@@ -210,16 +190,7 @@ class ConflictGridWidget(QWidget):
 
 
 class PairConflictDialog(QDialog):
-    """One-pair conflict-resolution step shown mid-batch-merge, for a
-    checked pair that has at least one differing scalar field.
-
-    Distinct from `MergeDBDialog`'s conflict page, which is the terminal
-    step of a one-pair search-driven merge; this is one step inside a
-    larger batch, so it offers "skip this pair" and "skip the rest of the
-    batch" in addition to applying the chosen values, and never runs the
-    merge itself -- the caller collects `resolved_fields()` and dispatches
-    the actual merge afterwards.
-    """
+    """One pair's conflict step inside a batch merge; the caller runs the merge with `resolved_fields()`."""
 
     USE_SELECTED = "use_selected"
     SKIP_PAIR = "skip_pair"
@@ -256,7 +227,7 @@ class PairConflictDialog(QDialog):
         skip_all_btn.clicked.connect(lambda: self._finish(self.SKIP_ALL))
         footer.addWidget(skip_all_btn)
 
-        skip_btn = QPushButton(_esc_amp("Skip This Pair (Keep Canonical)"))
+        skip_btn = QPushButton("Skip This Pair (Keep Canonical)")
         skip_btn.clicked.connect(lambda: self._finish(self.SKIP_PAIR))
         footer.addWidget(skip_btn)
 
@@ -271,7 +242,5 @@ class PairConflictDialog(QDialog):
         self.accept()
 
     def resolved_fields(self):
-        """Field overrides to apply, or {} if the user didn't choose to use
-        the selected values (Skip This Pair / Skip All Remaining both keep
-        the canonical entity untouched)."""
+        """Field overrides to apply, or {} unless the user chose Use Selected Values."""
         return self.grid_widget.get_resolved_fields() if self.outcome == self.USE_SELECTED else {}

@@ -1,27 +1,20 @@
+"""Spreadsheet-style searchable multi-select filter button."""
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
+from src.common.widgets.qt_text import esc_amp
+
 
 class _SelectAllCheckBox(QCheckBox):
-    """Tristate checkbox that only toggles Checked/Unchecked on click.
-
-    The partial (mixed-selection) state is only ever set programmatically to
-    reflect the list below it; a click always means "select all" or
-    "deselect all", never "advance to partial".
-    """
+    """Tristate checkbox whose click only toggles Checked/Unchecked, never to partial."""
 
     def nextCheckState(self) -> None:
         self.setCheckState(Qt.Unchecked if self.checkState() == Qt.Checked else Qt.Checked)
 
 
 class MultiSelectFilterButton(QToolButton):
-    """Searchable, checkable multi-select filter button.
-
-    Behaves like a spreadsheet column filter: click to open a popup, type to
-    narrow the list of values, tick the ones wanted, OK to apply. An empty
-    `committed_selection()` means "no filter" (nothing checked, or
-    everything checked, are both treated as "all").
-    """
+    """Searchable, checkable multi-select filter button; an empty selection means "all"."""
 
     selection_changed = Signal()
 
@@ -71,8 +64,7 @@ class MultiSelectFilterButton(QToolButton):
         self._menu.aboutToShow.connect(self._sync_checkboxes_to_committed)
 
     def set_values(self, values: list[str]) -> None:
-        """Rebuild the checkbox list, keeping the committed selection for
-        any values still present and dropping ones that are gone."""
+        """Rebuild the checkbox list, keeping the committed selection for values still present."""
         value_set = set(values)
         self._values = sorted(value_set, key=str.lower)
         # Intersect with the set, not `in self._values` (a list scan per value).
@@ -99,6 +91,7 @@ class MultiSelectFilterButton(QToolButton):
         return set(self._committed)
 
     def button_text(self) -> str:
+        """Unescaped summary of the committed selection ("All", the one value, or "N selected")."""
         if not self._committed:
             return self._all_label
         if len(self._committed) == 1:
@@ -144,8 +137,7 @@ class MultiSelectFilterButton(QToolButton):
             self._select_all_checkbox.blockSignals(False)
 
     def _sync_checkboxes_to_committed(self) -> None:
-        """Reset the popup to reflect the last-committed selection, e.g.
-        after a Cancel or before the very first open."""
+        """Reset the popup to the last-committed selection (after Cancel, or before first open)."""
         self._search_edit.clear()
         self._list_widget.blockSignals(True)
         try:
@@ -169,4 +161,5 @@ class MultiSelectFilterButton(QToolButton):
         self._menu.close()
 
     def _refresh_button_text(self) -> None:
-        self.setText(self.button_text())
+        # QToolButton text treats '&' as a mnemonic ("R&B" would show as "RB").
+        self.setText(esc_amp(self.button_text()))

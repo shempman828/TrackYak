@@ -1,15 +1,4 @@
-"""Single-select replacement for a flat `QComboBox` when the choices form a
-`parent_id` hierarchy (Genre today; any future entity with the same shape
-can reuse this by passing its own `entity_type`/`id_attr`/`name_attr`).
-
-Combines two pieces the codebase already has, in the `QToolButton` + `QMenu`
-+ `QWidgetAction` popup shell established by `MultiSelectFilterButton`:
-
-- A search field (`EntityCompleterEdit`) for typing a name, exactly like
-  every other "pick one entity by typing" field in the app.
-- A cascading submenu tree (`populate_entity_submenu`) for browsing by
-  hierarchy, exactly like Role's "Change Parent" context menu.
-"""
+"""Single-select picker for a `parent_id` hierarchy: a search field plus a cascading submenu tree."""
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction
@@ -50,12 +39,7 @@ class HierarchyPickerButton(QToolButton):
         self._refresh_button_text()
 
     def set_options(self, entities: list) -> None:
-        """Rebuild the search index and hierarchy tree from `entities`.
-
-        No DB fetch -- `entities` is the caller's already-filtered valid-parent
-        list, so an excluded id can never appear in either the search
-        suggestions or the submenu tree.
-        """
+        """Rebuild the search index and hierarchy tree from the caller's pre-filtered `entities` (no DB fetch)."""
         self._entities = list(entities)
         index = {getattr(e, self._name_attr): getattr(e, self._id_attr) for e in self._entities}
         self._search_edit.set_index(index)
@@ -78,15 +62,18 @@ class HierarchyPickerButton(QToolButton):
         self._refresh_button_text()
 
     def set_selected_id(self, entity_id) -> None:
+        """Select `entity_id` without emitting selection_changed; unknown ids select none."""
         if entity_id not in self.available_ids():
             entity_id = None
         self._selected_id = entity_id
         self._refresh_button_text()
 
     def selected_id(self):
+        """The selected entity id, or None."""
         return self._selected_id
 
     def available_ids(self) -> list:
+        """Ids of every selectable entity, in option order."""
         return [getattr(e, self._id_attr) for e in self._entities]
 
     def _on_about_to_show(self) -> None:

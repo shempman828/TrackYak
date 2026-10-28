@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLa
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.hierarchy_tree_style import hierarchy_descendant_ids
+from src.common.hierarchy_ops import hierarchy_descendant_ids
 from src.db.db_tables import MoodTrackAssociation, Track
 from src.foundation.logger_config import logger
 from src.track.view.base_track_view import BaseTrackView

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from src.common.widgets.hierarchy_tree_style import hierarchy_descendant_ids, is_hierarchy_descendant, render_hierarchy_as_text
+from src.common.hierarchy_ops import hierarchy_descendant_ids, insert_as_new_child, insert_as_new_parent, is_hierarchy_descendant, render_hierarchy_as_text
 
 # ---------------------------------------------------------------------------
 # Tests for hierarchy_descendant_ids and is_hierarchy_descendant
@@ -72,9 +72,7 @@ class _NodeRender:
 
 
 def _render(nodes, sort_key=None):
-    return render_hierarchy_as_text(
-        nodes, id_attr="id", name_attr="name", parent_attr="parent_id", sort_key=sort_key
-    )
+    return render_hierarchy_as_text(nodes, id_attr="id", name_attr="name", parent_attr="parent_id", sort_key=sort_key)
 
 
 def test_single_root_no_children():
@@ -119,21 +117,14 @@ def test_sample_data_matches_expected_box_drawing_format():
 
 
 def test_multiple_roots_each_start_unprefixed_block_in_given_order():
-    nodes = [
-        _NodeRender(1, "Other"),
-        _NodeRender(2, "Rock"),
-        _NodeRender(3, "Child of Rock", parent_id=2),
-    ]
+    nodes = [_NodeRender(1, "Other"), _NodeRender(2, "Rock"), _NodeRender(3, "Child of Rock", parent_id=2)]
 
     result = _render(nodes)
     assert result == "Other\nRock\n└── Child of Rock"
 
 
 def test_multiple_roots_ordered_by_sort_key():
-    nodes = [
-        _NodeRender(1, "Zydeco"),
-        _NodeRender(2, "Alpha"),
-    ]
+    nodes = [_NodeRender(1, "Zydeco"), _NodeRender(2, "Alpha")]
 
     result = _render(nodes, sort_key=lambda n: n.name.lower())
     assert result == "Alpha\nZydeco"
@@ -141,3 +132,43 @@ def test_multiple_roots_ordered_by_sort_key():
 
 def test_empty_input_returns_empty_string():
     assert _render([]) == ""
+
+
+def test_render_treats_orphans_as_roots_and_tolerates_null_names():
+    nodes = [_NodeRender(1, "Rock"), _NodeRender(2, "Lost", parent_id=99), _NodeRender(3, None, parent_id=1)]
+
+    assert _render(nodes) == "Rock\n└── \nLost"
+
+
+# ---------------------------------------------------------------------------
+# insert_as_new_parent / insert_as_new_child: update_entity returns False on failure
+# ---------------------------------------------------------------------------
+
+
+class _StubUpdate:
+    def __init__(self, fail_on_call=None):
+        self.calls = []
+        self._fail_on_call = fail_on_call
+
+    def update_entity(self, entity_type, entity_id, **kwargs):
+        self.calls.append((entity_id, kwargs))
+        return len(self.calls) != self._fail_on_call
+
+
+class _StubController:
+    def __init__(self, fail_on_call=None):
+        self.update = _StubUpdate(fail_on_call)
+
+
+def test_insert_as_new_parent_undoes_first_step_when_second_fails():
+    controller = _StubController(fail_on_call=2)
+    entity = _Node(1, parent_id=7)
+    new_entity = _Node(2, parent_id=None)
+
+    assert insert_as_new_parent(controller, "Genre", "id", entity, new_entity) is False
+    assert controller.update.calls == [(2, {"parent_id": 7}), (1, {"parent_id": 2}), (2, {"parent_id": None})]
+
+
+def test_insert_as_new_child_reports_failure():
+    assert insert_as_new_child(_StubController(fail_on_call=1), "Genre", "id", _Node(1), _Node(2)) is False
+    assert insert_as_new_child(_StubController(), "Genre", "id", _Node(1), _Node(2)) is True

@@ -1,16 +1,6 @@
-"""
-global_split_alias_tab.py
+"""Cross-entity table of every `<Model>SplitAlias` rule for the "Manage Aliases…" dialog."""
 
-Generic, cross-entity split-alias management table for the unified
-"Manage Aliases…" dialog (see docs/specs/split_and_merge_aliases.md).
-Lists every rule in a `<Model>SplitAlias` table (grouped by alias_name,
-since one alias_name maps to 2+ target rows), with add/edit/delete.
-Reusable across Genre/Artist/Publisher/Role -- the split-alias table shape
-is identical for each. Splitting an existing entity via SplitDBDialog also
-writes rows here automatically (SplitDB._record_split_alias); this widget
-additionally lets a rule be set up directly, without an existing combined
-entity to split.
-"""
+import html
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -30,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.entity_completer_edit import build_entity_search_widget, find_or_create_by_name, get_cached_entities
+from src.common.widgets.entity_completer_edit import build_entity_search_widget, find_or_create_by_name, get_cached_entities, register_cached_entity
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 
@@ -72,6 +62,7 @@ class _SplitAliasEditDialog(QDialog):
 
     @property
     def target_names(self) -> list[str]:
+        """The typed target names, split on ';'."""
         return self.targets_edit.split_names()
 
 
@@ -124,6 +115,7 @@ class GlobalSplitAliasTab(QWidget):
         layout.addWidget(self.table)
 
     def reload(self):
+        """Reload every rule from the DB, one row per combined name."""
         self.table.setRowCount(0)
         try:
             rows = self.controller.get.get_all_entities(self.alias_model_name) or []
@@ -170,13 +162,7 @@ class GlobalSplitAliasTab(QWidget):
         self.table.setRowHeight(r, 32)
 
     def _resolve_target_ids(self, names: list[str]) -> list[int] | None:
-        """Resolve each typed target name to an entity id, creating any
-        that don't already exist (same find-or-create convention as
-        every other entity-picker field in the app). Falls back to the
-        model's alias table first (e.g. "Pig Robbins" -> ArtistAlias ->
-        Hargus Robbins) so a target that's really just an alias resolves
-        to its canonical entity instead of creating a duplicate. Returns
-        None if any name failed to resolve."""
+        """Find-or-create an id per target name (aliases resolve to their entity); None if any fails."""
         known_entities = get_cached_entities(self.controller, self.model_name) or []
         ids = []
         for name in names:
@@ -190,6 +176,8 @@ class GlobalSplitAliasTab(QWidget):
             )
             if entity is None:
                 return None
+            if entity not in known_entities:
+                register_cached_entity(self.model_name, entity)
             ids.append(getattr(entity, self.id_field))
         return ids
 
@@ -233,21 +221,27 @@ class GlobalSplitAliasTab(QWidget):
             return
 
         try:
-            self.controller.split.set_split_alias(self.model_name, alias_name, target_ids)
+            ok = self.controller.split.set_split_alias(self.model_name, alias_name, target_ids)
         except SQLAlchemyError as exc:
             logger.exception("GlobalSplitAliasTab: failed to update rule %r", alias_name)
             QMessageBox.critical(self, "Error", f"Could not update rule:\n{exc}")
             return
+        if not ok:
+            show_status_message(self, "Could not update rule.")
+            return
         self.reload()
 
     def _delete_rule(self, alias_name: str):
-        reply = QMessageBox.question(self, "Delete Split Alias", f"Delete the split rule for <b>{alias_name}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(self, "Delete Split Alias", f"Delete the split rule for <b>{html.escape(alias_name)}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
         try:
-            self.controller.split.delete_split_alias(self.model_name, alias_name)
+            ok = self.controller.split.delete_split_alias(self.model_name, alias_name)
         except SQLAlchemyError as exc:
             logger.exception("GlobalSplitAliasTab: failed to delete rule %r", alias_name)
             QMessageBox.critical(self, "Error", f"Could not delete rule:\n{exc}")
+            return
+        if not ok:
+            show_status_message(self, "Could not delete rule.")
             return
         self.reload()

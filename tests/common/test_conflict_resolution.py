@@ -239,3 +239,55 @@ def test_conflict_card_shows_full_value_and_has_no_fixed_width(qapp):
     finally:
         dialog.deleteLater()
         session.close()
+
+
+def test_conflict_cell_is_keyboard_selectable(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    session = _make_session()
+    source, target = _artist_pair(session)
+    grid = ConflictGridWidget(source, target, "artist_id", "Lew", "Lewis")
+    try:
+        _source_cell, target_cell = grid._cells["biography"]
+        assert target_cell.focusPolicy() == Qt.StrongFocus
+
+        QTest.keyClick(target_cell, Qt.Key_Space)
+
+        assert grid.get_resolved_fields()["biography"] is None
+    finally:
+        grid.deleteLater()
+        session.close()
+
+
+def test_next_after_back_shows_the_new_pairs_conflict_page(qapp):
+    session = _make_session()
+    first_source, target = _artist_pair(session)
+    second_source = Artist(artist_name="Lou", biography="Other bio.", begin_year=1960)
+    session.add(second_source)
+    session.commit()
+
+    dialog = MergeDBDialog(_StubController(), "Artist", preload_source=first_source, preload_target=target)
+    try:
+        dialog.source_entity = second_source
+        dialog._build_conflict_ui()
+
+        assert dialog.stack.count() == 2
+        assert dialog.stack.currentWidget().isAncestorOf(dialog._conflict_grid)
+        assert dialog._conflict_grid.source_entity is second_source
+    finally:
+        dialog.deleteLater()
+        session.close()
+
+
+def test_find_similar_excludes_the_entity_it_starts_from(qapp):
+    session = _make_session()
+    source, target = _artist_pair(session)
+    dialog = MergeDBDialog(_StubController(), "Artist")
+    try:
+        results = dialog._find_similar_entities_by_name("Lewis", [source, target], exclude_id=target.artist_id)
+
+        assert [entity for entity, _score in results] == [source]
+    finally:
+        dialog.deleteLater()
+        session.close()

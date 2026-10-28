@@ -100,7 +100,7 @@ def test_resolved_field_lands_on_the_merged_survivor(qapp):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker
+    from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker, make_merge_job
     from src.db.db_helpers.merge import MergeDB
     from src.db.db_tables.base import Base
     from src.db.db_tables.publisher import Publisher
@@ -117,7 +117,7 @@ def test_resolved_field_lands_on_the_merged_survivor(qapp):
     class _StubController:
         merge = MergeDB(session)
 
-    worker = BaseMergeWorker(_StubController(), "Publisher", "publisher_id", "publisher_name", [(source, target, {"description": "A record label.", "publisher_name": "Sony"})])
+    worker = BaseMergeWorker(_StubController(), "Publisher", [make_merge_job(source, target, "publisher_id", "publisher_name", {"description": "A record label.", "publisher_name": "Sony"})])
     worker.run()
 
     survivor = session.get(Publisher, target.publisher_id)

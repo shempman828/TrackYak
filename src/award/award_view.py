@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_detail import AwardDetailTab
-from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
+from src.common.hierarchy_ops import is_hierarchy_descendant
 from src.common.widgets.multi_select_filter_button import MultiSelectFilterButton
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger

@@ -1,23 +1,14 @@
-"""
-SegmentedControl: a row of joined, mutually exclusive toggle buttons -- the
-macOS/iOS-style segmented picker -- for short fixed choices (view switchers,
-modes, presets) that read faster laid out than hidden in a QComboBox.
-
-Exposes the QComboBox surface callers usually touch (currentIndex/Text,
-setCurrentIndex/Text, currentIndexChanged/currentTextChanged, count,
-itemText), so it drops in where a combo with a handful of items used to sit.
-As with QComboBox, programmatic changes emit the change signals too; wrap
-them in blockSignals() to load state silently.
-
-Styled in dark_mode.qss via QWidget#SegmentedControl and each button's
-`segment` property ("first" | "middle" | "last" | "only").
-"""
+"""Segmented control: a row of joined, mutually exclusive toggle buttons."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
 
 class SegmentedControl(QWidget):
+    """Drop-in for a short QComboBox; programmatic changes emit the change signals too."""
+
+    # Styled in dark_mode.qss via #SegmentedControl and each button's
+    # `segment` property ("first" | "middle" | "last" | "only").
     currentIndexChanged = Signal(int)
     currentTextChanged = Signal(str)
 
@@ -57,18 +48,22 @@ class SegmentedControl(QWidget):
     # -- QComboBox-like API ---------------------------------------------------
 
     def count(self) -> int:
+        """Number of segments."""
         return len(self._group.buttons())
 
     def itemText(self, index: int) -> str:
+        """Label of segment `index`, or "" if out of range."""
         button = self._group.button(index)
         return button.text() if button else ""
 
     def setItemText(self, index: int, text: str) -> None:
+        """Relabel segment `index`."""
         button = self._group.button(index)
         if button:
             button.setText(text)
 
     def setItemToolTip(self, index: int, tip: str) -> None:
+        """Set segment `index`'s tooltip."""
         button = self._group.button(index)
         if button:
             button.setToolTip(tip)
@@ -78,12 +73,15 @@ class SegmentedControl(QWidget):
         return self._group.button(index)
 
     def currentIndex(self) -> int:
+        """Index of the checked segment, or -1 if there are none."""
         return self._current
 
     def currentText(self) -> str:
+        """Label of the checked segment."""
         return self.itemText(self._current)
 
     def setCurrentIndex(self, index: int) -> None:
+        """Check segment `index`; out-of-range indexes are ignored."""
         button = self._group.button(index)
         if button is None:
             return
@@ -91,6 +89,7 @@ class SegmentedControl(QWidget):
         self._set_current(index)
 
     def setCurrentText(self, text: str) -> None:
+        """Check the first segment labelled `text`."""
         for button in self._group.buttons():
             if button.text() == text:
                 self.setCurrentIndex(self._group.id(button))

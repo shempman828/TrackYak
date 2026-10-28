@@ -162,3 +162,13 @@ def test_set_values_collapses_to_all_when_every_surviving_value_was_selected(qap
 
     assert button.committed_selection() == set()
     assert button.button_text() == "All"
+
+
+def test_single_selected_value_keeps_its_ampersand(qapp):
+    button = MultiSelectFilterButton()
+    button.set_values(["R&B", "Rock"])
+    _check(button, "R&B")
+    button._commit_and_close()
+
+    assert button.button_text() == "R&B"
+    assert button.text() == "R&&B"  # doubled so Qt shows a literal '&'

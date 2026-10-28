@@ -63,9 +63,7 @@ class _Publisher:
 
 
 def test_artist_context_prefers_disambiguation():
-    a = _Artist(
-        1, "Nirvana", disambiguation="US grunge band", career_span="1987\u20131994", isgroup=1
-    )
+    a = _Artist(1, "Nirvana", disambiguation="US grunge band", career_span="1987\u20131994", isgroup=1)
     assert artist_context_map([a]) == {1: "US grunge band"}
 
 
@@ -124,9 +122,7 @@ def test_track_context_degrades():
     only_artist = _Track(2, primary_artists=[_ArtistName("Aphex Twin")])
     only_album = _Track(3, album_name="Untitled")
     nothing = _Track(4)
-    multi = _Track(
-        5, primary_artists=[_ArtistName("Jay-Z"), _ArtistName("Kanye West")], album_name="WTT"
-    )
+    multi = _Track(5, primary_artists=[_ArtistName("Jay-Z"), _ArtistName("Kanye West")], album_name="WTT")
     out = track_context_map([only_artist, only_album, nothing, multi])
     assert out == {2: "Aphex Twin", 3: "Untitled", 4: "", 5: "Jay-Z, Kanye West · WTT"}
 
@@ -140,9 +136,7 @@ def test_album_context_degrades():
     only_artist = _Album(2, album_artists=[_ArtistName("Aphex Twin")])
     only_year = _Album(3, release_year=2001)
     nothing = _Album(4)
-    multi = _Album(
-        5, album_artists=[_ArtistName("Jay-Z"), _ArtistName("Kanye West")], release_year=2011
-    )
+    multi = _Album(5, album_artists=[_ArtistName("Jay-Z"), _ArtistName("Kanye West")], release_year=2011)
     out = album_context_map([only_artist, only_year, nothing, multi])
     assert out == {2: "Aphex Twin", 3: "2001", 4: "", 5: "Jay-Z, Kanye West · 2011"}
 
@@ -193,9 +187,7 @@ def test_entity_completer_edit_enter_picks_highlighted_suggestion(qapp):
     widget.set_index({"Rock": 1, "Rockabilly": 2, "Pop": 3})
 
     captured = {}
-    widget.returnPressed.connect(
-        lambda: captured.update(text=widget.text(), matched_id=widget.matched_id())
-    )
+    widget.returnPressed.connect(lambda: captured.update(text=widget.text(), matched_id=widget.matched_id()))
 
     QTest.keyClicks(widget, "Roc")
     _highlight_first_suggestion(widget)
@@ -208,9 +200,7 @@ def test_bounded_search_edit_enter_picks_highlighted_suggestion(qapp):
     widget = BoundedSearchEdit(_StubController(), "Genre", "genre_name", "genre_id")
 
     captured = {}
-    widget.returnPressed.connect(
-        lambda: captured.update(text=widget.text(), matched_id=widget.matched_id())
-    )
+    widget.returnPressed.connect(lambda: captured.update(text=widget.text(), matched_id=widget.matched_id()))
 
     QTest.keyClicks(widget, "Roc")
     _highlight_first_suggestion(widget)
@@ -308,13 +298,13 @@ class _ContextGet:
     def count_entities(self, model_name):
         return len(self._rows)
 
-    def get_all_entities(self, model_name, **kwargs):
+    def get_all_entities(self, model_name, limit=None, **kwargs):
         if not kwargs:
             return list(self._rows)
         # crude __contains emulation for the bounded path
         ((key, needle),) = kwargs.items()
         field = key.split("__")[0]
-        return [r for r in self._rows if needle.lower() in getattr(r, field).lower()]
+        return [r for r in self._rows if needle.lower() in getattr(r, field).lower()][:limit]
 
 
 class _ContextController:
@@ -331,13 +321,7 @@ def test_build_entity_search_widget_applies_context_builder_preloaded(qapp):
     EntityCompleterEdit path."""
     rows = [_StubEntity(1, "Rock"), _StubEntity(2, "Jazz")]
     invalidate_entity_cache("CtxGenrePre")
-    widget = build_entity_search_widget(
-        _ContextController(rows),
-        "CtxGenrePre",
-        "genre_name",
-        "genre_id",
-        context_builder=_genre_context_map,
-    )
+    widget = build_entity_search_widget(_ContextController(rows), "CtxGenrePre", "genre_name", "genre_id", context_builder=_genre_context_map)
     invalidate_entity_cache("CtxGenrePre")
     assert isinstance(widget, EntityCompleterEdit)
     assert widget._display_to_context == {"Rock": "ctx-Rock", "Jazz": "ctx-Jazz"}
@@ -382,13 +366,7 @@ def test_create_new_flag_clears_on_further_edit_and_reset(qapp):
 
 
 def test_bounded_search_edit_offers_and_flags_create_new(qapp):
-    widget = BoundedSearchEdit(
-        _ContextController([_StubEntity(1, "Greatest Hits")]),
-        "Album",
-        "genre_name",
-        "genre_id",
-        allow_create_new=True,
-    )
+    widget = BoundedSearchEdit(_ContextController([_StubEntity(1, "Greatest Hits")]), "Album", "genre_name", "genre_id", allow_create_new=True)
     QTest.keyClicks(widget, "Greatest Hits")
     rows = widget._model.stringList()
     assert rows[-1] == 'Create new "Greatest Hits"'
@@ -406,13 +384,71 @@ def test_bounded_search_edit_applies_context_builder(qapp):
     """AC8: context shows for on-demand results and known_matches() is
     unaffected."""
     rows = [_StubEntity(1, "Rock"), _StubEntity(2, "Rockabilly"), _StubEntity(3, "Pop")]
-    widget = BoundedSearchEdit(
-        _ContextController(rows),
-        "Genre",
-        "genre_name",
-        "genre_id",
-        context_builder=_genre_context_map,
-    )
+    widget = BoundedSearchEdit(_ContextController(rows), "Genre", "genre_name", "genre_id", context_builder=_genre_context_map)
     QTest.keyClicks(widget, "Rock")
     assert widget._display_to_context == {"Rock": "ctx-Rock", "Rockabilly": "ctx-Rockabilly"}
     assert {e.genre_name for e in widget.known_matches()} == {"Rock", "Rockabilly"}
+
+
+# ---- finalize audit: ranking, find-or-create, bounded search robustness ----
+
+
+def test_rank_by_query_breaks_ties_case_insensitively():
+    from src.common.widgets.entity_completer_edit import _rank_by_query
+
+    assert _rank_by_query("x", ["Zebra", "apple", "Mango"]) == ["apple", "Mango", "Zebra"]
+
+
+def test_find_or_create_skips_blank_names_and_strips_new_ones():
+    from src.common.widgets.entity_completer_edit import find_or_create_by_name
+
+    created = []
+
+    class _Add:
+        def add_entity(self, model_name, **kwargs):
+            created.append(kwargs)
+            return kwargs
+
+    class _Controller:
+        add = _Add()
+
+    assert find_or_create_by_name(_Controller(), "Genre", "genre_name", "   ", []) is None
+    find_or_create_by_name(_Controller(), "Genre", "genre_name", "  Jazz ", [])
+    assert created == [{"genre_name": "Jazz"}]
+
+
+def test_bounded_search_passes_the_result_cap_and_survives_db_errors(qapp):
+    from sqlalchemy.exc import OperationalError
+
+    calls = []
+
+    class _Get:
+        fail = False
+
+        def get_all_entities(self, model_name, limit=None, **kwargs):
+            calls.append(limit)
+            if self.fail:
+                raise OperationalError("SELECT", {}, Exception("locked"))
+            return [_StubEntity(1, "Rock")]
+
+    class _Controller:
+        get = _Get()
+
+    widget = BoundedSearchEdit(_Controller(), "Genre", "genre_name", "genre_id")
+    QTest.keyClicks(widget, "Ro")
+    assert calls[-1] == BoundedSearchEdit._MAX_RESULTS
+
+    _Controller.get.fail = True
+    QTest.keyClicks(widget, "c")
+    assert widget.known_matches() == []
+
+
+def test_bounded_search_claims_enter_from_the_dialog(qapp):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    widget = BoundedSearchEdit(_StubController(), "Genre", "genre_name", "genre_id")
+    event = QKeyEvent(QEvent.ShortcutOverride, Qt.Key_Return, Qt.NoModifier)
+
+    assert widget.event(event) is True
+    assert event.isAccepted()

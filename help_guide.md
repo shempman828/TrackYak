@@ -357,7 +357,10 @@ not show that pair again. If a checked pair has fields that actually differ
 first, letting you pick which value survives field by field before that pair
 is merged; a pair with no differing fields merges straight away. Reviewing a
 big batch? Skip All Remaining keeps the canonical entry's fields for every
-pair still waiting, without opening a step for each one. Deleting an artist
+pair still waiting, without opening a step for each one. If some pairs fail to
+merge, the result message tells you how many, and Show Details lists each
+failure. If YakTrack cannot save a dismissed pair, it tells you; the pair is
+hidden for now but shows again in the next scan. Deleting an artist
 also deletes its stored profile picture from disk, merging two artists keeps
 only the surviving picture (renaming its file to match), and clearing or
 replacing a picture removes the file it used to point at.
@@ -452,7 +455,8 @@ and pick a match.
 "rock" count as the same name — creating or renaming a genre to a name that
 already exists (in any case) is rejected. If you've ended up with, say, both
 "Hip Hop" and "Hip-Hop," right-click one and choose Merge to fold it into the
-other. Split does the opposite — it clones a genre's full set of track
+other. In the Merge dialog, each list shows at most 500 matches; type more of
+the name to narrow a long list. Split does the opposite — it clones a genre's full set of track
 relationships onto two or more new names, useful for untangling a genre that
 was really covering several distinct ones (the original is left in place,
 not moved). Deleting a genre promotes its children to top-level rather than
@@ -919,7 +923,8 @@ play/pause no matter what view you're in.
 It shows the standard playback controls (previous, play/pause, stop, next),
 a waveform seek bar showing the current track's loudness envelope that you
 can click or drag to jump around, volume, a star rating for whatever's
-playing, and a repeat toggle that cycles through off, repeat-one, and
+playing (point at the stars to preview a rating; when the stars have focus,
+`←`/`→` change the rating by half a star and `Home`/`End` set 0 or 10), and a repeat toggle that cycles through off, repeat-one, and
 repeat-all. The first time you play a track its waveform is built from the
 audio and cached under `cache/` (a few KB per track), so it draws instantly
 on every later play; until it's ready — or if the file can't be read — the
@@ -1086,8 +1091,11 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   Ratings are written as 0–100 and read back on the 0–10 scale, and a vinyl
   track number like "B1" is read back as side B, track 1.
 - **Manage Aliases…** — where merge/split history and alternate names live
-  for Genres, Artists, Publishers, and Roles, plus a list of genre names to
-  always skip during auto-tagging.
+  for Genres, Artists, Publishers, and Roles, plus lists of genre and role
+  names to always skip during import. To rename an alias, click Edit and change
+  only the name; you do not have to pick the target again. If an add, edit, or
+  delete fails (for example, the alias name is already in use), a message tells
+  you.
 - **Recalculate Explicit Flags…** — scans lyrics for tracks that haven't had
   an Explicit flag set yet and fills it in. Never touches a flag you've set
   by hand.

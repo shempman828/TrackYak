@@ -1,15 +1,4 @@
-"""Shared builder for the "Add to Playlist" / "Add to Mood" context submenus.
-
-The player dock (:mod:`src.player.ui.player_context_menu`), the base track view
-(:mod:`src.track.view.base_track_view`) and the main library Tracks tab
-(:mod:`src.track.view.track_view_editing`) all offer a right-click submenu that lists
-every playlist or mood, nested by ``parent_id``, alphabetised per level, with a
-checkmark on the ones the track(s) already belong to. Historically each call
-site hand-rolled its own version and they drifted (the base track view menu was
-a flat, unsorted list with no hierarchy or checkmarks; the Tracks tab looked for
-a ``parent_mood_id`` attribute that does not exist, so it never nested either).
-This module is the one implementation they all share.
-"""
+"""Shared builder for nested "Add to Playlist" / "Add to Mood" / parent-picker context submenus."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -18,9 +7,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
-
-# Guard against a self-referential parent_id chain sending us infinitely deep.
-_MAX_DEPTH = 8
 
 # entity_type -> (id attribute, name attribute, plural label for placeholder rows)
 _ENTITY_META = {
@@ -32,14 +18,7 @@ _ENTITY_META = {
 
 
 def selection_membership(tracks, relation_attr: str, id_attr: str):
-    """Split entity ids by how much of a track selection already belongs.
-
-    Returns ``(full, partial)``: ``full`` are ids every track in *tracks* is
-    linked to (render checked), ``partial`` are ids only some of them are linked
-    to (render with a " (partial)" suffix). ``relation_attr`` is the ``Track``
-    relationship to walk (``"playlists"`` / ``"moods"``); ``id_attr`` is the id
-    read off each link row (``"playlist_id"`` / ``"mood_id"``).
-    """
+    """Return ``(full, partial)`` sets of entity ids linked to every / only some of *tracks*."""
     try:
         per_track = [{getattr(link, id_attr) for link in getattr(track, relation_attr, [])} for track in tracks]
     except SQLAlchemyError as e:
@@ -64,40 +43,10 @@ def populate_entity_submenu(
     entities_override=None,
     branch_self_label=None,
 ):
-    """Fill *submenu* with a nested, alphabetically sorted tree of playlists/moods.
-
-    Args:
-        submenu: the ``QMenu`` to populate. The caller owns it and should have
-            cleared it first.
-        controller: app controller, used for ``controller.get.get_all_entities``.
-        entity_type: ``"Playlist"``, ``"Mood"``, or ``"Role"``.
-        on_trigger: slot connected to every action's ``triggered`` signal. It
-            gets no useful argument; it should read ``self.sender().data()`` for
-            the payload.
-        member_ids: entity ids the track(s) already fully belong to -- rendered
-            with a checkmark.
-        partial_ids: entity ids only *some* of the selected tracks belong to --
-            rendered unchecked with a " (partial)" suffix. Ignored when an id is
-            also in ``member_ids``.
-        make_action_data: optional ``callable(entity_id) -> value`` stashed on
-            each action via ``setData``. Defaults to the bare entity id (what the
-            player dock's handlers expect); the base track view passes a lambda
-            returning ``(entity_id, track_ids)``.
-        connection_type: Qt connection type for the ``triggered`` -> *on_trigger*
-            link. The player dock needs ``Qt.QueuedConnection``.
-        entities_override: optional pre-fetched/pre-filtered list of entity
-            rows. When given, skips ``controller.get.get_all_entities``
-            entirely -- e.g. the Role "Change Parent" submenu passes a list
-            with the clicked role and its descendants already removed, so
-            re-parenting can't create a cycle.
-        branch_self_label: optional ``callable(display_name) -> str`` for the
-            label of a branch entity's own action (the one that picks the
-            branch node itself, not one of its children). Defaults to
-            ``"Add to '{name}'"``, which reads correctly for Playlist/Mood;
-            the Role "Change Parent" submenu passes a lambda returning the
-            bare name instead, since "Add to 'Percussion'" doesn't make sense
-            when the action means "make this role the new parent".
-    """
+    """Fill *submenu* with a nested, per-level alphabetical tree of `entity_type` rows."""
+    # on_trigger reads self.sender().data(): the bare id, or make_action_data(id).
+    # entities_override skips the DB fetch (e.g. a cycle-safe parent list);
+    # branch_self_label labels a branch's own action (default "Add to '<name>'").
     id_attr, name_attr, plural = _ENTITY_META[entity_type]
     if make_action_data is None:
 
@@ -127,9 +76,12 @@ def populate_entity_submenu(
         submenu.addAction(f"No {plural} available").setEnabled(False)
         return
 
+    known_ids = {getattr(entity, id_attr) for entity in entities}
     children_map: dict = {}
     for entity in entities:
-        children_map.setdefault(getattr(entity, "parent_id", None), []).append(entity)
+        parent_id = getattr(entity, "parent_id", None)
+        # A parent missing from the list (deleted, or filtered out) makes this a root.
+        children_map.setdefault(parent_id if parent_id in known_ids else None, []).append(entity)
     for siblings in children_map.values():
         siblings.sort(key=lambda e: (getattr(e, name_attr, "") or "").lower())
 
@@ -145,22 +97,32 @@ def populate_entity_submenu(
         action.triggered.connect(on_trigger, connection_type)
         return action
 
-    def build_level(parent_menu: QMenu, parent_id, depth: int = 0):
-        if depth > _MAX_DEPTH:
+    visited: set = set()
+
+    def add_entity(parent_menu: QMenu, entity):
+        entity_id = getattr(entity, id_attr)
+        if entity_id in visited:  # guards a corrupt parent_id cycle
             return
+        visited.add(entity_id)
+        name = getattr(entity, name_attr, "") or ""
+        # Escape for display: QMenu titles and QAction text treat a lone
+        # '&' as a mnemonic prefix and would otherwise eat it.
+        disp = esc_amp(name)
+        if children_map.get(entity_id):
+            branch = QMenu(disp, parent_menu)
+            build_level(branch, entity_id)
+            branch.addSeparator()
+            branch.addAction(make_action(branch, entity, label=branch_self_label(disp)))
+            parent_menu.addMenu(branch)
+        else:
+            parent_menu.addAction(make_action(parent_menu, entity, label=disp))
+
+    def build_level(parent_menu: QMenu, parent_id):
         for entity in children_map.get(parent_id, []):
-            entity_id = getattr(entity, id_attr)
-            name = getattr(entity, name_attr, "") or ""
-            # Escape for display: QMenu titles and QAction text treat a lone
-            # '&' as a mnemonic prefix and would otherwise eat it.
-            disp = esc_amp(name)
-            if children_map.get(entity_id):
-                branch = QMenu(disp, parent_menu)
-                build_level(branch, entity_id, depth + 1)
-                branch.addSeparator()
-                branch.addAction(make_action(branch, entity, label=branch_self_label(disp)))
-                parent_menu.addMenu(branch)
-            else:
-                parent_menu.addAction(make_action(parent_menu, entity, label=disp))
+            add_entity(parent_menu, entity)
 
     build_level(submenu, None)
+    # Rows in a parent_id cycle are unreachable from any root; list them at the top level.
+    for entity in sorted(entities, key=lambda e: (getattr(e, name_attr, "") or "").lower()):
+        if getattr(entity, id_attr) not in visited:
+            add_entity(submenu, entity)

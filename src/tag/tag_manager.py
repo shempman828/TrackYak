@@ -9,34 +9,13 @@ is scoped to its own TagType, so only one type's tree is shown at once.
 from collections import defaultdict
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QComboBox,
-    QHBoxLayout,
-    QHeaderView,
-    QInputDialog,
-    QLabel,
-    QMessageBox,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMessageBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.dialogs.lookup_manager_dialog import (
-    COUNT_COL,
-    DESC_COL,
-    NAME_COL,
-    BaseLookupManagerDialog,
-)
-from src.common.widgets.hierarchy_tree_style import (
-    collect_expanded_ids,
-    icon_for_depth,
-    is_hierarchy_descendant,
-    restore_expanded_ids_or_expand_all,
-)
+from src.common.dialogs.lookup_manager_dialog import COUNT_COL, DESC_COL, NAME_COL, BaseLookupManagerDialog
+from src.common.hierarchy_ops import is_hierarchy_descendant
+from src.common.widgets.hierarchy_tree_style import collect_expanded_ids, icon_for_depth, restore_expanded_ids_or_expand_all
 from src.db.db_tables import ArtistTagAssociation
 from src.foundation.logger_config import logger
 
@@ -57,10 +36,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
     _ADD_DIALOG_PROMPT = "Name:"
     _DELETE_SELECT_FIRST_MSG = "Select one or more tags first."
     _DELETE_DIALOG_TITLE = "Delete Tag(s)"
-    _DELETE_INTRO = (
-        "Delete the following tag(s)? Any artists carrying them will simply "
-        "lose that tag, and any child tags will lose their parent."
-    )
+    _DELETE_INTRO = "Delete the following tag(s)? Any artists carrying them will simply lose that tag, and any child tags will lose their parent."
 
     def __init__(self, controller, parent=None, initial_tag_type_id: int | None = None):
         self._current_tag_type_id = initial_tag_type_id
@@ -104,10 +80,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
 
     def _populate_type_combo(self):
         try:
-            self._tag_types = sorted(
-                self.controller.get.get_all_entities("TagType") or [],
-                key=lambda t: t.type_name.lower(),
-            )
+            self._tag_types = sorted(self.controller.get.get_all_entities("TagType") or [], key=lambda t: t.type_name.lower())
         except SQLAlchemyError as e:
             logger.warning(f"Could not fetch TagType for tag manager: {e}")
             self._tag_types = []
@@ -139,11 +112,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
     def _fetch_counts(self) -> dict:
         if self._current_tag_type_id is None:
             return {}
-        return self._safe_fetch_counts(
-            select(ArtistTagAssociation.tag_id, func.count())
-            .where(ArtistTagAssociation.tag_id.in_([t.tag_id for t in self._tags]))
-            .group_by(ArtistTagAssociation.tag_id)
-        )
+        return self._safe_fetch_counts(select(ArtistTagAssociation.tag_id, func.count()).where(ArtistTagAssociation.tag_id.in_([t.tag_id for t in self._tags])).group_by(ArtistTagAssociation.tag_id))
 
     def _load(self):
         expanded_ids = collect_expanded_ids(self._tree)
@@ -156,11 +125,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
                 self._tags = []
                 return
 
-            self._tags = sorted(
-                self.controller.get.get_all_entities("Tag", tag_type_id=self._current_tag_type_id)
-                or [],
-                key=lambda t: t.tag_name.lower(),
-            )
+            self._tags = sorted(self.controller.get.get_all_entities("Tag", tag_type_id=self._current_tag_type_id) or [], key=lambda t: t.tag_name.lower())
             counts = self._fetch_counts()
 
             tag_ids = {t.tag_id for t in self._tags}
@@ -195,18 +160,13 @@ class TagManagerDialog(BaseLookupManagerDialog):
         return item
 
     def _selected_entries(self):
-        return [
-            (item.data(NAME_COL, Qt.UserRole), item.text(NAME_COL), item.text(COUNT_COL))
-            for item in self._tree.selectedItems()
-        ]
+        return [(item.data(NAME_COL, Qt.UserRole), item.text(NAME_COL), item.text(COUNT_COL)) for item in self._tree.selectedItems()]
 
     # ── Add ──────────────────────────────────────────────────────────────
 
     def _add(self):
         if self._current_tag_type_id is None:
-            QMessageBox.information(
-                self, self._ADD_DIALOG_TITLE, "Create a tag type first (Manage Tag Types)."
-            )
+            QMessageBox.information(self, self._ADD_DIALOG_TITLE, "Create a tag type first (Manage Tag Types).")
             return
 
         name, ok = QInputDialog.getText(self, self._ADD_DIALOG_TITLE, self._ADD_DIALOG_PROMPT)
@@ -215,9 +175,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
             return
 
         if self._find_by_name(name) is not None:
-            QMessageBox.warning(
-                self, "Duplicate Name", f"A tag named '{name}' already exists in this tag type."
-            )
+            QMessageBox.warning(self, "Duplicate Name", f"A tag named '{name}' already exists in this tag type.")
             return
 
         self.controller.add.add_entity("Tag", tag_name=name, tag_type_id=self._current_tag_type_id)
@@ -241,9 +199,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
 
         existing = self._find_by_name(new_name)
         if existing and existing.tag_id != entity_id:
-            QMessageBox.warning(
-                self, "Duplicate Name", f"A tag named '{new_name}' already exists in this tag type."
-            )
+            QMessageBox.warning(self, "Duplicate Name", f"A tag named '{new_name}' already exists in this tag type.")
             self._load()
             return False
 
@@ -284,12 +240,7 @@ class TagManagerDialog(BaseLookupManagerDialog):
                     continue
 
                 if is_hierarchy_descendant(tag_id, new_parent_id, self._tags, id_attr="tag_id"):
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Move",
-                        f"Moving '{item.text(NAME_COL)}' there would create a "
-                        "circular reference in the hierarchy.",
-                    )
+                    QMessageBox.warning(self, "Invalid Move", f"Moving '{item.text(NAME_COL)}' there would create a circular reference in the hierarchy.")
                     continue
 
                 self.controller.update.update_entity("Tag", tag_id, parent_id=new_parent_id)

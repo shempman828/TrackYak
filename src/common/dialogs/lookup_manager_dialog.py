@@ -1,24 +1,6 @@
-"""
-lookup_manager_dialog.py
+"""Shared add/delete/rename scaffold for "manage a global lookup vocabulary" dialogs."""
 
-Shared scaffold for "manage a global lookup vocabulary" dialogs -- a table
-or tree of Name/Description/# Artists rows with inline rename/description
-editing, add, and delete (currently used by ArtistType, a flat list, and
-Religion, a drag-and-drop-reparentable hierarchy). The content widget itself
-(QTableWidget vs. QTreeWidget) and how it's populated stay subclass-specific
--- that's genuinely different work for a flat list vs. a hierarchy -- but the
-button row, add-new-entry flow, delete-selected flow, and name/description
-edit validation are the same shape regardless of which widget holds the rows.
-"""
-
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QInputDialog,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QInputDialog, QMessageBox, QPushButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
@@ -29,30 +11,11 @@ COUNT_COL = 2
 
 
 class BaseLookupManagerDialog(QDialog):
-    """Shared button row / add / delete / rename-validation scaffold.
+    """Shared button row / add / delete / rename-validation scaffold for a lookup table."""
 
-    Subclasses must:
-      - set `_ENTITY_TYPE` / `_ID_ATTR` / `_NAME_ATTR` / `_DESC_ATTR` class
-        attributes (the DB entity name and its id/name/description fields)
-      - set `_ENTITY_LABEL` (lowercase, e.g. "type"/"religion", used in
-        "A {label} named '...' already exists.") and `_NAME_EMPTY_LABEL`
-        (e.g. "Type name"/"Religion name", used in "{label} cannot be
-        empty.")
-      - set `_ADD_BUTTON_TEXT` / `_ADD_DIALOG_TITLE` / `_ADD_DIALOG_PROMPT`
-      - set `_DELETE_SELECT_FIRST_MSG` / `_DELETE_DIALOG_TITLE` /
-        `_DELETE_INTRO` (the sentence before the bullet list of entries to
-        delete -- this is where hierarchy-specific wording, e.g. "child
-        religions will lose their parent", differs)
-      - implement `_build_content_widget()`, returning the fully configured
-        QTableWidget/QTreeWidget (columns, selection mode, signals) to embed
-        above the button row
-      - implement `_load()`, populating the content widget from the DB
-      - implement `_selected_entries()`, returning `[(entity_id, name,
-        count_text), ...]` for whatever is currently selected
-      - implement `_fetch_counts()` (the usage-count query differs too much
-        structurally between a flat FK group-by and a hierarchy's to share;
-        use `_safe_fetch_counts()` below to keep the error handling uniform)
-    """
+    # Subclasses set the class attributes below and implement
+    # _build_content_widget(), _load(), _selected_entries() -> [(id, name, count_text)]
+    # and _fetch_counts() (use _safe_fetch_counts() for uniform error handling).
 
     _ENTITY_TYPE: str = ""
     _ID_ATTR: str = ""
@@ -66,6 +29,7 @@ class BaseLookupManagerDialog(QDialog):
     _DELETE_SELECT_FIRST_MSG: str = ""
     _DELETE_DIALOG_TITLE: str = ""
     _DELETE_INTRO: str = ""
+    _COUNT_NOUN: str = "artist"  # what the usage count in the delete prompt counts
 
     def __init__(self, controller, title: str, size: tuple[int, int], parent=None):
         super().__init__(parent)
@@ -104,9 +68,7 @@ class BaseLookupManagerDialog(QDialog):
         raise NotImplementedError
 
     def _build_extra_buttons(self, btn_row) -> None:
-        """Optional hook for a subclass to append extra buttons (e.g. tag
-        type's Move Up/Down for reordering) to the button row, between
-        Delete Selected and the trailing stretch. No-op by default."""
+        """Optional hook to add buttons between Delete Selected and the stretch; no-op by default."""
 
     def _load(self):
         raise NotImplementedError
@@ -126,6 +88,19 @@ class BaseLookupManagerDialog(QDialog):
             logger.warning(f"Failed to fetch {self._ENTITY_LABEL} usage counts: {e}")
             return {}
 
+    def _name_taken(self, name: str, exclude_id=None) -> bool:
+        """True if another row already has `name`, ignoring case."""
+        lowered = name.lower()
+        try:
+            rows = self.controller.get.get_all_entities(self._ENTITY_TYPE) or []
+        except SQLAlchemyError as e:
+            logger.warning(f"Failed to check {self._ENTITY_LABEL} names: {e}")
+            return False
+        return any((getattr(row, self._NAME_ATTR, "") or "").strip().lower() == lowered and getattr(row, self._ID_ATTR) != exclude_id for row in rows)
+
+    def _warn_save_failed(self, action: str) -> None:
+        QMessageBox.critical(self, "Error", f"Could not {action} the {self._ENTITY_LABEL}. Please check the logs.")
+
     # ── Add ──────────────────────────────────────────────────────────────
 
     def _add(self):
@@ -134,49 +109,40 @@ class BaseLookupManagerDialog(QDialog):
         if not ok or not name:
             return
 
-        existing = self.controller.get.get_entity_object(
-            self._ENTITY_TYPE, **{self._NAME_ATTR: name}
-        )
-        if existing:
-            QMessageBox.warning(
-                self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{name}' already exists."
-            )
+        if self._name_taken(name):
+            QMessageBox.warning(self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{name}' already exists.")
             return
 
-        self.controller.add.add_entity(self._ENTITY_TYPE, **{self._NAME_ATTR: name})
+        if self.controller.add.add_entity(self._ENTITY_TYPE, **{self._NAME_ATTR: name}) is None:
+            self._warn_save_failed("add")
         self._load()
 
     # ── Rename / description edit validation ────────────────────────────
 
     def _validate_and_rename(self, entity_id, new_name: str) -> bool:
-        """Validate a name edit and persist it. Returns True if applied,
-        False if rejected (in which case `_load()` was already called to
-        discard the bad edit)."""
+        """Validate and save a name edit; on rejection `_load()` discards it and False is returned."""
         new_name = new_name.strip()
         if not new_name:
             QMessageBox.warning(self, "Invalid Name", f"{self._NAME_EMPTY_LABEL} cannot be empty.")
             self._load()
             return False
 
-        existing = self.controller.get.get_entity_object(
-            self._ENTITY_TYPE, **{self._NAME_ATTR: new_name}
-        )
-        if existing and getattr(existing, self._ID_ATTR) != entity_id:
-            QMessageBox.warning(
-                self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{new_name}' already exists."
-            )
+        if self._name_taken(new_name, exclude_id=entity_id):
+            QMessageBox.warning(self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{new_name}' already exists.")
             self._load()
             return False
 
-        self.controller.update.update_entity(
-            self._ENTITY_TYPE, entity_id, **{self._NAME_ATTR: new_name}
-        )
+        if not self.controller.update.update_entity(self._ENTITY_TYPE, entity_id, **{self._NAME_ATTR: new_name}):
+            self._warn_save_failed("rename")
+            self._load()
+            return False
         return True
 
     def _save_description(self, entity_id, new_desc: str) -> None:
-        self.controller.update.update_entity(
-            self._ENTITY_TYPE, entity_id, **{self._DESC_ATTR: new_desc.strip() or None}
-        )
+        """Save a description edit; blank text stores NULL."""
+        if not self.controller.update.update_entity(self._ENTITY_TYPE, entity_id, **{self._DESC_ATTR: new_desc.strip() or None}):
+            self._warn_save_failed("update")
+            self._load()
 
     # ── Delete ───────────────────────────────────────────────────────────
 
@@ -186,17 +152,12 @@ class BaseLookupManagerDialog(QDialog):
             QMessageBox.information(self, self._DELETE_DIALOG_TITLE, self._DELETE_SELECT_FIRST_MSG)
             return
 
-        lines = [f"• {name} ({count} artist(s))" for _id, name, count in entries]
-        reply = QMessageBox.question(
-            self,
-            self._DELETE_DIALOG_TITLE,
-            f"{self._DELETE_INTRO}\n\n" + "\n".join(lines),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        lines = [f"• {name} ({count} {self._COUNT_NOUN}(s))" for _id, name, count in entries]
+        reply = QMessageBox.question(self, self._DELETE_DIALOG_TITLE, f"{self._DELETE_INTRO}\n\n" + "\n".join(lines), QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 
-        for entity_id, _name, _count in entries:
-            self.controller.delete.delete_entity(self._ENTITY_TYPE, **{self._ID_ATTR: entity_id})
+        failed = [name for entity_id, name, _count in entries if not self.controller.delete.delete_entity(self._ENTITY_TYPE, **{self._ID_ATTR: entity_id})]
+        if failed:
+            QMessageBox.critical(self, "Error", "Could not delete:\n" + "\n".join(failed))
         self._load()

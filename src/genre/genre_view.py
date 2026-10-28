@@ -7,16 +7,8 @@ from PySide6.QtWidgets import QCheckBox, QDialog, QFileDialog, QHBoxLayout, QHea
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.base_split_dialog import SplitDBDialog
-from src.common.widgets.hierarchy_tree_style import (
-    collect_expanded_ids,
-    configure_hierarchy_tree,
-    filter_tree_widget,
-    handle_insert_as_new_relative,
-    icon_for_depth,
-    is_hierarchy_descendant,
-    render_hierarchy_as_text,
-    restore_expanded_ids_or_expand_all,
-)
+from src.common.hierarchy_ops import handle_insert_as_new_relative, is_hierarchy_descendant, render_hierarchy_as_text
+from src.common.widgets.hierarchy_tree_style import collect_expanded_ids, configure_hierarchy_tree, filter_tree_widget, icon_for_depth, restore_expanded_ids_or_expand_all
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog, find_duplicate_genre_name

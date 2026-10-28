@@ -1,17 +1,7 @@
-"""Shared "secondary context" builders for entity completer popups.
+"""Best-effort ``{entity_id: context}`` builders for the dimmed text in entity completer popups."""
 
-Each builder takes an already-loaded list of ORM rows and returns
-``{entity_id: context_string}``. The context string is rendered dimmed
-beside the entity name in the completer popup (see ``ContextItemDelegate``
-in :mod:`src.common.widgets.entity_completer_edit`); it never becomes part of the
-completion value, so a caller's name-based resolution
-(``find_or_create_by_name``) is unaffected.
-
-Builders are best-effort: a missing relationship or null field yields an
-empty context, never an exception. Callers must cap their candidate list
-before calling these -- the artist/place/track/album builders each touch a
-lazy relationship per row.
-"""
+# Callers must cap their candidate list first: the artist/place/track/album
+# builders each touch a lazy relationship per row.
 
 from __future__ import annotations
 
@@ -24,8 +14,7 @@ def _clean(value) -> str:
 
 
 def _year_span(begin, end) -> str:
-    """An en-dash-separated year span (e.g. 1998-2004, 1998-present), or ''
-    when there is no begin year. Mirrors Artist.career_span."""
+    """An en-dash year span (e.g. 1998-2004, 1998-present), or '' without a begin year."""
     if not begin:
         return ""
     return f"{begin}{_DASH}{end}" if end else f"{begin}{_DASH}present"
@@ -35,11 +24,8 @@ def _year_span(begin, end) -> str:
 
 
 def artist_context_map(artists) -> dict:
-    return {
-        a.artist_id: _artist_context(a)
-        for a in artists
-        if getattr(a, "artist_id", None) is not None
-    }
+    """{artist_id: disambiguation, career span, or Group/Person} for each row."""
+    return {a.artist_id: _artist_context(a) for a in artists if getattr(a, "artist_id", None) is not None}
 
 
 def _artist_context(artist) -> str:
@@ -61,9 +47,8 @@ def _artist_context(artist) -> str:
 
 
 def place_context_map(places) -> dict:
-    return {
-        p.place_id: _place_context(p) for p in places if getattr(p, "place_id", None) is not None
-    }
+    """{place_id: place type and its ancestor chain} for each row."""
+    return {p.place_id: _place_context(p) for p in places if getattr(p, "place_id", None) is not None}
 
 
 def _place_context(place) -> str:
@@ -77,11 +62,7 @@ def _place_context(place) -> str:
 
 
 def _ancestor_chain(place) -> list:
-    """Ancestor names from nearest to farthest, walking ``parent``, up to and
-    including the nearest ancestor whose ``place_type`` is 'Country'. Without
-    a 'Country' ancestor, walks to the topmost ancestor instead. [] when the
-    place has no parent chain. The visited set guards the self-referential FK
-    against a cycle."""
+    """Ancestor names, nearest first, up to and including the nearest 'Country' (else the top)."""
     seen: set = set()
     current = getattr(place, "parent", None)
     chain: list = []
@@ -100,16 +81,12 @@ def _ancestor_chain(place) -> list:
 
 
 def track_context_map(tracks) -> dict:
-    return {
-        t.track_id: _track_context(t) for t in tracks if getattr(t, "track_id", None) is not None
-    }
+    """{track_id: primary artists and album} for each row."""
+    return {t.track_id: _track_context(t) for t in tracks if getattr(t, "track_id", None) is not None}
 
 
 def _track_context(track) -> str:
-    names = [
-        _clean(getattr(a, "artist_name", None))
-        for a in (getattr(track, "primary_artists", None) or [])
-    ]
+    names = [_clean(getattr(a, "artist_name", None)) for a in (getattr(track, "primary_artists", None) or [])]
     artist = ", ".join(n for n in names if n)
     album = _clean(getattr(track, "album_name", None))
     if artist and album:
@@ -121,16 +98,12 @@ def _track_context(track) -> str:
 
 
 def album_context_map(albums) -> dict:
-    return {
-        a.album_id: _album_context(a) for a in albums if getattr(a, "album_id", None) is not None
-    }
+    """{album_id: album artists and release year} for each row."""
+    return {a.album_id: _album_context(a) for a in albums if getattr(a, "album_id", None) is not None}
 
 
 def _album_context(album) -> str:
-    names = [
-        _clean(getattr(a, "artist_name", None))
-        for a in (getattr(album, "album_artists", None) or [])
-    ]
+    names = [_clean(getattr(a, "artist_name", None)) for a in (getattr(album, "album_artists", None) or [])]
     artist = ", ".join(n for n in names if n)
     year = getattr(album, "release_year", None)
     year_str = str(year) if year else ""
@@ -143,17 +116,11 @@ def _album_context(album) -> str:
 
 
 def publisher_context_map(publishers) -> dict:
-    return {
-        p.publisher_id: _publisher_context(p)
-        for p in publishers
-        if getattr(p, "publisher_id", None) is not None
-    }
+    """{publisher_id: parent publisher and active years} for each row."""
+    return {p.publisher_id: _publisher_context(p) for p in publishers if getattr(p, "publisher_id", None) is not None}
 
 
 def _publisher_context(publisher) -> str:
     parent = getattr(publisher, "parent", None)
-    parts = [
-        _clean(getattr(parent, "publisher_name", None)) if parent is not None else "",
-        _year_span(getattr(publisher, "begin_year", None), getattr(publisher, "end_year", None)),
-    ]
+    parts = [_clean(getattr(parent, "publisher_name", None)) if parent is not None else "", _year_span(getattr(publisher, "begin_year", None), getattr(publisher, "end_year", None))]
     return _SEP.join(part for part in parts if part)

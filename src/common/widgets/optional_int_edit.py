@@ -16,8 +16,13 @@ class OptionalIntEdit(QLineEdit):
         self.setValidator(QIntValidator(min_value, max_value, self))
 
     def get_value_or_none(self):
+        """The typed integer, or None when empty or still intermediate (e.g. "-")."""
         text = self.text().strip()
-        return int(text) if text else None
+        try:
+            return int(text) if text else None
+        except ValueError:
+            return None
 
     def set_from_db(self, val):
+        """Show a DB value; None clears the field."""
         self.setText(str(int(val)) if val is not None else "")

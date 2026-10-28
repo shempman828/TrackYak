@@ -1,29 +1,10 @@
-"""
-alias_management_dialog.py
+"""Unified "Manage Aliases…" dialog: skipped genres/roles plus every merge- and split-alias table."""
 
-Unified "Manage Aliases…" dialog (see docs/specs/split_and_merge_aliases.md):
-one QTabWidget bringing together every merge-alias and split-alias table
-(Genre/Artist/Publisher/Role) plus the skipped-genres list, instead of
-scattering them across each entity's own edit dialog and ConfigDialog.
-Mirrors ConfigDialog's structure -- one QTabWidget, each tab built by a
-_create_X_tab() factory method.
-"""
-
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QPushButton,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 from src.common.alias.global_merge_alias_tab import GlobalMergeAliasTab
 from src.common.alias.global_split_alias_tab import GlobalSplitAliasTab
+from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 
 # (tab label, model name, name field, id field)
@@ -36,8 +17,7 @@ _ENTITY_TYPES = [
 
 
 class AliasManagementDialog(QDialog):
-    """Non-modal dialog: skipped genres + one merge-alias tab and one
-    split-alias tab per entity type."""
+    """Non-modal dialog: skipped genres/roles plus a merge- and split-alias tab per entity type."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -51,34 +31,34 @@ class AliasManagementDialog(QDialog):
 
         self.tabs.addTab(self._create_skipped_genres_tab(), "Skipped Genres")
         self.tabs.addTab(self._create_skipped_roles_tab(), "Skipped Roles")
+        # Alias tabs are built on first view: each one loads its table and a
+        # completer preload, which made opening the dialog slow.
+        self._lazy_tabs: dict[QWidget, tuple] = {}
         for label, model_name, name_field, id_field in _ENTITY_TYPES:
-            self.tabs.addTab(
-                GlobalMergeAliasTab(controller, model_name, name_field, id_field),
-                f"{label} Aliases",
-            )
-            self.tabs.addTab(
-                GlobalSplitAliasTab(controller, model_name, name_field, id_field),
-                f"{label} Split Aliases",
-            )
+            for tab_class, suffix in ((GlobalMergeAliasTab, "Aliases"), (GlobalSplitAliasTab, "Split Aliases")):
+                holder = QWidget()
+                holder_layout = QVBoxLayout(holder)
+                holder_layout.setContentsMargins(0, 0, 0, 0)
+                self._lazy_tabs[holder] = (tab_class, model_name, name_field, id_field)
+                self.tabs.addTab(holder, f"{label} {suffix}")
+        self.tabs.currentChanged.connect(self._build_lazy_tab)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.close)
-        buttons.button(QDialogButtonBox.Close).clicked.connect(self.close)
         layout.addWidget(buttons)
 
-    # ------------------------------------------------------------------
-    # Skipped Genres / Skipped Roles -- parse-ignore lists. Genres/roles
-    # on these lists are never attached to a track during import (see
-    # docs/specs/split_and_merge_aliases.md and
-    # docs/specs/role_parse_ignore_list.md). Both tabs are the same
-    # list-editor over a pair of Config accessors, built by
-    # _create_exclusion_tab(); the named genre-/role- methods stay as thin
-    # wrappers so callers (and tests) have a stable per-noun surface.
-    # ------------------------------------------------------------------
+    def _build_lazy_tab(self, index: int) -> None:
+        holder = self.tabs.widget(index)
+        spec = self._lazy_tabs.pop(holder, None)
+        if spec is None:
+            return
+        tab_class, model_name, name_field, id_field = spec
+        holder.layout().addWidget(tab_class(self.controller, model_name, name_field, id_field))
 
-    def _create_exclusion_tab(
-        self, *, blurb, placeholder, get_fn, set_fn, list_attr, edit_attr
-    ) -> QWidget:
+    # -- Skipped Genres / Skipped Roles: import parse-ignore lists over Config accessors --
+
+    def _create_exclusion_tab(self, *, blurb, placeholder, get_fn, set_fn, list_attr, edit_attr) -> QWidget:
+        """One list-editor page over a Config get/set pair; widgets are stored on `list_attr`/`edit_attr`."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(QLabel(blurb))
@@ -116,6 +96,7 @@ class AliasManagementDialog(QDialog):
         existing = {list_widget.item(i).text().lower() for i in range(list_widget.count())}
         if name.lower() in existing:
             edit.clear()
+            show_status_message(edit, f"'{name}' is already in the list.")
             return
         list_widget.addItem(name)
         edit.clear()
@@ -135,13 +116,11 @@ class AliasManagementDialog(QDialog):
             self.controller.config.save()
         except OSError:
             logger.exception("AliasManagementDialog: failed to save %s", list_attr)
+            show_status_message(list_widget, "Could not save the list to the config file.")
 
     def _create_skipped_genres_tab(self) -> QWidget:
         return self._create_exclusion_tab(
-            blurb=(
-                "Genres in this list are never attached to a track during import, "
-                "whether from file tags or MusicBrainz."
-            ),
+            blurb=("Genres in this list are never attached to a track during import, whether from file tags or MusicBrainz."),
             placeholder="Genre name to skip…",
             get_fn=self.controller.config.get_excluded_genres,
             set_fn=self.controller.config.set_excluded_genres,
@@ -151,10 +130,7 @@ class AliasManagementDialog(QDialog):
 
     def _create_skipped_roles_tab(self) -> QWidget:
         return self._create_exclusion_tab(
-            blurb=(
-                "Credit roles in this list are never attached to a track during "
-                "import, whether from file tags or MusicBrainz."
-            ),
+            blurb=("Credit roles in this list are never attached to a track during import, whether from file tags or MusicBrainz."),
             placeholder="Role name to skip…",
             get_fn=self.controller.config.get_excluded_roles,
             set_fn=self.controller.config.set_excluded_roles,
@@ -162,13 +138,9 @@ class AliasManagementDialog(QDialog):
             edit_attr="excluded_role_edit",
         )
 
-    # Backwards-compatible thin wrappers (kept for existing callers/tests).
+    # Per-noun genre wrappers, used by tests/genre/test_genre_view.py.
     def _add_excluded_genre(self):
-        self._add_excluded(
-            "excluded_genres_list",
-            "excluded_genre_edit",
-            self.controller.config.set_excluded_genres,
-        )
+        self._add_excluded("excluded_genres_list", "excluded_genre_edit", self.controller.config.set_excluded_genres)
 
     def _remove_excluded_genre(self):
         self._remove_excluded("excluded_genres_list", self.controller.config.set_excluded_genres)

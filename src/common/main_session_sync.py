@@ -1,11 +1,4 @@
-"""Qt side of src/db/db_session_sync.py: run the main-session expire on the main thread.
-
-db_session_sync calls its notifier on the worker thread that committed the
-write. Emitting a signal of a QObject that lives on the main thread from there
-makes Qt queue the slot onto the main thread's event loop. Because the worker
-emits this before it emits its own `finished` signal, and queued events run in
-order, every `finished` handler already sees the expired (fresh) session.
-"""
+"""Qt side of src/db/db_session_sync.py: run the main-session expire on the main thread."""
 
 import contextlib
 
@@ -17,6 +10,9 @@ from src.db import db_session_sync
 class MainSessionSync(QObject):
     """Main-thread receiver for "a worker committed a write" notifications."""
 
+    # Emitted from the committing worker thread, so Qt queues _on_stale onto the
+    # main thread -- ahead of that worker's own `finished`, since queued events
+    # run in order.
     stale = Signal()
 
     def __init__(self, parent=None):

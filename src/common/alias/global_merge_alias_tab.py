@@ -1,16 +1,6 @@
-"""
-global_merge_alias_tab.py
+"""Cross-entity table of every `<Model>Alias` row for the "Manage Aliases…" dialog."""
 
-Generic, cross-entity alias-management table for the unified "Manage
-Aliases…" dialog (see docs/specs/split_and_merge_aliases.md). Unlike
-EntityAliasesTab (entity_alias_tab.py), which shows one entity's own
-aliases from inside that entity's edit dialog, this shows every alias row
-in a `<Model>Alias` table at once, with an Add row that resolves its
-target to an existing entity via a search completer rather than
-free-typing (an alias is only meaningful pointing at an entity that
-already exists). Reusable across Genre/Artist/Publisher/Role -- the shape
-of GenreAlias/ArtistAlias/PublisherAlias/RoleAlias is identical.
-"""
+import html
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -37,8 +27,7 @@ from src.foundation.logger_config import logger
 
 
 class _MergeAliasEditDialog(QDialog):
-    """Popup for editing an existing merge-alias row's name and/or target
-    entity."""
+    """Popup for editing an existing merge-alias row's name and/or target entity."""
 
     def __init__(self, controller, model_name, name_field, id_field, alias_name, target_id, parent=None):
         super().__init__(parent)
@@ -52,9 +41,14 @@ class _MergeAliasEditDialog(QDialog):
         form.addRow("Alias Name:", self.name_edit)
 
         self.target_edit = build_entity_search_widget(controller, model_name, name_field, id_field, f"Search {model_name.lower()}s…")
+        # setText() sets no matched_id, so keep the current target until the text changes.
+        self._initial_target_id = None
+        self._initial_target_text = ""
         current = controller.get.get_entity_object(model_name, **{id_field: target_id})
         if current is not None:
-            self.target_edit.setText(getattr(current, name_field))
+            self._initial_target_id = target_id
+            self._initial_target_text = getattr(current, name_field)
+            self.target_edit.setText(self._initial_target_text)
         form.addRow(f"Resolves To ({model_name}):", self.target_edit)
 
         layout.addLayout(form)
@@ -68,18 +62,23 @@ class _MergeAliasEditDialog(QDialog):
         if not self.name_edit.text().strip():
             QMessageBox.warning(self, "Validation", "Alias name cannot be empty.")
             return
-        if self.target_edit.matched_id() is None:
+        if self.target_id is None:
             QMessageBox.warning(self, "Validation", "Pick an existing entity from the search results.")
             return
         self.accept()
 
     @property
     def alias_name(self) -> str:
+        """The edited alias name, trimmed."""
         return self.name_edit.text().strip()
 
     @property
     def target_id(self):
-        return self.target_edit.matched_id()
+        """The picked target id, or the original one while its name is still in the field."""
+        matched = self.target_edit.matched_id()
+        if matched is None and self._initial_target_id is not None and self.target_edit.text().strip() == self._initial_target_text:
+            return self._initial_target_id
+        return matched
 
 
 class GlobalMergeAliasTab(QWidget):
@@ -131,13 +130,14 @@ class GlobalMergeAliasTab(QWidget):
         layout.addWidget(self.table)
 
     def reload(self):
+        """Reload every alias row from the DB, sorted by alias name."""
         self.table.setRowCount(0)
         try:
             rows = self.controller.get.get_all_entities(self.alias_model_name) or []
         except SQLAlchemyError:
             logger.exception("GlobalMergeAliasTab: failed to load %s", self.alias_model_name)
             rows = []
-        for row in sorted(rows, key=lambda r: r.alias_name.lower()):
+        for row in sorted(rows, key=lambda r: (r.alias_name or "").lower()):
             self._append_row(row)
 
     def _target_display(self, row) -> str:
@@ -183,11 +183,9 @@ class GlobalMergeAliasTab(QWidget):
         if target_id is None:
             show_status_message(self, f"Pick an existing {self.model_name.lower()} to resolve to.")
             return
-        try:
-            self.controller.add.add_entity(self.alias_model_name, alias_name=alias_name, **{self.id_field: target_id})
-        except SQLAlchemyError as exc:
-            logger.exception("GlobalMergeAliasTab: failed to add alias %r", alias_name)
-            QMessageBox.critical(self, "Error", f"Could not add alias:\n{exc}")
+        # add/update/delete_entity log and return None/False on failure; they do not raise.
+        if self.controller.add.add_entity(self.alias_model_name, alias_name=alias_name, **{self.id_field: target_id}) is None:
+            QMessageBox.critical(self, "Error", f"Could not add alias '{alias_name}'. The name may already be in use.")
             return
         self.name_edit.clear()
         self.target_edit.reset()
@@ -206,24 +204,18 @@ class GlobalMergeAliasTab(QWidget):
         dlg = _MergeAliasEditDialog(self.controller, self.model_name, self.name_field, self.id_field, alias_name, target_id, parent=self)
         if dlg.exec_() != QDialog.Accepted:
             return
-        try:
-            self.controller.update.update_entity(self.alias_model_name, alias_id, alias_name=dlg.alias_name, **{self.id_field: dlg.target_id})
-        except SQLAlchemyError as exc:
-            logger.exception("GlobalMergeAliasTab: failed to update alias_id=%s", alias_id)
-            QMessageBox.critical(self, "Error", f"Could not update alias:\n{exc}")
+        if not self.controller.update.update_entity(self.alias_model_name, alias_id, alias_name=dlg.alias_name, **{self.id_field: dlg.target_id}):
+            QMessageBox.critical(self, "Error", f"Could not update alias '{dlg.alias_name}'. The name may already be in use.")
             return
         self.reload()
 
     def _delete_row(self, row: int):
         alias_id = self._row_alias_id(row)
         alias_name = self.table.item(row, 0).text()
-        reply = QMessageBox.question(self, "Delete Alias", f"Delete alias <b>{alias_name}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(self, "Delete Alias", f"Delete alias <b>{html.escape(alias_name)}</b>?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
-        try:
-            self.controller.delete.delete_entity(self.alias_model_name, alias_id)
-        except SQLAlchemyError as exc:
-            logger.exception("GlobalMergeAliasTab: failed to delete alias_id=%s", alias_id)
-            QMessageBox.critical(self, "Error", f"Could not delete alias:\n{exc}")
+        if not self.controller.delete.delete_entity(self.alias_model_name, alias_id):
+            QMessageBox.critical(self, "Error", f"Could not delete alias '{alias_name}'.")
             return
         self.reload()
