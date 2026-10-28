@@ -200,6 +200,21 @@ def test_column_dialog_refuses_to_hide_every_column(qapp, session, monkeypatch):
     assert any(not view.table.isColumnHidden(i) for i in range(len(view.columns)))
 
 
+def test_load_column_state_applies_order_and_visibility_and_skips_unknown_keys(qapp, session):
+    view = _view(session)
+    keys = list(view.columns)
+    wanted_order = [keys[2], "no_such_column", keys[0], keys[1], *keys[3:]]
+    config = track_view_columns_module.app_config
+    config.order = wanted_order
+    config.visible = [keys[0], keys[2], "no_such_column"]
+
+    view.load_column_state()
+    state = view.get_column_state()
+
+    assert state["order"] == [k for k in wanted_order if k in view.columns]
+    assert state["visible"] == [keys[0], keys[2]]
+
+
 # ── BaseTrackView drag ───────────────────────────────────────────────────────
 
 

@@ -94,16 +94,12 @@ class TrackViewColumnsMixin:
             col_keys = list(self.columns.keys())
 
             if visible:
+                visible_set = set(visible)
                 for i, key in enumerate(col_keys):
-                    self.table.setColumnHidden(i, key not in visible)
+                    self.table.setColumnHidden(i, key not in visible_set)
 
             if order:
-                header = self.table.horizontalHeader()
-                for target_visual, key in enumerate(order):
-                    if key in col_keys:
-                        current_visual = header.visualIndex(col_keys.index(key))
-                        if current_visual != target_visual:
-                            header.moveSection(current_visual, target_visual)
+                self._reorder_columns(order)
 
             if widths:
                 for i, w in enumerate(widths):
@@ -170,11 +166,11 @@ class TrackViewColumnsMixin:
 
     def _reorder_columns(self, new_order: list):
         """Move columns to match the requested logical order."""
-        col_keys = list(self.columns.keys())
+        key_to_logical = {key: i for i, key in enumerate(self.columns)}
         header = self.table.horizontalHeader()
-        for target_visual, key in enumerate(new_order):
-            if key in col_keys:
-                logical = col_keys.index(key)
-                current_visual = header.visualIndex(logical)
-                if current_visual != target_visual:
-                    header.moveSection(current_visual, target_visual)
+        # Skip unknown keys before numbering, so a stale saved key does not shift later columns
+        known = [key_to_logical[key] for key in new_order if key in key_to_logical]
+        for target_visual, logical in enumerate(known):
+            current_visual = header.visualIndex(logical)
+            if current_visual != target_visual:
+                header.moveSection(current_visual, target_visual)
