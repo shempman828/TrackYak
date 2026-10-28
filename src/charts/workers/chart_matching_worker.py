@@ -1,9 +1,4 @@
-"""
-chart_matching_worker.py
-
-Runs chart_matching.match_chart() off the UI thread, following the
-CancellableWorker pattern (see src/musicbrainz/musicbrainz_worker.py).
-"""
+"""Background runner for chart_matching.match_chart()."""
 
 from PySide6.QtCore import Signal
 
@@ -13,17 +8,11 @@ from src.foundation.logger_config import logger
 
 
 class ChartMatchingWorker(CancellableWorker):
-    """
-    Signals:
-        stage(message)
-        progress(entries_scored, entries_total, entries_matched)
-        finished(MatchStats)
-        error(message)
-    """
+    """Match one chart's unmatched entries against the library."""
 
     stage = Signal(str)
-    progress = Signal(int, int, int)
-    finished = Signal(object)
+    progress = Signal(int, int, int)  # entries_scored, entries_total, entries_matched
+    finished = Signal(object)  # MatchStats
     error = Signal(str)
 
     def __init__(self, controller, chart_key: str, parent=None):
@@ -32,18 +21,13 @@ class ChartMatchingWorker(CancellableWorker):
         self.chart_key = chart_key
 
     def run(self):
+        """Run match_chart() for this worker's chart."""
         try:
             chart = self.controller.get.get_entity_object("Chart", chart_key=self.chart_key)
             if chart is None:
                 raise ValueError(f"No Chart row registered for chart_key={self.chart_key!r}")
 
-            stats: MatchStats = match_chart(
-                self.controller.get.session,
-                chart,
-                progress_callback=self.progress.emit,
-                stage_callback=self.stage.emit,
-                is_cancelled=lambda: self.is_cancelled,
-            )
+            stats: MatchStats = match_chart(self.controller.get.session, chart, progress_callback=self.progress.emit, stage_callback=self.stage.emit, is_cancelled=lambda: self.is_cancelled)
 
             if not self.is_cancelled:
                 self.finished.emit(stats)

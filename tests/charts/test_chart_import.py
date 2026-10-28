@@ -41,6 +41,53 @@ def test_parse_chart_csv_handles_mixed_sentinels(tmp_path):
     assert rows[2]["last_week_position"] == 3  # real value
 
 
+def test_parse_chart_csv_skips_malformed_rows(tmp_path):
+    csv_path = tmp_path / "bad.csv"
+    with csv_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["chart_week", "current_week", "title", "performer", "last_week", "peak_pos", "wks_on_chart"])
+        writer.writerow(["2023-12-30", "1", "Good A", "Artist A", "-", "1", "5"])
+        writer.writerow(["not-a-date", "2", "Bad Week", "Artist B", "-", "2", "1"])
+        writer.writerow(["2023-12-30", "NA", "Bad Position", "Artist C", "-", "3", "1"])
+        writer.writerow(["2023-12-30", "4", "Good B", "Artist D", "-", "4", "1"])
+
+    rows = list(parse_chart_csv(csv_path))
+
+    assert [r["raw_title"] for r in rows] == ["Good A", "Good B"]
+
+
+def test_download_worker_removes_partial_file_on_error(qapp, tmp_path, monkeypatch):
+    from src.charts.workers.chart_download_worker import ChartDownloadWorker
+
+    class _BrokenResponse:
+        def __init__(self):
+            self.headers = {"Content-Length": "10"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            yield b"partial"
+            raise ConnectionError("connection reset")
+
+    monkeypatch.setattr("src.charts.workers.chart_download_worker.chart_data_path", lambda name: str(tmp_path / name))
+    monkeypatch.setattr("src.charts.workers.chart_download_worker.requests.get", lambda *a, **k: _BrokenResponse())
+    errors = []
+    worker = ChartDownloadWorker(["hot-100"])
+    worker.error.connect(errors.append)
+
+    worker.run()
+
+    assert errors == ["connection reset"]
+    assert list(tmp_path.iterdir()) == []
+
+
 # ---------------------------------------------------------------------------
 # Tests for ChartImportWorker (src/charts/workers/chart_import_worker.py) against a
 # ---------------------------------------------------------------------------
@@ -78,20 +125,11 @@ def controller(session):
 def patch_csv_path(monkeypatch):
     """Point chart_data_path() at the fixture CSV regardless of chart_key,
     so the worker's normal file-lookup path is exercised unchanged."""
-    monkeypatch.setattr(
-        "src.charts.workers.chart_import_worker.chart_data_path",
-        lambda name: str(FIXTURE_CSV),
-    )
+    monkeypatch.setattr("src.charts.workers.chart_import_worker.chart_data_path", lambda name: str(FIXTURE_CSV))
 
 
 def _make_chart(session, last_synced_week=None):
-    chart = Chart(
-        chart_key="hot-100",
-        chart_name="Billboard Hot 100",
-        source_url="https://example.invalid/hot-100-current.csv",
-        matched_entity_type="Track",
-        last_synced_week=last_synced_week,
-    )
+    chart = Chart(chart_key="hot-100", chart_name="Billboard Hot 100", source_url="https://example.invalid/hot-100-current.csv", matched_entity_type="Track", last_synced_week=last_synced_week)
     session.add(chart)
     session.commit()
     return chart
@@ -132,12 +170,7 @@ def test_imported_entry_fields_match_csv(session, controller):
     worker = ChartImportWorker(controller, "hot-100")
     worker.run()
 
-    entry = session.scalar(
-        select(ChartEntry).where(
-            ChartEntry.chart_week == __import__("datetime").date(2023, 12, 23),
-            ChartEntry.position == 1,
-        )
-    )
+    entry = session.scalar(select(ChartEntry).where(ChartEntry.chart_week == __import__("datetime").date(2023, 12, 23), ChartEntry.position == 1))
     assert entry.raw_title == "Last Christmas"
     assert entry.raw_performer == "Wham!"
     assert entry.last_week_position == 4

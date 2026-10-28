@@ -1,15 +1,4 @@
-"""
-chart_search_tab.py
-
-Search tab: title/artist search across all weeks/years for one or both
-charts. Given ~975K rows at full scale, a leading-wildcard LIKE can't use
-idx_chart_entries_raw_title (SQLite can't use a B-tree index for a leading
-wildcard) and would be a genuine scan, so this queries the chart_entries_fts
-FTS5 virtual table (see MusicDatabase._ensure_chart_entries_fts) instead --
-results are still debounced and capped, following the plan's explicit
-call-out of this as the one place search must be bounded rather than
-unlimited.
-"""
+"""Search tab: debounced, capped full-text title/artist search across every chart week."""
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
@@ -17,7 +6,7 @@ from sqlalchemy import bindparam, select, text
 
 from src.charts.fts_query import build_and_query
 from src.charts.ui.chart_entry_table import ChartEntryTable
-from src.charts.ui.chart_filter_toggle import MatchFilterToggle
+from src.charts.ui.chart_filter_toggle import ALL_CHARTS_LABEL, MatchFilterToggle, repopulate_chart_combo
 from src.charts.ui.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
 from src.db.db_tables.chart import ChartEntry
 
@@ -26,6 +15,8 @@ _DEBOUNCE_MS = 250
 
 
 class ChartSearchTab(QWidget):
+    """Full-text search over ChartEntry titles and performers."""
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -33,6 +24,7 @@ class ChartSearchTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """Build the search controls and the results table."""
         layout = QVBoxLayout(self)
 
         controls_frame = QFrame()
@@ -46,7 +38,7 @@ class ChartSearchTab(QWidget):
 
         controls.addWidget(QLabel("Chart:"))
         self.chart_combo = QComboBox()
-        self.chart_combo.addItem("Both")
+        self.chart_combo.addItem(ALL_CHARTS_LABEL)
         self.chart_combo.currentIndexChanged.connect(self._run_search)
         controls.addWidget(self.chart_combo)
 
@@ -60,7 +52,8 @@ class ChartSearchTab(QWidget):
         self.result_label.setProperty("textRole", "muted")
         layout.addWidget(self.result_label)
 
-        self.table = ChartEntryTable(empty_text="No results yet — try a different search.")
+        # Results span charts and weeks, so show which chart and week each row is from.
+        self.table = ChartEntryTable(empty_text="No results yet — try a different search.", show_context=True)
         self.table.manual_match_requested.connect(self._on_manual_match_requested)
         self.table.clear_match_requested.connect(self._on_clear_match_requested)
         layout.addWidget(self.table)
@@ -71,43 +64,30 @@ class ChartSearchTab(QWidget):
         self._debounce_timer.timeout.connect(self._run_search)
 
     def set_charts(self, charts: list) -> None:
-        # main_window's revisit-refresh re-calls this every time the user
-        # navigates back to ChartsView; preserve the current chart selection
-        # by display text so the combo doesn't snap back to "Both".
-        self._charts = [(c.chart_key, c.chart_id, c.chart_name) for c in charts]
-        prev = self.chart_combo.currentText()
-        self.chart_combo.blockSignals(True)
-        self.chart_combo.clear()
-        self.chart_combo.addItem("Both")
-        for _, _, name in self._charts:
-            self.chart_combo.addItem(name)
-        restored = self.chart_combo.findText(prev)
-        self.chart_combo.setCurrentIndex(restored if restored >= 0 else 0)
-        self.chart_combo.blockSignals(False)
+        """Load the synced charts into the chart combo and re-run the search."""
+        self._charts = repopulate_chart_combo(self.chart_combo, charts)
         self._run_search()
 
     def _on_search_changed(self, _text: str):
+        """Restart the debounce timer on each keystroke."""
         self._debounce_timer.start()
 
     def _selected_chart_ids(self) -> list | None:
+        """Return the selected chart's id in a list, or None for all charts."""
         idx = self.chart_combo.currentIndex()
-        if idx <= 0:  # "Both"
+        if idx <= 0:
             return None
         return [self._charts[idx - 1][1]]
 
     def _run_search(self):
-        search_text = self.search_box.text().strip()
-        if not search_text:
-            self.table.populate([])
-            self.result_label.setText("")
-            return
-
-        match_query = build_and_query(search_text)
+        """Run the FTS query for the current text and filters and show the results."""
+        match_query = build_and_query(self.search_box.text().strip())
         if not match_query:
             self.table.populate([])
             self.result_label.setText("")
             return
 
+        # FTS5, not LIKE: a leading-wildcard LIKE can't use the title index over ~975k rows.
         conditions = ["chart_entries_fts MATCH :match_query"]
         params = {"match_query": match_query, "result_limit": _RESULT_LIMIT + 1}
         bind_params = [bindparam("match_query"), bindparam("result_limit")]
@@ -132,10 +112,9 @@ class ChartSearchTab(QWidget):
             "LIMIT :result_limit"
         ).bindparams(*bind_params)
 
-        session = self.controller.get.session
-        stmt = select(ChartEntry).from_statement(sql)
-        results = session.scalars(stmt, params).all()
+        results = self.controller.get.session.scalars(select(ChartEntry).from_statement(sql), params).all()
 
+        # One extra row was fetched only to detect truncation.
         truncated = len(results) > _RESULT_LIMIT
         results = results[:_RESULT_LIMIT]
         self.table.populate(results)
@@ -146,14 +125,13 @@ class ChartSearchTab(QWidget):
             self.result_label.setText(f"{len(results)} match(es)")
 
     def refresh(self):
+        """Re-run the current search."""
         self._run_search()
 
-    # -----------------------------------------------------------------------
-    # Manual match / clear match (ChartEntryTable context menu)
-    # -----------------------------------------------------------------------
-
     def _on_manual_match_requested(self, chart_entry_id: int) -> None:
+        """Open the manual-match dialog for one entry."""
         handle_manual_match_requested(self, self.controller, chart_entry_id, self.refresh)
 
     def _on_clear_match_requested(self, chart_entry_id: int) -> None:
+        """Clear one entry's match after confirmation."""
         handle_clear_match_requested(self, self.controller, chart_entry_id, self.refresh)

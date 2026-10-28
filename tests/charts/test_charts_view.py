@@ -332,3 +332,112 @@ def test_revisit_refresh_preserves_selected_chart_in_all_tabs(qapp, session, con
     assert view.week_tab.chart_combo.currentText() == "Billboard 200"
     assert view.search_tab.chart_combo.currentText() == "Billboard 200"
     assert view.recommendations_tab.chart_combo.currentText() == "Billboard 200"
+
+
+def _fully_synced_view(session, controller, tmp_path):
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+    return ChartsView(controller)
+
+
+class _FakeSignal:
+    def connect(self, *a, **k):
+        pass
+
+
+class _FakeWorker:
+    progress = stage = finished = error = _FakeSignal()
+
+    def __init__(self, *a, **k):
+        self.running = True
+        self.cancel_requested = False
+
+    def start(self):
+        pass
+
+    def isRunning(self):
+        return self.running
+
+    def request_cancel(self):
+        self.cancel_requested = True
+        self.running = False
+
+
+def test_busy_pipeline_disables_every_pipeline_button(qapp, session, controller, tmp_path, monkeypatch):
+    """Two writer workers must never run at once, so every pipeline button is disabled while one runs."""
+    monkeypatch.setattr("src.charts.ui.charts_view.ChartMatchingWorker", _FakeWorker)
+    view = _fully_synced_view(session, controller, tmp_path)
+    view.show()
+
+    view._start_match()
+
+    for button in (view.download_btn, view.fetch_btn, view.match_btn, view.playlists_btn):
+        assert not button.isEnabled()
+    assert view.cancel_btn.isVisible() and view.cancel_btn.isEnabled()
+    assert "Billboard Hot 100" in view.status_label.text()  # chart name, not its key
+
+
+def test_cancel_stops_worker_and_drops_queue(qapp, session, controller, tmp_path, monkeypatch):
+    monkeypatch.setattr("src.charts.ui.charts_view.ChartMatchingWorker", _FakeWorker)
+    monkeypatch.setattr("src.charts.ui.charts_view.show_status_message", lambda *a, **k: None)
+    view = _fully_synced_view(session, controller, tmp_path)
+    view.show()
+    view._start_match()
+    worker = view._match_worker
+
+    view._cancel_pipeline()
+    view._poll_cancel()
+
+    assert worker.cancel_requested
+    assert view._match_queue == []
+    assert view.match_btn.isEnabled()
+    assert not view.cancel_btn.isVisible()
+
+
+def test_import_queue_only_holds_downloaded_charts(qapp, session, controller, tmp_path, monkeypatch):
+    started = []
+
+    class _RecordingImport(_FakeWorker):
+        def __init__(self, controller, chart_key, *a, **k):
+            super().__init__()
+            started.append(chart_key)
+
+    monkeypatch.setattr("src.charts.ui.charts_view.ChartImportWorker", _RecordingImport)
+    monkeypatch.setattr("src.charts.ui.charts_view.show_status_message", lambda *a, **k: None)
+    view = _fully_synced_view(session, controller, tmp_path)
+
+    view._on_download_finished({"billboard-200": tmp_path / "billboard-200-current.csv"})
+
+    assert started == ["billboard-200"]
+    assert view._import_queue == []
+
+
+def test_search_tab_lists_all_charts_and_shows_context(qapp, session, controller, tmp_path):
+    view = _fully_synced_view(session, controller, tmp_path)
+    assert view.search_tab.chart_combo.itemText(0) == "All Charts"
+
+    view.search_tab.search_box.setText("christmas")
+    view.search_tab._run_search()
+
+    item = view.search_tab.table.topLevelItem(0)
+    assert item.text(5) == "Billboard Hot 100"
+    assert item.text(6) == "2023-12-30"
+
+
+def test_week_browser_keeps_selected_week_on_revisit(qapp, session, controller, tmp_path):
+    hot100, _bb200 = _seed_charts_fully_synced(session)
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    session.add(ChartEntry(chart_id=hot100.chart_id, chart_week=datetime.date(2022, 6, 4), position=1, raw_title="Older Song", raw_performer="Someone"))
+    session.commit()
+    view = ChartsView(controller)
+    tab = view.week_tab
+
+    tab.year_combo.setCurrentIndex(tab.year_combo.findData(2022))
+    assert tab.week_combo.currentData() == datetime.date(2022, 6, 4)
+
+    view.load_charts()  # simulate leaving and re-entering the Charts view
+
+    assert tab.week_combo.currentData() == datetime.date(2022, 6, 4)
+    assert tab.table.topLevelItem(0).text(1) == "Older Song"

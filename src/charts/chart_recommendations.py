@@ -1,37 +1,7 @@
-"""
-chart_recommendations.py
+"""Qt-free "missing popular" and "gap fill" rankings over unmatched ChartEntry rows."""
 
-Recommendation queries on top of chart matching, run entirely off
-ChartEntry.entity_id (whether a row is matched) -- no Qt dependency,
-mirrors chart_matching.py's separation of pure query logic from its UI
-(see chart_recommendations_tab.py / chart_recommendation_table.py).
-
-Two rankings:
-- get_missing_popular: entries with no library match, ranked by chart
-  performance (best peak position, most weeks on chart).
-- get_missing_gap_fills: entries with no library match that sit between
-  two runs of already-owned positions on the same chart -- e.g. you own
-  #1-15 and #17-23 of a week's chart, #16 is the gap. Ranked by how much
-  owned run length filling the gap would connect (15 + 7 = 22 for that
-  example), since a missing song bordered by songs you already have is a
-  much stronger "you're basically done with this chart" signal than an
-  isolated miss with nothing owned on either side. Owned runs carry across
-  a week boundary into the very next chart_week's rows (same chart_id,
-  chart_week exactly 7 days later), so a miss sitting at the very start
-  or end of a week still connects to the neighboring week's run instead of
-  being scored as if it had nothing owned beside it. A bigger jump between
-  chart_week values (a missing week in the data, or a filtered-out week)
-  breaks the run instead of bridging it, the same as a different chart_id
-  would.
-
-A single (raw_title, raw_performer) pair can appear as many ChartEntry rows
-as the song/album had weeks on the chart, so both rankings group results
-per chart. Both Billboard fields are already running-to-date per row
-(peak_position only ever improves week over week, weeks_on_chart only ever
-increments), so MIN(peak_position)/MAX(weeks_on_chart) across a group
-equals the item's final peak/tenure without needing to special-case the
-latest week's row.
-"""
+# Billboard's peak_position and weeks_on_chart are running-to-date per row, so
+# MIN(peak)/MAX(weeks) over an item's rows equals its final peak and tenure.
 
 from dataclasses import dataclass
 import datetime
@@ -40,9 +10,16 @@ from sqlalchemy import func, select
 
 from src.db.db_tables.chart import Chart, ChartEntry
 
+# Sort key for a missing peak, so unranked rows sort after #1 instead of before it.
+MISSING_PEAK_RANK = 10_000_000
+
+_ONE_WEEK = datetime.timedelta(days=7)
+
 
 @dataclass
 class MissingChartItem:
+    """One unmatched (chart, title, performer) aggregated over its chart weeks."""
+
     chart_id: int
     chart_name: str
     entity_type: str  # 'Track' or 'Album'
@@ -54,17 +31,13 @@ class MissingChartItem:
 
 
 def _popularity_key(item: MissingChartItem) -> tuple:
-    # Missing peak_position sorts last rather than first (None < int in
-    # naive sorts would put unranked rows ahead of #1 hits).
-    peak = item.peak_position if item.peak_position is not None else 10_000_000
-    weeks = item.weeks_on_chart or 0
-    return (peak, -weeks)
+    """Return the sort key for best peak first, then most weeks on chart."""
+    peak = item.peak_position if item.peak_position is not None else MISSING_PEAK_RANK
+    return (peak, -(item.weeks_on_chart or 0))
 
 
 def _apply_week_bound(stmt, week_from, week_to):
-    """Add the [week_from, week_to] chart_week filter (either bound optional)
-    -- the year/decade filter in ChartRecommendationsTab. Both bounds are
-    inclusive `datetime.date`s."""
+    """Add the inclusive [week_from, week_to] chart_week filter; either bound is optional."""
     if week_from is not None:
         stmt = stmt.where(ChartEntry.chart_week >= week_from)
     if week_to is not None:
@@ -73,16 +46,14 @@ def _apply_week_bound(stmt, week_from, week_to):
 
 
 def chart_week_years(session) -> list[int]:
-    """Sorted distinct calendar years any ChartEntry charts in (empty when
-    there are no rows). Drives the year/decade menu in
-    ChartRecommendationsTab -- not scoped to a chart. `func.extract` matches
-    the year-bucketing already used in src/statistics/stats/dates.py."""
+    """Return the sorted distinct calendar years of all ChartEntry chart weeks."""
     year_expr = func.extract("year", ChartEntry.chart_week)
     rows = session.execute(select(year_expr).distinct().order_by(year_expr)).all()
     return [int(year) for (year,) in rows if year is not None]
 
 
 def _aggregate_missing(session, chart_ids: list | None = None, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
+    """Return one MissingChartItem per unmatched (chart, title, performer) with its best peak and tenure."""
     stmt = (
         select(
             ChartEntry.chart_id,
@@ -116,33 +87,47 @@ def _aggregate_missing(session, chart_ids: list | None = None, week_from: dateti
 
 
 def get_missing_popular(session, chart_ids: list | None = None, limit: int = 100, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
-    """Missing entries ranked by chart performance alone (best peak
-    position, then most weeks on chart as a tiebreaker). `week_from` /
-    `week_to` (inclusive) restrict which chart weeks count -- so peak /
-    tenure become the best the item did *within the window*."""
+    """Return missing items ranked by best peak, then weeks on chart, within the optional week window."""
     items = _aggregate_missing(session, chart_ids, week_from, week_to)
     items.sort(key=_popularity_key)
     return items[:limit]
 
 
+def _owned_run_gaps(chart_rows: list) -> list:
+    """Return, per row, the owned-run length before plus after it (0 for owned rows)."""
+    n = len(chart_rows)
+    owned = [r.entity_id is not None for r in chart_rows]
+
+    # A run carries into the next row only within the same week or into the very
+    # next week (exactly 7 days later); a missing week breaks the run.
+    connects_back = [True] * n
+    for i in range(1, n):
+        prev_week, week = chart_rows[i - 1].chart_week, chart_rows[i].chart_week
+        connects_back[i] = week == prev_week or week - prev_week == _ONE_WEEK
+
+    streak = [0] * n  # owned run ending at i (inclusive)
+    for i in range(n):
+        carry = streak[i - 1] if i > 0 and connects_back[i] else 0
+        streak[i] = carry + 1 if owned[i] else 0
+
+    streak_rev = [0] * n  # owned run starting at i (inclusive)
+    for i in range(n - 1, -1, -1):
+        carry = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
+        streak_rev[i] = carry + 1 if owned[i] else 0
+
+    gaps = [0] * n
+    for i in range(n):
+        if owned[i]:
+            continue
+        before_run = streak[i - 1] if i > 0 and connects_back[i] else 0
+        after_run = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
+        gaps[i] = before_run + after_run
+    return gaps
+
+
 def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int = 4, limit: int = 100, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
-    """Missing entries that would connect two runs of already-owned chart
-    positions -- see module docstring. Runs carry across a chart_week
-    boundary only when the next chart_week is exactly 7 days after the
-    previous one -- a bigger jump (a missing week) breaks the run instead
-    of bridging it. `min_gap` is the minimum combined owned-run length
-    (before + after) required to surface a candidate, so an isolated miss
-    with nothing owned on either side doesn't show up as noise.
-
-    `week_from` / `week_to` (inclusive) restrict which chart weeks are
-    scanned for runs, so a gap only surfaces if its week is in range.
-
-    Reads every row of the selected chart(s) (not just unmatched ones) --
-    computing a run length needs the full owned/unowned sequence for each
-    chart_week, not just the missing rows -- but does it as one
-    index-ordered pass (uq_chart_entry_week_position already covers
-    chart_id, chart_week, position) rather than N+1 per-week queries.
-    """
+    """Return missing items ranked by how much owned chart run they would connect (at least min_gap)."""
+    # Run lengths need every row (owned and not), read in one index-ordered pass.
     stmt = (
         select(
             ChartEntry.chart_id,
@@ -162,45 +147,22 @@ def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int =
         stmt = stmt.where(ChartEntry.chart_id.in_(chart_ids))
     stmt = _apply_week_bound(stmt, week_from, week_to)
 
-    rows = session.execute(stmt).all()
-
     best: dict = {}  # (chart_id, raw_title, raw_performer) -> MissingChartItem
+    peaks: dict = {}  # same key -> (best peak, most weeks) over every unmatched row
 
     def _flush_chart(chart_rows: list) -> None:
-        # chart_rows spans every chart_week for this chart_id, in order.
-        # A streak may only carry from one row into the next when they're
-        # the same chart_week (next position) or exactly 7 days apart (the
-        # very next chart_week) -- a bigger jump means a week is missing
-        # from the data, so the runs on either side must not be treated as
-        # touching.
-        n = len(chart_rows)
-        owned = [r.entity_id is not None for r in chart_rows]
-
-        connects_back = [True] * n
-        for i in range(1, n):
-            prev_week = chart_rows[i - 1].chart_week
-            week = chart_rows[i].chart_week
-            connects_back[i] = week == prev_week or (week - prev_week) == datetime.timedelta(days=7)
-
-        streak = [0] * n  # length of owned run ending at i (inclusive)
-        for i in range(n):
-            carry = streak[i - 1] if i > 0 and connects_back[i] else 0
-            streak[i] = carry + 1 if owned[i] else 0
-
-        streak_rev = [0] * n  # length of owned run starting at i (inclusive)
-        for i in range(n - 1, -1, -1):
-            carry = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
-            streak_rev[i] = carry + 1 if owned[i] else 0
-
-        for i, row in enumerate(chart_rows):
-            if owned[i]:
-                continue
-            before_run = streak[i - 1] if i > 0 and connects_back[i] else 0
-            after_run = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
-            gap = before_run + after_run
-            if gap < min_gap:
+        for row, gap in zip(chart_rows, _owned_run_gaps(chart_rows), strict=True):
+            if row.entity_id is not None:
                 continue
             key = (row.chart_id, row.raw_title, row.raw_performer)
+            peak, weeks = peaks.get(key, (None, None))
+            if row.peak_position is not None and (peak is None or row.peak_position < peak):
+                peak = row.peak_position
+            if row.weeks_on_chart is not None and (weeks is None or row.weeks_on_chart > weeks):
+                weeks = row.weeks_on_chart
+            peaks[key] = (peak, weeks)
+            if gap < min_gap:
+                continue
             existing = best.get(key)
             if existing is None or gap > existing.gap_run_length:
                 best[key] = MissingChartItem(
@@ -209,22 +171,26 @@ def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int =
                     entity_type=row.matched_entity_type,
                     raw_title=row.raw_title,
                     raw_performer=row.raw_performer,
-                    peak_position=row.peak_position,
-                    weeks_on_chart=row.weeks_on_chart,
+                    peak_position=None,
+                    weeks_on_chart=None,
                     gap_run_length=gap,
                 )
 
-    chart_key = None
+    current_chart = None
     chart_rows: list = []
-    for row in rows:
-        if row.chart_id != chart_key:
+    for row in session.execute(stmt):
+        if row.chart_id != current_chart:
             if chart_rows:
                 _flush_chart(chart_rows)
-            chart_key = row.chart_id
+            current_chart = row.chart_id
             chart_rows = []
         chart_rows.append(row)
     if chart_rows:
         _flush_chart(chart_rows)
+
+    # Report the same final peak/tenure as Missing Popular, not the gap week's running value.
+    for key, item in best.items():
+        item.peak_position, item.weeks_on_chart = peaks[key]
 
     items = list(best.values())
     items.sort(key=lambda i: (-i.gap_run_length, *_popularity_key(i)))

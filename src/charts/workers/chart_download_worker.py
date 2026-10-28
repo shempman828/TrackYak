@@ -1,10 +1,4 @@
-"""
-chart_download_worker.py
-
-Streams the Billboard chart CSV(s) to disk off the UI thread, following the
-CancellableWorker pattern (see src/musicbrainz/musicbrainz_worker.py for the
-canonical shape this mirrors).
-"""
+"""Background download of the Billboard chart CSVs to CHARTS_DIR."""
 
 from pathlib import Path
 
@@ -18,17 +12,10 @@ from src.foundation.logger_config import logger
 
 
 class ChartDownloadWorker(CancellableWorker):
-    """Downloads one or more chart CSVs to CHARTS_DIR.
+    """Download one or more chart CSVs to CHARTS_DIR."""
 
-    Signals:
-        progress(bytes_downloaded, total_bytes) -- total_bytes is 0 if the
-            server didn't send a Content-Length header.
-        finished(dict) -- {chart_key: Path} for each file successfully saved.
-        error(message)
-    """
-
-    progress = Signal(int, int)
-    finished = Signal(dict)
+    progress = Signal(int, int)  # bytes_downloaded, total_bytes (0 without Content-Length)
+    finished = Signal(dict)  # {chart_key: Path} for each file saved
     error = Signal(str)
 
     def __init__(self, chart_keys: list, parent=None):
@@ -36,7 +23,9 @@ class ChartDownloadWorker(CancellableWorker):
         self.chart_keys = chart_keys
 
     def run(self):
+        """Stream each chart CSV to a .part file, then move it into place."""
         results = {}
+        tmp = None
         try:
             for chart_key in self.chart_keys:
                 if self.is_cancelled:
@@ -49,7 +38,7 @@ class ChartDownloadWorker(CancellableWorker):
                     resp.raise_for_status()
                     total = int(resp.headers.get("Content-Length", 0))
                     downloaded = 0
-                    with open(tmp, "wb") as f:
+                    with tmp.open("wb") as f:
                         for chunk in resp.iter_content(chunk_size=1 << 16):
                             if self.is_cancelled:
                                 break
@@ -61,15 +50,17 @@ class ChartDownloadWorker(CancellableWorker):
                     tmp.unlink(missing_ok=True)
                     break
 
-                # Atomic-ish swap so a crash/cancel mid-download never leaves
-                # a half-written file at the path parse_chart_csv() reads.
+                # Swap in whole, so parse_chart_csv() never reads a half-written file.
                 tmp.replace(dest)
+                tmp = None
                 results[chart_key] = dest
 
             if not self.is_cancelled:
                 self.finished.emit(results)
         except Exception as e:
             logger.error(f"ChartDownloadWorker failed: {e}", exc_info=True)
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
             self.error.emit(str(e))
         finally:
             self._release_db_session()

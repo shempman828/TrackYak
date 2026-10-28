@@ -83,6 +83,27 @@ def test_owned_run_connects_across_a_week_boundary(session):
     assert items[0].gap_run_length == 5
 
 
+def test_gap_fill_reports_final_peak_and_tenure(session):
+    # The gap sits in an early week (running peak 3, 1 week), but the song later
+    # peaks at #1 with 4 weeks -- the row must show the final values, like Missing Popular.
+    chart = _make_chart(session)
+    week_a = datetime.date(2023, 12, 16)
+    week_b = datetime.date(2023, 12, 23)
+    _add_entry(session, chart, week_a, 1, owned=True, title="Owned 1")
+    _add_entry(session, chart, week_a, 2, owned=True, title="Owned 2")
+    _add_entry(session, chart, week_a, 3, owned=False, title="Gap Song", weeks_on_chart=1)
+    _add_entry(session, chart, week_a, 4, owned=True, title="Owned 4")
+    session.add(ChartEntry(chart_id=chart.chart_id, chart_week=week_b, position=1, peak_position=1, weeks_on_chart=4, raw_title="Gap Song", raw_performer="Someone"))
+    session.commit()
+
+    items = get_missing_gap_fills(session, min_gap=3)
+
+    assert len(items) == 1
+    assert items[0].gap_run_length == 3
+    assert items[0].peak_position == 1
+    assert items[0].weeks_on_chart == 4
+
+
 def test_gap_at_week_edge_ignores_unrelated_chart(session):
     # The neighboring rows in sort order belong to a different chart_id --
     # the run must not connect across charts, only across weeks of the
@@ -165,20 +186,13 @@ def controller(session_worker):
 
 
 def _make_chart_worker(session_worker, chart_key="hot-100", name="Billboard Hot 100"):
-    chart = Chart(
-        chart_key=chart_key,
-        chart_name=name,
-        source_url=f"https://example.invalid/{chart_key}.csv",
-        matched_entity_type="Track",
-    )
+    chart = Chart(chart_key=chart_key, chart_name=name, source_url=f"https://example.invalid/{chart_key}.csv", matched_entity_type="Track")
     session_worker.add(chart)
     session_worker.commit()
     return chart
 
 
-def _seed_multi_week_song(
-    session_worker, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=3, position=1
-):
+def _seed_multi_week_song(session_worker, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=3, position=1):
     for i in range(weeks):
         session_worker.add(
             ChartEntry(
@@ -200,43 +214,16 @@ def _seed_gap_week(session_worker, chart):
     week = datetime.date(2023, 12, 30)
     for pos in (1, 2, 4, 5):
         session_worker.add(
-            ChartEntry(
-                chart_id=chart.chart_id,
-                chart_week=week,
-                position=pos,
-                raw_title=f"Owned {pos}",
-                raw_performer="Someone",
-                entity_type="Track",
-                entity_id=1000 + pos,
-                match_score=1.0,
-            )
+            ChartEntry(chart_id=chart.chart_id, chart_week=week, position=pos, raw_title=f"Owned {pos}", raw_performer="Someone", entity_type="Track", entity_id=1000 + pos, match_score=1.0)
         )
-    session_worker.add(
-        ChartEntry(
-            chart_id=chart.chart_id,
-            chart_week=week,
-            position=3,
-            peak_position=3,
-            weeks_on_chart=5,
-            raw_title="Gap Song",
-            raw_performer="Gap Artist",
-        )
-    )
+    session_worker.add(ChartEntry(chart_id=chart.chart_id, chart_week=week, position=3, peak_position=3, weeks_on_chart=5, raw_title="Gap Song", raw_performer="Gap Artist"))
     session_worker.commit()
 
 
 def _seed_song_in_year(session_worker, chart, year, raw_title, raw_performer="Someone", position=1):
     """One unmatched ChartEntry for `raw_title` in a fixed week of `year`."""
     session_worker.add(
-        ChartEntry(
-            chart_id=chart.chart_id,
-            chart_week=datetime.date(year, 6, 15),
-            position=position,
-            peak_position=1,
-            weeks_on_chart=1,
-            raw_title=raw_title,
-            raw_performer=raw_performer,
-        )
+        ChartEntry(chart_id=chart.chart_id, chart_week=datetime.date(year, 6, 15), position=position, peak_position=1, weeks_on_chart=1, raw_title=raw_title, raw_performer=raw_performer)
     )
     session_worker.commit()
 
@@ -248,45 +235,17 @@ def _seed_gap_week_in_year(session_worker, chart, year, gap_title):
     for pos in (1, 2, 4, 5):
         session_worker.add(
             ChartEntry(
-                chart_id=chart.chart_id,
-                chart_week=week,
-                position=pos,
-                raw_title=f"{gap_title} owned {pos}",
-                raw_performer="Someone",
-                entity_type="Track",
-                entity_id=1000 + pos,
-                match_score=1.0,
+                chart_id=chart.chart_id, chart_week=week, position=pos, raw_title=f"{gap_title} owned {pos}", raw_performer="Someone", entity_type="Track", entity_id=1000 + pos, match_score=1.0
             )
         )
-    session_worker.add(
-        ChartEntry(
-            chart_id=chart.chart_id,
-            chart_week=week,
-            position=3,
-            peak_position=3,
-            weeks_on_chart=5,
-            raw_title=gap_title,
-            raw_performer="Gap Artist",
-        )
-    )
+    session_worker.add(ChartEntry(chart_id=chart.chart_id, chart_week=week, position=3, peak_position=3, weeks_on_chart=5, raw_title=gap_title, raw_performer="Gap Artist"))
     session_worker.commit()
 
 
-def _run_worker(
-    controller,
-    mode,
-    chart_ids=None,
-    min_gap=4,
-    limit=100,
-    cancel=False,
-    week_from=None,
-    week_to=None,
-):
+def _run_worker(controller, mode, chart_ids=None, min_gap=4, limit=100, cancel=False, week_from=None, week_to=None):
     """Run the worker synchronously (no QThread), capturing its emissions --
     the same call-run()-directly approach as test_chart_import.py."""
-    worker = ChartRecommendationsWorker(
-        controller, mode, chart_ids, min_gap, limit, week_from, week_to
-    )
+    worker = ChartRecommendationsWorker(controller, mode, chart_ids, min_gap, limit, week_from, week_to)
     finished, errors = [], []
     worker.finished.connect(lambda m, items: finished.append((m, items)))
     worker.error.connect(errors.append)
@@ -351,9 +310,7 @@ def test_missing_popular_respects_week_bound(qapp, session_worker, controller):
     _seed_song_in_year(session_worker, chart, 1994, "Nineties Hit", position=1)
     _seed_song_in_year(session_worker, chart, 2001, "Aughts Hit", position=2)
 
-    items = get_missing_popular(
-        session_worker, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31)
-    )
+    items = get_missing_popular(session_worker, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31))
 
     assert [i.raw_title for i in items] == ["Nineties Hit"]
 
@@ -375,9 +332,7 @@ def test_gap_fills_respects_week_bound(qapp, session_worker, controller):
     _seed_gap_week_in_year(session_worker, chart, 1994, "Nineties Gap")
     _seed_gap_week_in_year(session_worker, chart, 2001, "Aughts Gap")
 
-    items = get_missing_gap_fills(
-        session_worker, min_gap=4, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31)
-    )
+    items = get_missing_gap_fills(session_worker, min_gap=4, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31))
 
     assert [i.raw_title for i in items] == ["Nineties Gap"]
     assert items[0].gap_run_length == 4
@@ -388,20 +343,10 @@ def test_worker_forwards_week_bound(qapp, session_worker, controller):
     chart = _make_chart_worker(session_worker)
     _seed_song_in_year(session_worker, chart, 1994, "Nineties Hit")
 
-    excluded, _ = _run_worker(
-        controller,
-        MODE_POPULAR,
-        week_from=datetime.date(2000, 1, 1),
-        week_to=datetime.date(2000, 12, 31),
-    )
+    excluded, _ = _run_worker(controller, MODE_POPULAR, week_from=datetime.date(2000, 1, 1), week_to=datetime.date(2000, 12, 31))
     assert excluded[0][1] == []
 
-    included, _ = _run_worker(
-        controller,
-        MODE_POPULAR,
-        week_from=datetime.date(1994, 1, 1),
-        week_to=datetime.date(1994, 12, 31),
-    )
+    included, _ = _run_worker(controller, MODE_POPULAR, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31))
     assert [i.raw_title for i in included[0][1]] == ["Nineties Hit"]
 
 
@@ -465,13 +410,7 @@ def test_tab_refresh_rebuilds_after_a_match(qapp, session_worker, controller, sy
     assert tab.popular_table.topLevelItemCount() == 1
 
     # Resolve every row of that song, as a bulk manual match would.
-    controller.update.update_entity_by_filter(
-        "ChartEntry",
-        {"chart_id": chart.chart_id, "raw_title": "Runaround Sue"},
-        entity_type="Track",
-        entity_id=42,
-        match_score=1.0,
-    )
+    controller.update.update_entity_by_filter("ChartEntry", {"chart_id": chart.chart_id, "raw_title": "Runaround Sue"}, entity_type="Track", entity_id=42, match_score=1.0)
     tab.refresh()
     assert tab.popular_table.topLevelItemCount() == 0
 
@@ -512,15 +451,11 @@ def test_tab_builds_decade_submenus_from_populated_years(qapp, session_worker, c
     _seed_years(session_worker, chart, [1958, 1959, 1990, 1991, 1994, 2024])
 
     tab = ChartRecommendationsTab(controller)
+    tab._ever_shown = True
     tab.set_charts([chart])
 
     assert _top_level_labels(tab._year_menu) == ["All Years", "1950s", "1990s", "2020s"]
-    assert _top_level_labels(_submenu(tab._year_menu, "1990s")) == [
-        "Entire decade",
-        "1990",
-        "1991",
-        "1994",
-    ]
+    assert _top_level_labels(_submenu(tab._year_menu, "1990s")) == ["Entire decade", "1990", "1991", "1994"]
 
 
 def test_tab_select_specific_year_sets_bound_and_reloads(qapp, session_worker, controller, sync_worker):
@@ -595,6 +530,23 @@ def test_tab_year_selection_survives_set_charts(qapp, session_worker, controller
     assert tab._week_to == datetime.date(1994, 12, 31)
     assert tab.year_button.text() == "1994"
     assert tab.popular_table.topLevelItemCount() == 1
+
+
+def test_tab_skips_year_scan_until_shown(qapp, session_worker, controller, monkeypatch):
+    chart = _make_chart_worker(session_worker)
+    _seed_years(session_worker, chart, [1994])
+    calls = []
+    monkeypatch.setattr("src.charts.ui.chart_recommendations_tab.chart_week_years", lambda s: calls.append(1) or [1994])
+
+    tab = ChartRecommendationsTab(controller)
+    tab.set_charts([chart])
+    assert calls == []
+    assert _top_level_labels(tab._year_menu) == ["All Years"]
+
+    tab._ever_shown = True
+    tab.set_charts([chart])
+    assert calls == [1]
+    assert _top_level_labels(tab._year_menu) == ["All Years", "1990s"]
 
 
 def test_tab_year_menu_empty_data(qapp, session_worker, controller):

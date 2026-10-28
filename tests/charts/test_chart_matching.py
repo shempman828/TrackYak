@@ -19,7 +19,7 @@ candidate either clears one of those two buckets or it doesn't match.
 """
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from src.charts.chart_matching import match_chart, normalize_title
@@ -65,13 +65,7 @@ def _add_track(session, role, title, artist_name, release_year=None):
 
 
 def _add_chart(session, last_synced_week=None):
-    chart = Chart(
-        chart_key="hot-100",
-        chart_name="Billboard Hot 100",
-        source_url="https://example.invalid",
-        matched_entity_type="Track",
-        last_synced_week=last_synced_week,
-    )
+    chart = Chart(chart_key="hot-100", chart_name="Billboard Hot 100", source_url="https://example.invalid", matched_entity_type="Track", last_synced_week=last_synced_week)
     session.add(chart)
     session.commit()
     return chart
@@ -80,13 +74,7 @@ def _add_chart(session, last_synced_week=None):
 def _add_entry(session, chart, title, performer, position=1, chart_week="2023-12-30"):
     import datetime
 
-    entry = ChartEntry(
-        chart_id=chart.chart_id,
-        chart_week=datetime.date.fromisoformat(chart_week),
-        position=position,
-        raw_title=title,
-        raw_performer=performer,
-    )
+    entry = ChartEntry(chart_id=chart.chart_id, chart_week=datetime.date.fromisoformat(chart_week), position=position, raw_title=title, raw_performer=performer)
     session.add(entry)
     session.commit()
     return entry
@@ -103,12 +91,8 @@ def test_normalize_title_folds_accents_hyphens_and_and():
     assert normalize_title("Wake Me Up Before You Go-Go") == "wake me up before you go go"
     # "&" drops as punctuation, the word "and" drops as a connector, so the
     # two spellings of a band name land on the same string.
-    assert normalize_title("Blood, Sweat & Tears") == normalize_title(
-        "Blood Sweat And Tears"
-    )
-    assert normalize_title("Tom Petty & The Heartbreakers") == normalize_title(
-        "Tom Petty And The Heartbreakers"
-    )
+    assert normalize_title("Blood, Sweat & Tears") == normalize_title("Blood Sweat And Tears")
+    assert normalize_title("Tom Petty & The Heartbreakers") == normalize_title("Tom Petty And The Heartbreakers")
 
 
 def test_exact_match(session):
@@ -255,6 +239,45 @@ def test_unchanged_library_skips_rescoring_previously_failed_entry(session):
     assert entry.last_match_attempt_at == first_attempt
 
 
+def test_cancelled_run_keeps_old_fingerprint(session):
+    """A cancelled run must not record the new fingerprint, or the entries it never
+    reached (already attempted against an older library) would be skipped forever."""
+    role = _primary_role(session)
+    _add_track(session, role, "Some Song", "Some Artist")
+    chart = _add_chart(session)
+    _add_entry(session, chart, "Unmatchable Title", "Nobody")
+    match_chart(session, chart)
+    old_fingerprint = chart.last_library_fingerprint
+    assert old_fingerprint is not None
+
+    _add_track(session, role, "Another Song", "Another Artist")  # library changes
+    for pos in range(2, 1002):
+        _add_entry(session, chart, f"Filler {pos}", "Nobody", position=pos)
+
+    match_chart(session, chart, is_cancelled=lambda: True)
+
+    assert chart.last_library_fingerprint == old_fingerprint
+
+
+def test_failed_run_drops_scratch_table_and_rolls_back(session, monkeypatch):
+    role = _primary_role(session)
+    _add_track(session, role, "Some Song", "Some Artist")
+    chart = _add_chart(session)
+    _add_entry(session, chart, "Some Song", "Some Artist")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("src.charts.chart_matching._find_match", _boom)
+
+    with pytest.raises(RuntimeError):
+        match_chart(session, chart)
+
+    leftover = session.execute(text("SELECT name FROM sqlite_master WHERE name = 'chart_match_scratch_fts'")).all()
+    assert leftover == []
+    assert chart.last_library_fingerprint is None
+
+
 def test_library_rename_triggers_rescore_of_previously_failed_entry(session):
     """A rename that doesn't add/remove any row (so row count alone can't
     signal a change) must still invalidate the skip -- otherwise an entry
@@ -362,9 +385,7 @@ def test_later_year_candidate_rejected_on_the_contains_path(session):
     role = _primary_role(session)
     # "extended jam" is edition-ish enough to clear the title check but is
     # not a reissue marker, so the year check still applies.
-    _add_track(
-        session, role, "Purple Rain (Extended Jam)", "Prince", release_year=2005
-    )
+    _add_track(session, role, "Purple Rain (Extended Jam)", "Prince", release_year=2005)
     chart = _add_chart(session)
     entry = _add_entry(session, chart, "Purple Rain", "Prince", chart_week="1984-09-15")
 
@@ -380,9 +401,7 @@ def test_exact_title_and_artist_trusted_despite_later_year(session):
     role = _primary_role(session)
     _add_track(session, role, "Comin' Home Baby", "Mel Tormé", release_year=2016)
     chart = _add_chart(session)
-    entry = _add_entry(
-        session, chart, "Comin' Home Baby", "Mel Torme", chart_week="1962-12-01"
-    )
+    entry = _add_entry(session, chart, "Comin' Home Baby", "Mel Torme", chart_week="1962-12-01")
 
     stats = match_chart(session, chart)
 
@@ -393,13 +412,9 @@ def test_exact_title_and_artist_trusted_despite_later_year(session):
 
 def test_reissue_marked_candidate_survives_the_year_gate(session):
     role = _primary_role(session)
-    _add_track(
-        session, role, "Year of the Cat (2001 Remaster)", "Al Stewart", release_year=2001
-    )
+    _add_track(session, role, "Year of the Cat (2001 Remaster)", "Al Stewart", release_year=2001)
     chart = _add_chart(session)
-    entry = _add_entry(
-        session, chart, "Year Of The Cat", "Al Stewart", chart_week="1977-03-12"
-    )
+    entry = _add_entry(session, chart, "Year Of The Cat", "Al Stewart", chart_week="1977-03-12")
 
     stats = match_chart(session, chart)
 

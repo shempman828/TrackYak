@@ -1,44 +1,28 @@
-"""
-chart_week_browser_tab.py
+"""Week Browser tab: pick a chart, year, month and week, and see that week's entries."""
 
-Week Browser tab: pick a chart + a week, see that week's entries. Small
-result set (~100-200 rows), so the query runs synchronously off
-controller.get -- no worker needed, unlike the bulk import/matching passes.
-"""
+import calendar
 
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy import select
 
 from src.charts.ui.chart_entry_table import ChartEntryTable
-from src.charts.ui.chart_filter_toggle import MatchFilterToggle
+from src.charts.ui.chart_filter_toggle import MatchFilterToggle, repopulate_chart_combo
 from src.charts.ui.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
 from src.db.db_tables.chart import ChartEntry
 
-_MONTH_NAMES = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-]
-
 
 class ChartWeekBrowserTab(QWidget):
+    """Browse one chart week at a time; the small result set is queried on the UI thread."""
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
         self._charts = []  # [(chart_key, chart_id, chart_name)], populated by set_charts()
-        self._weeks = []  # all distinct ChartEntry.chart_week dates for the current chart
+        self._weeks = []  # distinct chart_week dates for the current chart and match filter
         self.init_ui()
 
     def init_ui(self):
+        """Build the chart/year/month/week controls and the entries table."""
         layout = QVBoxLayout(self)
 
         controls_frame = QFrame()
@@ -47,7 +31,7 @@ class ChartWeekBrowserTab(QWidget):
         controls.setContentsMargins(10, 8, 10, 8)
         controls.addWidget(QLabel("Chart:"))
         self.chart_combo = QComboBox()
-        self.chart_combo.currentIndexChanged.connect(self._on_chart_changed)
+        self.chart_combo.currentIndexChanged.connect(self._reload_weeks)
         controls.addWidget(self.chart_combo)
 
         controls.addWidget(QLabel("Year:"))
@@ -67,7 +51,7 @@ class ChartWeekBrowserTab(QWidget):
 
         controls.addWidget(QLabel("Show:"))
         self.match_filter = MatchFilterToggle()
-        self.match_filter.currentIndexChanged.connect(self._on_match_filter_changed)
+        self.match_filter.currentIndexChanged.connect(self._reload_weeks)
         controls.addWidget(self.match_filter)
         controls.addStretch()
         layout.addWidget(controls_frame)
@@ -78,32 +62,19 @@ class ChartWeekBrowserTab(QWidget):
         layout.addWidget(self.table)
 
     def set_charts(self, charts: list) -> None:
-        """charts: list of Chart ORM rows with last_synced_week set (i.e.
-        actually imported) -- called by ChartsView once data is available."""
-        # main_window's revisit-refresh re-calls this every time the user
-        # navigates back to ChartsView; preserve the current chart selection
-        # by display text so the combo doesn't snap back to the first chart.
-        self._charts = [(c.chart_key, c.chart_id, c.chart_name) for c in charts]
-        prev = self.chart_combo.currentText()
-        self.chart_combo.blockSignals(True)
-        self.chart_combo.clear()
-        for _, _, name in self._charts:
-            self.chart_combo.addItem(name)
-        restored = self.chart_combo.findText(prev)
-        self.chart_combo.setCurrentIndex(restored if restored >= 0 else 0)
-        self.chart_combo.blockSignals(False)
-        self._on_chart_changed()
+        """Load the synced Chart rows into the chart combo and reload the weeks."""
+        self._charts = repopulate_chart_combo(self.chart_combo, charts, lead_label=None)
+        self._reload_weeks()
 
     def _current_chart_id(self) -> int | None:
+        """Return the selected chart's id, or None."""
         idx = self.chart_combo.currentIndex()
         if idx < 0 or idx >= len(self._charts):
             return None
         return self._charts[idx][1]
 
     def _query_weeks(self, chart_id: int | None) -> list:
-        """Distinct ChartEntry.chart_week dates for chart_id, constrained to
-        the currently selected match filter so the year/month/week combos
-        only ever offer weeks that actually have matching results."""
+        """Return chart_id's distinct chart weeks, newest first, that have rows for the match filter."""
         if chart_id is None:
             return []
 
@@ -116,53 +87,57 @@ class ChartWeekBrowserTab(QWidget):
         query = query.distinct().order_by(ChartEntry.chart_week.desc())
         return self.controller.get.session.scalars(query).all()
 
-    def _on_chart_changed(self):
-        chart_id = self._current_chart_id()
-        self._weeks = self._query_weeks(chart_id)
-        self._rebuild_year_combo()
+    def _reload_weeks(self, *_args):
+        """Re-query the weeks and rebuild the combos, keeping the selected week where it still exists."""
+        keep = self.week_combo.currentData()
+        self._weeks = self._query_weeks(self._current_chart_id())
+        self._fill_years(keep)
 
-    def _on_match_filter_changed(self):
-        chart_id = self._current_chart_id()
-        self._weeks = self._query_weeks(chart_id)
-        self._rebuild_year_combo()
+    @staticmethod
+    def _set_combo(combo: QComboBox, items: list, preferred=None, default_index: int = 0) -> None:
+        """Refill combo with (label, data) items without emitting signals, selecting preferred data if present."""
+        combo.blockSignals(True)
+        combo.clear()
+        for label, data in items:
+            combo.addItem(label, data)
+        index = combo.findData(preferred) if preferred is not None else -1
+        if index < 0 and items:
+            index = default_index
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
 
-    def _rebuild_year_combo(self):
+    def _fill_years(self, keep=None):
+        """Fill the year combo (newest first) and cascade to the months."""
         years = sorted({w.year for w in self._weeks}, reverse=True)
-        self.year_combo.blockSignals(True)
-        self.year_combo.clear()
-        for year in years:
-            self.year_combo.addItem(str(year), year)
-        self.year_combo.blockSignals(False)
-        self._on_year_changed()
+        self._set_combo(self.year_combo, [(str(y), y) for y in years], keep.year if keep else None)
+        self._fill_months(keep)
 
-    def _on_year_changed(self):
+    def _fill_months(self, keep=None):
+        """Fill the month combo for the selected year (latest month by default) and cascade to the weeks."""
         year = self.year_combo.currentData()
         months = sorted({w.month for w in self._weeks if w.year == year})
-        self.month_combo.blockSignals(True)
-        self.month_combo.clear()
-        for month in months:
-            self.month_combo.addItem(_MONTH_NAMES[month - 1], month)
-        if months:
-            self.month_combo.setCurrentIndex(months.index(max(months)))
-        self.month_combo.blockSignals(False)
-        self._on_month_changed()
+        preferred = keep.month if keep and keep.year == year else None
+        self._set_combo(self.month_combo, [(calendar.month_name[m], m) for m in months], preferred, default_index=len(months) - 1)
+        self._fill_weeks(keep)
 
-    def _on_month_changed(self):
+    def _fill_weeks(self, keep=None):
+        """Fill the week combo for the selected year and month (newest first) and reload the entries."""
         year = self.year_combo.currentData()
         month = self.month_combo.currentData()
-        weeks = []
-        if year is not None and month is not None:
-            weeks = sorted(
-                (w for w in self._weeks if w.year == year and w.month == month), reverse=True
-            )
-        self.week_combo.blockSignals(True)
-        self.week_combo.clear()
-        for week in weeks:
-            self.week_combo.addItem(week.isoformat(), week)
-        self.week_combo.blockSignals(False)
+        weeks = sorted((w for w in self._weeks if w.year == year and w.month == month), reverse=True)
+        self._set_combo(self.week_combo, [(w.isoformat(), w) for w in weeks], keep)
         self._reload_entries()
 
-    def _reload_entries(self):
+    def _on_year_changed(self, *_args):
+        """Cascade a user year change to the months."""
+        self._fill_months()
+
+    def _on_month_changed(self, *_args):
+        """Cascade a user month change to the weeks."""
+        self._fill_weeks()
+
+    def _reload_entries(self, *_args):
+        """Show the selected week's entries for the match filter, by position."""
         chart_id = self._current_chart_id()
         week = self.week_combo.currentData()
         if chart_id is None or week is None:
@@ -177,19 +152,16 @@ class ChartWeekBrowserTab(QWidget):
             filters["entity_id__isnull"] = True
 
         entries = self.controller.get.query_entities("ChartEntry", **filters)
-        entries = sorted(entries, key=lambda e: e.position)
-        self.table.populate(entries)
+        self.table.populate(sorted(entries, key=lambda e: e.position))
 
     def refresh(self):
-        """Re-run the current query (e.g. after a Fetch Updates/Match Now)."""
+        """Re-run the current query (e.g. after a Fetch Updates or Match Now)."""
         self._reload_entries()
 
-    # -----------------------------------------------------------------------
-    # Manual match / clear match (ChartEntryTable context menu)
-    # -----------------------------------------------------------------------
-
     def _on_manual_match_requested(self, chart_entry_id: int) -> None:
+        """Open the manual-match dialog for one entry."""
         handle_manual_match_requested(self, self.controller, chart_entry_id, self.refresh)
 
     def _on_clear_match_requested(self, chart_entry_id: int) -> None:
+        """Clear one entry's match after confirmation."""
         handle_clear_match_requested(self, self.controller, chart_entry_id, self.refresh)

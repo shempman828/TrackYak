@@ -79,27 +79,14 @@ def _seed_track_chart(session):
     other_track = Track(track_name="Some Other Song")
     session.add_all([artist, track, other_track])
     session.commit()
-    session.add(
-        TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id)
-    )
+    session.add(TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id))
     session.commit()
 
-    chart = Chart(
-        chart_key="hot-100",
-        chart_name="Billboard Hot 100",
-        source_url="https://example.invalid/hot-100.csv",
-        matched_entity_type="Track",
-    )
+    chart = Chart(chart_key="hot-100", chart_name="Billboard Hot 100", source_url="https://example.invalid/hot-100.csv", matched_entity_type="Track")
     session.add(chart)
     session.commit()
 
-    entry = ChartEntry(
-        chart_id=chart.chart_id,
-        chart_week=datetime.date(2023, 12, 30),
-        position=1,
-        raw_title="Runaround Sue",
-        raw_performer="Dion",
-    )
+    entry = ChartEntry(chart_id=chart.chart_id, chart_week=datetime.date(2023, 12, 30), position=1, raw_title="Runaround Sue", raw_performer="Dion")
     session.add(entry)
     session.commit()
     return chart, entry, track, other_track
@@ -111,19 +98,10 @@ def _seed_album_chart(session):
     album = Album(album_name="Thriller", release_year=1982)
     session.add_all([role, artist, album])
     session.commit()
-    session.add(
-        AlbumRoleAssociation(
-            album_id=album.album_id, artist_id=artist.artist_id, role_id=role.role_id
-        )
-    )
+    session.add(AlbumRoleAssociation(album_id=album.album_id, artist_id=artist.artist_id, role_id=role.role_id))
     session.commit()
 
-    chart = Chart(
-        chart_key="billboard-200",
-        chart_name="Billboard 200",
-        source_url="https://example.invalid/billboard-200.csv",
-        matched_entity_type="Album",
-    )
+    chart = Chart(chart_key="billboard-200", chart_name="Billboard 200", source_url="https://example.invalid/billboard-200.csv", matched_entity_type="Album")
     session.add(chart)
     session.commit()
     return chart, album
@@ -170,9 +148,7 @@ def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, c
     assert not dialog._ok_button.isEnabled()
 
     dialog._search.setText("Runaround Sue")  # typed, not picked -- and not the
-    assert (
-        not dialog._ok_button.isEnabled()
-    )  # full candidate text, so the pick below actually changes the field
+    assert not dialog._ok_button.isEnabled()  # full candidate text, so the pick below actually changes the field
 
     # Simulate picking the suggestion from the completer popup (click or
     # Enter-on-highlighted) via the real activated signal rather than calling
@@ -188,9 +164,16 @@ def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, c
     assert dialog.matched_entity_type() == "Track"
 
 
-def test_manual_match_dialog_ok_enables_when_picked_text_equals_typed_text(
-    qapp, session, controller
-):
+def test_manual_match_dialog_shows_raw_fields_as_plain_text(qapp, session, controller):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    dialog = ChartManualMatchDialog(controller, "Track", "<b>Bold</b> Title", "Artist")
+    labels = {lbl.text(): lbl for lbl in dialog.findChildren(QLabel)}
+    assert labels["<b>Bold</b> Title"].textFormat() == Qt.PlainText
+
+
+def test_manual_match_dialog_ok_enables_when_picked_text_equals_typed_text(qapp, session, controller):
     # Regression: typing an album's full name exactly, then picking the sole
     # matching suggestion, left OK greyed -- _on_completion_picked's
     # setText(picked) is a no-op when it equals the field's current text, so
@@ -241,9 +224,7 @@ def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatc
 
     monkeypatch.setattr(ChartManualMatchDialog, "__init__", _fake_init)
     monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: self._picked_id)
-    monkeypatch.setattr(
-        ChartManualMatchDialog, "matched_entity_type", lambda self: self._entity_type
-    )
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: self._entity_type)
 
     done = []
     handle_manual_match_requested(None, controller, entry.chart_entry_id, lambda: done.append(True))
@@ -282,9 +263,7 @@ def test_rematching_overwrites_previous_match(qapp, session, controller, monkeyp
     session.commit()
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
-    monkeypatch.setattr(
-        ChartManualMatchDialog, "matched_entity_id", lambda self: other_track.track_id
-    )
+    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: other_track.track_id)
     monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
 
     handle_manual_match_requested(None, controller, entry.chart_entry_id, lambda: None)
@@ -400,13 +379,7 @@ def test_search_and_week_tabs_share_identical_context_menu_behavior(qapp, sessio
 
 def test_album_chart_menu_labels_match_to_album(qapp, session):
     chart, _album = _seed_album_chart(session)
-    entry = ChartEntry(
-        chart_id=chart.chart_id,
-        chart_week=datetime.date(2023, 12, 30),
-        position=1,
-        raw_title="Thriller",
-        raw_performer="Michael Jackson",
-    )
+    entry = ChartEntry(chart_id=chart.chart_id, chart_week=datetime.date(2023, 12, 30), position=1, raw_title="Thriller", raw_performer="Michael Jackson")
     session.add(entry)
     session.commit()
 
@@ -450,9 +423,7 @@ def _clear_entity_completer_cache_match():
     invalidate_entity_cache()
 
 
-def _seed_multi_week_song(
-    session_match, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=3, position=1
-):
+def _seed_multi_week_song(session_match, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=3, position=1):
     """`weeks` unmatched ChartEntry rows for the same song on `chart`, all at
     `position` (distinct songs must use distinct positions -- (chart_id,
     chart_week, position) is unique)."""
@@ -472,12 +443,7 @@ def _seed_multi_week_song(
 
 
 def _seed_track_chart_match(session_match):
-    chart = Chart(
-        chart_key="hot-100",
-        chart_name="Billboard Hot 100",
-        source_url="https://example.invalid/hot-100.csv",
-        matched_entity_type="Track",
-    )
+    chart = Chart(chart_key="hot-100", chart_name="Billboard Hot 100", source_url="https://example.invalid/hot-100.csv", matched_entity_type="Track")
     session_match.add(chart)
     session_match.commit()
     track = Track(track_name="Runaround Sue (Remastered)")
@@ -582,9 +548,7 @@ def test_cancelling_bulk_match_dialog_leaves_entries_unchanged(qapp, session_mat
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Rejected)
 
     done = []
-    handle_bulk_manual_match_requested(
-        None, controller_match, get_missing_popular(session_match)[0], lambda: done.append(True)
-    )
+    handle_bulk_manual_match_requested(None, controller_match, get_missing_popular(session_match)[0], lambda: done.append(True))
 
     session_match.expire_all()
     entries = session_match.query(ChartEntry).filter_by(chart_id=chart.chart_id).all()
@@ -599,20 +563,13 @@ def test_bulk_match_does_not_touch_other_songs_or_charts(qapp, session_match, co
     _seed_multi_week_song(session_match, chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=2)
 
     # Same title/performer, but on a different chart -- must NOT be touched.
-    other_chart = Chart(
-        chart_key="billboard-200",
-        chart_name="Billboard 200",
-        source_url="https://example.invalid/billboard-200.csv",
-        matched_entity_type="Track",
-    )
+    other_chart = Chart(chart_key="billboard-200", chart_name="Billboard 200", source_url="https://example.invalid/billboard-200.csv", matched_entity_type="Track")
     session_match.add(other_chart)
     session_match.commit()
     _seed_multi_week_song(session_match, other_chart, raw_title="Runaround Sue", raw_performer="Dion", weeks=1)
 
     # A different song on the same chart -- must NOT be touched.
-    _seed_multi_week_song(
-        session_match, chart, raw_title="Some Other Song", raw_performer="Someone Else", weeks=1, position=2
-    )
+    _seed_multi_week_song(session_match, chart, raw_title="Some Other Song", raw_performer="Someone Else", weeks=1, position=2)
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
     monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: track.track_id)
@@ -623,9 +580,7 @@ def test_bulk_match_does_not_touch_other_songs_or_charts(qapp, session_match, co
     handle_bulk_manual_match_requested(None, controller_match, target, lambda: None)
 
     session_match.expire_all()
-    unmatched_still = (
-        session_match.query(ChartEntry).filter(ChartEntry.entity_id.is_(None)).all()
-    )
+    unmatched_still = session_match.query(ChartEntry).filter(ChartEntry.entity_id.is_(None)).all()
     # The other chart's identically-titled entry, and the same chart's
     # different song, both remain untouched.
     assert len(unmatched_still) == 2

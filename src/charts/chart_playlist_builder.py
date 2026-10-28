@@ -1,21 +1,8 @@
-"""
-chart_playlist_builder.py
+"""Build and update the chart -> decade -> year playlist trees from matched ChartEntry data."""
 
-Builds/updates two independent nested playlist trees -- one per Chart row
-(Billboard Hot 100, Billboard 200) -- from matched ChartEntry data:
-
-    <Chart name>              all matched tracks, every year
-    +-- <decade>s             all matched tracks charted in that decade
-        +-- <year>            all matched tracks charted in that year
-
-Every level is a real playlist with its own materialized PlaylistTracks
-rows (not just a folder / computed count) -- see
-docs/specs/chart_playlists.md. Regeneration is idempotent: existing nodes
-are found by a marker stored in Playlist.playlist_description, not by
-name, so renaming a generated playlist doesn't cause duplicate creation on
-the next run, and a user's own playlist nested under a chart root (no
-marker) is never touched.
-"""
+# Every level holds real PlaylistTracks rows (docs/specs/chart_playlists.md).
+# Nodes are found by a marker in Playlist.playlist_description, not by name, so a
+# rename never duplicates a node and an unmarked user playlist is never touched.
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -26,32 +13,28 @@ from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
 from src.playlist.playlist_track_sync import sync_playlist_tracks
 
-# Public: other views (e.g. charts_view.py) detect whether a chart-derived
-# playlist tree already exists by looking for this prefix in
-# Playlist.playlist_description.
+# Public: charts_view.py checks for this prefix to tell whether a tree exists.
 CHART_PLAYLIST_MARKER_PREFIX = "__chart_playlist__"
-_MARKER_PREFIX = CHART_PLAYLIST_MARKER_PREFIX
 
-# A matched track only belongs in a chart *year* playlist if it actually
-# came out around then. Catalog re-entries and hits-compilation matches
-# (e.g. The Beatles' "Let It Be" charting again in 2010) link to a recent
-# chart week but are decades-old recordings -- keep them out. The window
-# is wider than chart_matching's _YEAR_SLACK because a track's recorded/
-# release year can legitimately trail its first chart week by a year or
-# two (year-end peaks, delayed album pressruns, sloppy release metadata).
+# A track only goes in a year playlist if it came out near that year, which keeps
+# catalog re-entries (a 60s song charting again in 2010) out. Wider than
+# chart_matching's _YEAR_SLACK: release metadata can trail the chart week by two years.
 _YEAR_TOLERANCE = 2
 
 
 def _root_marker(chart_key: str) -> str:
-    return f"{_MARKER_PREFIX}:root:{chart_key}"
+    """Return the marker for a chart's root playlist."""
+    return f"{CHART_PLAYLIST_MARKER_PREFIX}:root:{chart_key}"
 
 
 def _decade_marker(chart_key: str, decade: int) -> str:
-    return f"{_MARKER_PREFIX}:decade:{chart_key}:{decade}"
+    """Return the marker for a chart's decade playlist."""
+    return f"{CHART_PLAYLIST_MARKER_PREFIX}:decade:{chart_key}:{decade}"
 
 
 def _year_marker(chart_key: str, year: int) -> str:
-    return f"{_MARKER_PREFIX}:year:{chart_key}:{year}"
+    """Return the marker for a chart's year playlist."""
+    return f"{CHART_PLAYLIST_MARKER_PREFIX}:year:{chart_key}:{year}"
 
 
 class ChartPlaylistStats:
@@ -79,11 +62,8 @@ class ChartPlaylistBuilder:
     def __init__(self, controller):
         self.controller = controller
 
-    def generate_or_update(
-        self, progress_callback: Callable[[int, int], None] | None = None
-    ) -> ChartPlaylistStats:
-        """Build/update every chart's playlist tree. Always processes every
-        Chart row -- there is no chart-type selection (see spec)."""
+    def generate_or_update(self, progress_callback: Callable[[int, int], None] | None = None) -> ChartPlaylistStats:
+        """Build or update the playlist tree of every Chart row."""
         stats = ChartPlaylistStats()
         charts = self.controller.get.get_all_entities("Chart")
 
@@ -107,26 +87,16 @@ class ChartPlaylistBuilder:
     # ------------------------------------------------------------------
 
     def _collect_year_tracks(self, chart) -> dict[int, set[int]]:
-        """Matched entries for this chart, grouped by chart_week's year,
-        resolved to concrete track_id sets. A track is only placed in a
-        year when its own release/recorded year is within _YEAR_TOLERANCE
-        of that year -- see the constant's note."""
-        entries = self.controller.get.get_all_entities(
-            "ChartEntry", chart_id__eq=chart.chart_id, entity_id__notnull=True
-        )
+        """Return {chart year: track_ids} for this chart's matched entries within _YEAR_TOLERANCE."""
+        entries = self.controller.get.get_all_entities("ChartEntry", chart_id__eq=chart.chart_id, entity_id__notnull=True)
 
         track_entity_ids = {e.entity_id for e in entries if e.entity_type == "Track"}
         album_ids = {e.entity_id for e in entries if e.entity_type == "Album"}
         album_track_map = self._album_track_map(album_ids)
 
-        # One release-year lookup covering both directly-matched tracks and
-        # the tracks expanded from album-matched entries.
-        # ChartEntry.entity_id/entity_type is a manual polymorphic link,
-        # not a real ForeignKey (see chart.py), so a matched track can
-        # since have been deleted -- _track_year_map only holds tracks that
-        # still exist, so a stale id resolves to None here and is skipped,
-        # which also keeps it from poisoning a whole insert with a FOREIGN
-        # KEY failure.
+        # entity_id is a manual polymorphic link, not a ForeignKey, so a matched
+        # track may since be deleted; _track_year_map omits it, so it is skipped
+        # below instead of failing the whole insert on a FOREIGN KEY error.
         expanded_track_ids = {tid for tids in album_track_map.values() for tid in tids}
         track_years = self._track_year_map(track_entity_ids | expanded_track_ids)
 
@@ -148,23 +118,14 @@ class ChartPlaylistBuilder:
         return year_tracks
 
     def _track_year_map(self, track_ids: set[int]) -> dict[int, int | None]:
-        """{track_id: best-known year} for the tracks that still exist. Year
-        is the track's recorded_year, else its album's release_year, else
-        None -- mirrors how chart_matching derives a candidate's year."""
+        """Return {track_id: recorded year, else album release year} for tracks that still exist."""
         if not track_ids:
             return {}
-        tracks = self.controller.get.get_all_entities(
-            "Track", track_id__in=list(track_ids), load_options=[selectinload(Track.album)]
-        )
-        return {
-            t.track_id: (t.recorded_year or (t.album.release_year if t.album else None))
-            for t in tracks
-        }
+        tracks = self.controller.get.get_all_entities("Track", track_id__in=list(track_ids), load_options=[selectinload(Track.album)])
+        return {t.track_id: (t.recorded_year or (t.album.release_year if t.album else None)) for t in tracks}
 
     def _album_track_map(self, album_ids: set[int]) -> dict[int, list[int]]:
-        """One query for every matched album's tracks, instead of one query
-        per ChartEntry row (an album charts on the same weekly row many
-        times over its run)."""
+        """Return {album_id: track_ids} for the matched albums in one query."""
         if not album_ids:
             return {}
         tracks = self.controller.get.get_all_entities("Track", album_id__in=list(album_ids))
@@ -177,15 +138,8 @@ class ChartPlaylistBuilder:
     # Tree build
     # ------------------------------------------------------------------
 
-    def _build_chart_tree(
-        self, chart, year_tracks: dict[int, set[int]], stats: ChartPlaylistStats
-    ) -> set[str]:
-        """Build/update this chart's tree and return the set of markers that
-        should still carry current content after this run -- the chart root
-        (always), plus a decade/year marker for every decade/year that has
-        at least one matched track. _prune_stale_playlists() uses this to
-        find generated playlists whose year/decade no longer matches
-        anything and strip their now-stranded tracks."""
+    def _build_chart_tree(self, chart, year_tracks: dict[int, set[int]], stats: ChartPlaylistStats) -> set[str]:
+        """Build or update this chart's tree and return the markers of the nodes that still have content."""
         decade_tracks: dict[int, set[int]] = defaultdict(set)
         for year, track_ids in year_tracks.items():
             decade_tracks[year - (year % 10)].update(track_ids)
@@ -194,21 +148,14 @@ class ChartPlaylistBuilder:
         live_markers.update(_decade_marker(chart.chart_key, decade) for decade in decade_tracks)
         live_markers.update(_year_marker(chart.chart_key, year) for year in year_tracks)
 
-        root = self._find_or_create(
-            marker=_root_marker(chart.chart_key), name=chart.chart_name, parent_id=None, stats=stats
-        )
+        root = self._find_or_create(marker=_root_marker(chart.chart_key), name=chart.chart_name, parent_id=None, stats=stats)
         if root is None:
             logger.error(f"Could not create/find root playlist for chart {chart.chart_key}")
             return live_markers
 
         decade_playlist_ids: dict[int, int] = {}
         for decade in sorted(decade_tracks):
-            decade_playlist = self._find_or_create(
-                marker=_decade_marker(chart.chart_key, decade),
-                name=f"{decade}s",
-                parent_id=root.playlist_id,
-                stats=stats,
-            )
+            decade_playlist = self._find_or_create(marker=_decade_marker(chart.chart_key, decade), name=f"{decade}s", parent_id=root.playlist_id, stats=stats)
             if decade_playlist is None:
                 continue
             decade_playlist_ids[decade] = decade_playlist.playlist_id
@@ -218,12 +165,7 @@ class ChartPlaylistBuilder:
             decade_playlist_id = decade_playlist_ids.get(decade)
             if decade_playlist_id is None:
                 continue
-            year_playlist = self._find_or_create(
-                marker=_year_marker(chart.chart_key, year),
-                name=str(year),
-                parent_id=decade_playlist_id,
-                stats=stats,
-            )
+            year_playlist = self._find_or_create(marker=_year_marker(chart.chart_key, year), name=str(year), parent_id=decade_playlist_id, stats=stats)
             if year_playlist is None:
                 continue
             self._sync(year_playlist.playlist_id, year_tracks[year], stats)
@@ -243,20 +185,9 @@ class ChartPlaylistBuilder:
     # ------------------------------------------------------------------
 
     def _prune_stale_playlists(self, live_markers: set[str], stats: ChartPlaylistStats) -> None:
-        """Strip stranded tracks from -- and delete when childless -- any
-        previously generated chart playlist whose year/decade no longer
-        resolves to a single matched track this run (e.g. its only matched
-        entries have since been un-matched, or gated out by the release-year
-        proximity rule). _build_chart_tree only ever visits years/decades
-        that have tracks, so without this pass those old PlaylistTracks rows
-        would stay behind forever.
-
-        A generated node is deleted only when nothing else hangs off it: a
-        user playlist manually nested under a chart node counts as a child
-        and keeps that branch (emptied of chart tracks, but present)."""
-        generated = self.controller.get.get_all_entities(
-            "Playlist", playlist_description__startswith=_MARKER_PREFIX
-        )
+        """Empty, and delete when childless, generated playlists whose year or decade no longer has tracks."""
+        # A user playlist nested under a stale node counts as a child and keeps that branch.
+        generated = self.controller.get.get_all_entities("Playlist", playlist_description__startswith=CHART_PLAYLIST_MARKER_PREFIX)
         stale = [p for p in generated if p.playlist_description not in live_markers]
         if not stale:
             return
@@ -278,9 +209,7 @@ class ChartPlaylistBuilder:
             parts = marker.split(":")
             return parts[1] if len(parts) > 1 else ""
 
-        for playlist_id, _marker in sorted(
-            stale_ids, key=lambda pair: depth.get(_kind(pair[1]), 9)
-        ):
+        for playlist_id, _marker in sorted(stale_ids, key=lambda pair: depth.get(_kind(pair[1]), 9)):
             has_child = self.controller.get.get_entity_object("Playlist", parent_id__eq=playlist_id)
             if has_child is not None:
                 continue
@@ -292,20 +221,18 @@ class ChartPlaylistBuilder:
     # ------------------------------------------------------------------
 
     def _find_or_create(self, marker: str, name: str, parent_id, stats: ChartPlaylistStats):
-        existing = self.controller.get.get_entity_object(
-            "Playlist", playlist_description__eq=marker
-        )
+        """Return the playlist that carries marker, creating it if absent."""
+        existing = self.controller.get.get_entity_object("Playlist", playlist_description__eq=marker)
         if existing:
             return existing
 
-        created = self.controller.add.add_entity(
-            "Playlist", playlist_name=name, parent_id=parent_id, playlist_description=marker
-        )
+        created = self.controller.add.add_entity("Playlist", playlist_name=name, parent_id=parent_id, playlist_description=marker)
         if created is not None:
             stats.playlists_created += 1
         return created
 
     def _sync(self, playlist_id: int, track_ids: set[int], stats: ChartPlaylistStats) -> None:
+        """Make playlist_id hold exactly track_ids and add the changes to stats."""
         result = sync_playlist_tracks(self.controller, playlist_id, track_ids)
         if result is None:
             return

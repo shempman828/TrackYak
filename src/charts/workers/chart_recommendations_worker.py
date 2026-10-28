@@ -1,18 +1,4 @@
-"""
-chart_recommendations_worker.py
-
-Runs chart_recommendations.get_missing_popular / get_missing_gap_fills off
-the UI thread, following the CancellableWorker pattern (see
-src/charts/workers/chart_matching_worker.py).
-
-Both rankings scan every ChartEntry row of the selected chart(s) -- ~1M
-rows for "All Charts" -- so computing them inline in ChartRecommendationsTab's
-Qt slots froze the UI for seconds on every reload (sub-tab switch,
-chart-filter change, min-gap change, and the refresh() after a bulk manual
-match). The queries themselves aren't cancellation-aware; `is_cancelled` is
-only checked before emitting `finished`, so a result the tab has already
-superseded is dropped rather than painted.
-"""
+"""Background runner for the chart recommendation rankings."""
 
 from PySide6.QtCore import Signal
 
@@ -25,21 +11,13 @@ MODE_GAP_FILLS = "gap_fills"
 
 
 class ChartRecommendationsWorker(CancellableWorker):
-    """
-    Signals:
-        finished(mode, list[MissingChartItem])
-        error(message)
+    """Compute one recommendation ranking off the UI thread."""
 
-    `mode` is echoed back so ChartRecommendationsTab knows which sub-table a
-    result belongs to without re-reading the (possibly since-changed) UI.
-    """
-
-    finished = Signal(str, object)
+    # mode is echoed back so the tab knows which sub-table the result is for.
+    finished = Signal(str, object)  # mode, list[MissingChartItem]
     error = Signal(str)
 
-    def __init__(
-        self, controller, mode, chart_ids, min_gap, limit, week_from=None, week_to=None, parent=None
-    ):
+    def __init__(self, controller, mode, chart_ids, min_gap, limit, week_from=None, week_to=None, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.mode = mode
@@ -50,25 +28,14 @@ class ChartRecommendationsWorker(CancellableWorker):
         self.week_to = week_to
 
     def run(self):
+        """Run the ranking for this worker's mode."""
         try:
             session = self.controller.get.session
             if self.mode == MODE_GAP_FILLS:
-                items = get_missing_gap_fills(
-                    session,
-                    chart_ids=self.chart_ids,
-                    min_gap=self.min_gap,
-                    limit=self.limit,
-                    week_from=self.week_from,
-                    week_to=self.week_to,
-                )
+                items = get_missing_gap_fills(session, chart_ids=self.chart_ids, min_gap=self.min_gap, limit=self.limit, week_from=self.week_from, week_to=self.week_to)
             else:
-                items = get_missing_popular(
-                    session,
-                    chart_ids=self.chart_ids,
-                    limit=self.limit,
-                    week_from=self.week_from,
-                    week_to=self.week_to,
-                )
+                items = get_missing_popular(session, chart_ids=self.chart_ids, limit=self.limit, week_from=self.week_from, week_to=self.week_to)
+            # The queries can't be interrupted; a superseded result is just dropped.
             if not self.is_cancelled:
                 self.finished.emit(self.mode, items)
         except Exception as e:

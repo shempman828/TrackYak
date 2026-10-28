@@ -729,7 +729,11 @@ what's worth filling in.
 already got some) pulls it in; Match Now then runs the matching pass against
 your library. Both run in the background so you can keep working. Once
 matching has been running a few seconds, the status line adds an ETA showing
-roughly how much longer it'll take.
+roughly how much longer it'll take. While one of these runs, the other chart
+buttons are disabled and a **Cancel** button appears. Cancel stops the
+download, import, or match and skips the charts still waiting in line; any
+rows already imported or matched are kept, and the next Match Now picks up
+the entries the cancelled run did not reach.
 
 Matching is deliberately strict: a chart entry is only auto-linked when the
 title and the primary artist both line up as whole words (edition noise like
@@ -740,8 +744,12 @@ its title is flagged as a remaster/reissue). Anything it isn't sure about is
 left unmatched for you to link by hand.
 
 **Browsing what charted**: the Week Browser tab lets you flip through a
-specific chart, year, month, and week; the Search tab does a full-text search
-across every chart at once if you're looking for something specific.
+specific chart, year, month, and week. It keeps the week you picked when you
+leave and come back, or when you change the Show filter, as long as that week
+still has entries. The Search tab does a full-text search across every chart
+at once (pick a chart in the **Chart** list to narrow it); its **Chart** and
+**Week** columns show where each result charted. In every table, an entry
+with no known peak sorts after the ranked ones.
 
 **Finding what you're missing**: the Recommendations tab is the useful one —
 **Missing Popular** ranks unmatched chart entries by how well they performed,
@@ -762,7 +770,9 @@ column border in the header to make that column wider or narrower.
 Recommendations) for Match to Track/Album, which opens a search-and-pick
 dialog. On the Recommendations tab, matching one entry automatically resolves
 every week that same song appeared as unmatched, not just the row you
-clicked.
+clicked. A short message confirms each match or cleared match. On Gap Fills,
+Peak and Weeks on Chart show the song's best values across all its weeks in
+range, the same as on Missing Popular.
 
 Once you're happy with your matches, the chart-playlist button builds playlists
 straight from the chart data. It's contextual: it reads Generate Charts
