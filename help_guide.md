@@ -297,6 +297,18 @@ term now returns "no matches" straight away instead of an error, and release
 searches look up missing dates for at most 25 releases, so a common album
 title no longer makes the search take minutes.
 
+The Tracks tab shows the album's tracks grouped by disc. Drag tracks to
+reorder them or to move them to another disc. Drop a track on **Unassigned
+Tracks** to remove it from its disc. YakTrack saves the new order at once
+and changes only the tracks that moved. Virtual tracks (marked 👻) belong to
+another album, so you cannot drag them. **Add Disc** and **Edit Disc** set
+the disc number and title, and a number that another disc already uses is
+refused. Edit Disc and Remove Disc act on the selected disc (or the only
+disc). Right-click or double-click a disc row for the same actions.
+**Remove Disc** always asks first, then moves the later discs down so the
+numbers have no gap. In the list, F2 or Enter edits the selected tracks and
+Delete deletes them. An open track editor stays open when the list reloads.
+
 The Genres and Track Credits tabs show what's common to *every* track on the
 album, and editing them there applies the change to all of the album's
 tracks. The Publishers & Places tab works the same way for places: below the

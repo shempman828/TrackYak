@@ -112,7 +112,8 @@ class TracksTab:
         layout.setContentsMargins(0, 0, 0, 0)
         disc_view = DiscTabView(self.editor.album, self.editor.controller, parent=tab)
         # Track changes bypass RelationshipHelpers; refresh so Genres/Track Credits see them.
-        disc_view.tracks_changed.connect(self.editor.refresh_view)
+        # The disc view reloads itself; rebuilding it would close its open track edit dialogs.
+        disc_view.tracks_changed.connect(lambda: self.editor.refresh_view(rebuild_current=False))
         layout.addWidget(disc_view)
         return tab
 

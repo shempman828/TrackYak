@@ -142,6 +142,7 @@ class _StubAlbum:
     def __init__(self, album_id=1, album_name="Test Album"):
         self.album_id = album_id
         self.album_name = album_name
+        self.release_type = None
 
 
 class _StubGet:
@@ -163,9 +164,11 @@ class _RefreshEditor:
         self.album = _StubAlbum()
         self.controller = _StubController()
         self.refresh_view_calls = 0
+        self.rebuild_current_args = []
 
-    def refresh_view(self):
+    def refresh_view(self, rebuild_current=True):
         self.refresh_view_calls += 1
+        self.rebuild_current_args.append(rebuild_current)
 
 
 def test_refresh_view_emits_tracks_changed(qapp):
@@ -193,6 +196,8 @@ def test_tracks_tab_forwards_track_changes_to_editor_refresh(qapp):
         disc_view.refresh_view()
 
         assert editor.refresh_view_calls == 1
+        # The disc view reloads itself; a tab rebuild would close its open track edit dialogs.
+        assert editor.rebuild_current_args == [False]
     finally:
         built.deleteLater()
 

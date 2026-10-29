@@ -563,7 +563,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.helper.album = updated
         self.tab_builder.album = updated
 
-    def refresh_view(self):
+    def refresh_view(self, rebuild_current: bool = True):
         """Reload the album after a relationship change; rebuild the current tab and mark dependent tabs stale."""
         try:
             self._reload_album()
@@ -572,7 +572,8 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             current_title = self.tabs.tabText(self.tabs.currentIndex())
             self._stale_tabs.update(title for title in self._ALWAYS_REFRESHED_TABS if title != current_title)
             self._stale_tabs.discard(current_title)
-            self._rebuild_tab_by_title(current_title)
+            if rebuild_current:
+                self._rebuild_tab_by_title(current_title)
 
             logger.info("Album view refreshed")
         except SQLAlchemyError as e:

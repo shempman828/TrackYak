@@ -129,7 +129,11 @@ def test_show_context_menu_right_click_on_unselected_virtual_row_shows_virtual_n
     from PySide6.QtCore import QPoint
     from PySide6.QtWidgets import QMenu
 
-    monkeypatch.setattr(QMenu, "exec_", lambda self, *a, **k: built_menus.append(self))
+    class _RecordingMenu(QMenu):
+        def exec(self, *a, **k):
+            built_menus.append(self)
+
+    monkeypatch.setattr("src.album.disc.disc_sorting.QMenu", _RecordingMenu)
 
     view.show_context_menu(QPoint(0, 0))
 
@@ -194,3 +198,181 @@ def test_assign_absolute_track_numbers_does_not_auto_split_non_single(qapp, monk
     assert rows_by_id[1]["track_number"] == 1
     assert "side" not in rows_by_id[2]
     assert rows_by_id[2]["track_number"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Finalize pass: drop targets, grouping, write only changes, menus, keys
+# ---------------------------------------------------------------------------
+
+
+def _disc(disc_id, disc_number, disc_title=None):
+    return SimpleNamespace(disc_id=disc_id, disc_number=disc_number, disc_title=disc_title)
+
+
+def _virtual_link(track, disc_number):
+    return SimpleNamespace(track=track, virtual_disc_number=disc_number, virtual_track_number=1, virtual_side=None)
+
+
+def _group(view, title):
+    for i in range(view.topLevelItemCount()):
+        if view.topLevelItem(i).text(0) == title:
+            return view.topLevelItem(i)
+    raise AssertionError(f"No group {title!r}")
+
+
+def test_track_rows_and_root_do_not_accept_drops(qapp):
+    """A drop onto a track row nested it; a drop between discs made it a top-level row."""
+    track = _track(1, disc_id=10)
+    view = TrackSortingDisplay([track], discs=[_disc(10, 1)], controller=_FakeController([track]))
+
+    assert not view.invisibleRootItem().flags() & Qt.ItemIsDropEnabled
+    row = _group(view, "Disc 1").child(0)
+    assert not row.flags() & Qt.ItemIsDropEnabled
+
+
+def test_virtual_only_group_refuses_drops_and_unassigned_accepts(qapp):
+    physical = _track(1, disc_id=10)
+    virtual = _track(2, name="Borrowed")
+    view = TrackSortingDisplay([physical], discs=[_disc(10, 1)], virtual_links=[_virtual_link(virtual, 2)], controller=_FakeController([physical]))
+
+    assert _group(view, "Disc 1").flags() & Qt.ItemIsDropEnabled
+    assert _group(view, "Unassigned Tracks").flags() & Qt.ItemIsDropEnabled
+    assert not _group(view, "Disc 2").flags() & Qt.ItemIsDropEnabled
+
+
+def test_unassigned_group_shown_when_album_has_discs(qapp):
+    track = _track(1, disc_id=10)
+    view = TrackSortingDisplay([track], discs=[_disc(10, 1)], controller=_FakeController([track]))
+
+    assert _group(view, "Unassigned Tracks").childCount() == 0
+
+
+def test_duplicate_disc_numbers_keep_each_tracks_disc_on_drop(qapp):
+    track_a = _track(1, disc_id=10, track_number=1)
+    track_b = _track(2, disc_id=11, track_number=1)
+    controller = _FakeController([track_a, track_b])
+    view = TrackSortingDisplay([track_a, track_b], discs=[_disc(10, 1), _disc(11, 1)], controller=controller)
+
+    groups = [view.topLevelItem(i) for i in range(view.topLevelItemCount()) if view.topLevelItem(i).text(0) == "Disc 1"]
+    assert len(groups) == 2
+
+    view._persist_drop()
+
+    rows_by_id = {row["track_id"]: row for row in controller.update.rows}
+    assert rows_by_id[1]["disc_id"] == 10
+    assert rows_by_id[2]["disc_id"] == 11
+
+
+def test_persist_drop_writes_only_changed_rows_and_emits(qapp):
+    unchanged = SimpleNamespace(**vars(_track(1, disc_id=10, track_number=1)), absolute_track_number=1)
+    moved = SimpleNamespace(**vars(_track(2, disc_id=None, track_number=1)), absolute_track_number=2)
+    controller = _FakeController([unchanged, moved])
+    view = TrackSortingDisplay([unchanged, moved], discs=[_disc(10, 1)], controller=controller)
+    emitted = []
+    view.layout_changed.connect(lambda: emitted.append(True))
+
+    # Move the unassigned track under Disc 1.
+    unassigned = _group(view, "Unassigned Tracks")
+    _group(view, "Disc 1").addChild(unassigned.takeChild(0))
+    view._persist_drop()
+
+    assert [row["track_id"] for row in controller.update.rows] == [2]
+    assert controller.update.rows[0]["disc_id"] == 10
+    assert emitted == [True]
+
+
+def test_persist_drop_with_no_change_does_not_write(qapp):
+    track = SimpleNamespace(**vars(_track(1, disc_id=10, track_number=1)), absolute_track_number=1)
+    controller = _FakeController([track])
+    view = TrackSortingDisplay([track], discs=[_disc(10, 1)], controller=controller)
+
+    view._persist_drop()
+
+    assert controller.update.rows is None
+
+
+def test_renumber_warns_when_rows_fail(qapp, monkeypatch):
+    track = _track(1, track_number=5)
+    controller = _FakeController([track])
+    controller.update.update_entities_bulk_with_fallback = lambda model, rows: (0, rows)
+    view = TrackSortingDisplay([track], controller=controller)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a[1])))
+
+    view.assign_absolute_track_numbers()
+
+    assert warnings == ["Some Tracks Not Saved"]
+
+
+def test_delete_uses_loaded_tracks_without_query(qapp, monkeypatch):
+    track = _track(1)
+    controller = _FakeController([track])
+    controller.get.get_entity_object = lambda *a, **k: (_ for _ in ()).throw(AssertionError("unexpected query"))
+    view = TrackSortingDisplay([track], controller=controller)
+    monkeypatch.setattr("src.album.disc.disc_sorting.confirm_delete_with_file_option", lambda *a, **k: "db_only")
+
+    view._delete_tracks([1])
+
+    assert controller.delete.calls == [("Track", {"entity_ids": [1]})]
+
+
+def test_set_data_keeps_selected_tracks(qapp):
+    track = _track(1, disc_id=10)
+    view = TrackSortingDisplay([track], discs=[_disc(10, 1)], controller=_FakeController([track]))
+    _group(view, "Disc 1").child(0).setSelected(True)
+
+    view.set_data([track], discs=[_disc(10, 1)])
+
+    assert _group(view, "Disc 1").child(0).isSelected()
+
+
+def test_disc_group_context_menu_requests_disc_actions(qapp, monkeypatch):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QMenu
+
+    disc = _disc(10, 1)
+    view = TrackSortingDisplay([], discs=[disc], controller=_FakeController([]))
+    group = _group(view, "Disc 1")
+    view.itemAt = lambda _pos: group
+    menus = []
+
+    class _RecordingMenu(QMenu):
+        def exec(self, *a, **k):
+            menus.append(self)
+
+    monkeypatch.setattr("src.album.disc.disc_sorting.QMenu", _RecordingMenu)
+    requested = []
+    view.edit_disc_requested.connect(lambda d: requested.append(("edit", d)))
+    view.remove_disc_requested.connect(lambda d: requested.append(("remove", d)))
+
+    view.show_context_menu(QPoint(0, 0))
+    for action in menus[0].actions():
+        action.trigger()
+
+    assert requested == [("edit", disc), ("remove", disc)]
+
+
+def test_double_click_disc_group_requests_edit(qapp):
+    disc = _disc(10, 1)
+    view = TrackSortingDisplay([], discs=[disc], controller=_FakeController([]))
+    requested = []
+    view.edit_disc_requested.connect(requested.append)
+
+    view.itemDoubleClicked.emit(_group(view, "Disc 1"), 0)
+
+    assert requested == [disc]
+
+
+def test_delete_key_deletes_selected_tracks(qapp, monkeypatch):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    track = _track(1)
+    view = TrackSortingDisplay([track], controller=_FakeController([track]))
+    _group(view, "Unassigned Tracks").child(0).setSelected(True)
+    deleted = []
+    monkeypatch.setattr(view, "_delete_tracks", deleted.append)
+
+    view.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Delete, Qt.NoModifier))
+
+    assert deleted == [[1]]
