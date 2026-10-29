@@ -1,9 +1,4 @@
-"""
-ArtistType ORM model: canonical role classification(s) an artist is best
-known for (Composer, Producer, Pianist, ...). Independent of the per-credit
-Role system (TrackArtistRole/AlbumRoleAssociation) -- an incidental credit on
-one track doesn't change an artist's canonical type(s).
-"""
+"""ArtistType ORM model: canonical classification(s) an artist is best known for."""
 
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
@@ -12,6 +7,8 @@ from src.db.db_tables.base import Base
 
 
 class ArtistType(Base):
+    """Canonical artist type (Composer, Pianist, ...), independent of per-credit Roles."""
+
     __tablename__ = "artist_types"
 
     artist_type_id = Column(Integer, primary_key=True)

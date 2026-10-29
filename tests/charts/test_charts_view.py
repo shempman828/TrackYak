@@ -17,11 +17,11 @@ from src.common.match_confidence import confidence_color
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
+from src.db.db_tables import migrations
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
-from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.playlist import Playlist
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
@@ -41,11 +41,8 @@ def session():
     # chart_entries_fts (used by ChartSearchTab) is created by
     # MusicDatabase's integrity-check startup path, not by create_all() --
     # build it the same way the real app does rather than duplicating its
-    # DDL/trigger SQL here. Bypass __init__ so this never touches the
-    # shared music_library.db engine.
-    db = MusicDatabase.__new__(MusicDatabase)
-    db.engine = engine
-    db._ensure_chart_entries_fts()
+    # DDL/trigger SQL here.
+    migrations.ensure_chart_entries_fts(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
     yield session

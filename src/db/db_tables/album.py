@@ -4,10 +4,12 @@ from sqlalchemy import CheckConstraint, Column, Float, ForeignKey, Integer, Stri
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
-from src.db.db_tables.base import Base
+from src.db.db_tables.base import Base, oxford_join
 
 
 class Album(Base):
+    """One release (pressing) of an album."""
+
     __tablename__ = "albums"
 
     album_id = Column(Integer, primary_key=True)
@@ -18,10 +20,7 @@ class Album(Base):
     release_group_MBID = Column(String)
     release_type = Column(String)
     release_country = Column(String)
-    # Physical/digital carrier of this specific pressing, taken verbatim from
-    # MusicBrainz's per-medium `format` (e.g. "CD", '12" Vinyl', "Digital
-    # Media", "Cassette"). Mixed multi-disc sets are the distinct formats
-    # sorted and "/"-joined (e.g. "CD/DVD-Video").
+    # MusicBrainz per-medium `format` verbatim ("CD", '12" Vinyl'); mixed sets are sorted and "/"-joined.
     media_format = Column(String)
     album_description = Column(String)
     release_year = Column(Integer)
@@ -71,44 +70,29 @@ class Album(Base):
 
     @property
     def album_artists(self):
-        """Return only the artists credited as 'Album Artist'."""
+        """Artists credited as 'Album Artist'."""
         return [assoc.artist for assoc in self.album_roles if assoc.role and assoc.role.role_name == "Album Artist"]
 
     @property
     def total_duration(self):
-        """Calculate total album duration from tracks."""
-        if self.tracks:
-            return sum(track.duration or 0 for track in self.tracks)
-        return 0
+        """Total album duration from its tracks."""
+        return sum(track.duration or 0 for track in self.tracks)
 
     @property
     def album_artist_names(self):
-        """Return properly formatted album artist names (Oxford comma style)."""
+        """Album artist names joined Oxford-comma style, or 'Unknown Artist'."""
         names = [assoc.credited_name or "Unknown Artist" for assoc in self.album_roles if assoc.role and assoc.role.role_name == "Album Artist"]
-
-        # Clean whitespace and remove empty values
         names = [name.strip() for name in names if name and name.strip()]
-
-        if not names:
-            return "Unknown Artist"
-
-        if len(names) == 1:
-            return names[0]
-
-        if len(names) == 2:
-            return f"{names[0]} & {names[1]}"
-
-        # 3 or more → Oxford comma
-        return f"{', '.join(names[:-1])}, & {names[-1]}"
+        return oxford_join(names) if names else "Unknown Artist"
 
     @property
     def total_plays(self):
-        """Get total play count across all tracks in the album."""
+        """Total play count across all tracks in the album."""
         return sum(track.play_count or 0 for track in self.tracks)
 
     @property
     def average_rating(self):
-        """Get average user rating across all tracks in the album."""
+        """Average user rating across rated tracks, or None."""
         ratings = [track.user_rating for track in self.tracks if track.user_rating is not None]
         if ratings:
             return sum(ratings) / len(ratings)
@@ -116,65 +100,66 @@ class Album(Base):
 
     @property
     def track_count(self):
-        """Get number of tracks in the album."""
-        return len(self.tracks) if self.tracks else 0
+        """Number of tracks in the album."""
+        return len(self.tracks)
 
     @property
     def RIAA_certification(self):
-        """Determine RIAA certification based on estimated sales, including multi-Platinum."""
+        """RIAA certification level for estimated_sales (Gold, Platinum, multi-Platinum, Diamond)."""
         sales = max(int(self.estimated_sales or 0), 0)
 
-        if sales < 250_000:
-            return "None"
         if sales < 500_000:
-            return "Silver"
+            return "None"
         if sales < 1_000_000:
             return "Gold"
-        # Multi-Platinum calculation
+        if sales >= 10_000_000:
+            return "Diamond"
         platinum_count = sales // 1_000_000
         return f"{platinum_count}\u00d7 Platinum" if platinum_count > 1 else "Platinum"
 
     @property
     def full_tracklist(self):
-        physical = self.tracks  # 1. Get the physical tracks you already have
-        virtual = [link.track for link in self.virtual_track_links]  # 2. Get the borrowed tracks from the new table
-        combined = physical + virtual
-        # Sort by track_number, pushing any tracks with no number to the end
-        return sorted(combined, key=lambda x: (x.track_number is None, x.track_number or 0))  # 3. Combine them and sort by track number
+        """Own and borrowed tracks in (disc, track number) order; unnumbered tracks last."""
+
+        def key(disc_number, track_number):
+            return (disc_number is None, disc_number or 0, track_number is None, track_number or 0)
+
+        # Borrowed tracks sort by their position on this album, not on their source album.
+        keyed = [(key(t.disc_number, t.track_number), t) for t in self.tracks]
+        keyed += [(key(link.virtual_disc_number, link.virtual_track_number), link.track) for link in self.virtual_track_links if link.track is not None]
+        return [track for _key, track in sorted(keyed, key=lambda pair: pair[0])]
 
     @property
     def possibly_incomplete(self):
-        if not self.tracks:
+        """True if any disc has a track-number gap (or only one track exists); None if unnumbered."""
+        by_disc = {}
+        for t in self.tracks:
+            if t.track_number is not None:
+                by_disc.setdefault(t.disc_id, set()).add(t.track_number)
+
+        if not by_disc:
             return None
 
-        numbered = sorted(t.track_number for t in self.tracks if t.track_number is not None)
+        if sum(len(numbers) for numbers in by_disc.values()) == 1:
+            return True  # a lone track is suspicious
 
-        if not numbered:
-            return None
-
-        # suspicious: only one track
-        if len(numbered) == 1:
-            return True
-
-        expected = set(range(1, max(numbered) + 1))
-        actual = set(numbered)
-
-        return actual != expected
+        # Track numbers restart on each disc, so check each disc on its own.
+        return any(numbers != set(range(1, max(numbers) + 1)) for numbers in by_disc.values())
 
     @property
     def has_all_track_numbers(self):
-        """Return True if every track on this album has a track_number assigned."""
-        if not self.tracks:
-            return True
+        """True if every track on this album has a track_number."""
         return all(t.track_number is not None for t in self.tracks)
 
     @property
     def disc_count(self):
-        """Return the number of discs associated with this album."""
-        return len(self.discs) if self.discs else 0
+        """Number of discs on this album."""
+        return len(self.discs)
 
 
 class AlbumAlias(Base):
+    """Alternate name that always resolves to one album."""
+
     __tablename__ = "album_alias"
 
     alias_id = Column(Integer, primary_key=True)
@@ -187,15 +172,15 @@ class AlbumAlias(Base):
 
 
 class AlbumVirtualTrack(Base):
-    """This table allows albums to borrow tracks from other albums"""
+    """A track that an album borrows from another album (e.g. a "Greatest Hits" appearance)."""
 
     __tablename__ = "album_virtual_tracks"
 
     virtual_id = Column(Integer, primary_key=True)
-    album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"))  # The album that "borrows" the track
-    track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"))  # The actual track object
+    album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"), nullable=False)  # The album that borrows the track
+    track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), nullable=False)  # The borrowed track
 
-    # Context-specific metadata for the "Greatest Hits" appearance
+    # Position of the track on the borrowing album
     virtual_track_number = Column(Integer)
     virtual_disc_number = Column(Integer)
     virtual_side = Column(String)

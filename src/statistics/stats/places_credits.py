@@ -13,23 +13,8 @@ import math
 
 from sqlalchemy import func
 
-from src.db.db_tables import (
-    Album,
-    AlbumPublisher,
-    AlbumRoleAssociation,
-    Artist,
-    Place,
-    Publisher,
-    Role,
-    Track,
-    TrackArtistRole,
-)
-from src.statistics.stats.helpers import (
-    RATING_MAX,
-    RATING_MIN,
-    distinct_artist_track_subquery,
-    threshold_leaderboard,
-)
+from src.db.db_tables import Album, AlbumPublisher, AlbumRoleAssociation, Artist, Place, Publisher, Role, Track, TrackArtistRole
+from src.statistics.stats.helpers import RATING_MAX, RATING_MIN, distinct_artist_track_subquery, threshold_leaderboard
 
 # Publishers rarely reach the 10/100/1000 *rated-track* scale used
 # elsewhere -- their natural unit is albums released, which is much
@@ -73,32 +58,10 @@ class PlacesCreditsStats:
     # ------------------------------------------------------------------ #
 
     def _rated_places_leaderboard(self, session):
-        base_query = (
-            session.query(Place)
-            .join(Place.tracks)
-            .filter(
-                Track.user_rating.isnot(None),
-                Track.user_rating >= RATING_MIN,
-                Track.user_rating <= RATING_MAX,
-            )
-        )
+        base_query = session.query(Place).join(Place.tracks).filter(Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
         return {
-            "highest": threshold_leaderboard(
-                session,
-                base_query,
-                Place.place_id,
-                Place.place_name,
-                Track.user_rating,
-                ascending=False,
-            ),
-            "lowest": threshold_leaderboard(
-                session,
-                base_query,
-                Place.place_id,
-                Place.place_name,
-                Track.user_rating,
-                ascending=True,
-            ),
+            "highest": threshold_leaderboard(session, base_query, Place.place_id, Place.place_name, Track.user_rating, ascending=False),
+            "lowest": threshold_leaderboard(session, base_query, Place.place_id, Place.place_name, Track.user_rating, ascending=True),
         }
 
     # ------------------------------------------------------------------ #
@@ -109,7 +72,7 @@ class PlacesCreditsStats:
         countries = session.query(Place).filter(Place.place_type == "Country").all()
         results = []
         for country in countries:
-            ratings = [r for _tid, r in country.recursive_rated_tracks]
+            ratings = [r for _tid, r in country.recursive_rated_tracks(RATING_MIN, RATING_MAX)]
             if len(ratings) >= min_n:
                 avg = sum(ratings) / len(ratings)
                 results.append((country.place_name, round(avg, 2), len(ratings)))
@@ -119,24 +82,16 @@ class PlacesCreditsStats:
 
     def _highest_rated_artist_by_country(self, session, min_rated_tracks=ARTIST_BY_COUNTRY_MIN_N):
         dedup = distinct_artist_track_subquery(session)
-        artist_ratings = dict(
-            (artist_id, (round(avg_rating, 2), n))
-            for artist_id, avg_rating, n in session.query(
-                Artist.artist_id,
-                func.avg(Track.user_rating).label("avg_rating"),
-                func.count(Track.track_id).label("n"),
-            )
+        artist_ratings = {
+            artist_id: (round(avg_rating, 2), n)
+            for artist_id, avg_rating, n in session.query(Artist.artist_id, func.avg(Track.user_rating).label("avg_rating"), func.count(Track.track_id).label("n"))
             .join(dedup, Artist.artist_id == dedup.c.artist_id)
             .join(Track, dedup.c.track_id == Track.track_id)
-            .filter(
-                Track.user_rating.isnot(None),
-                Track.user_rating >= RATING_MIN,
-                Track.user_rating <= RATING_MAX,
-            )
+            .filter(Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
             .group_by(Artist.artist_id)
             .having(func.count(Track.track_id) >= min_rated_tracks)
             .all()
-        )
+        }
         if not artist_ratings:
             return {}
 
@@ -152,10 +107,7 @@ class PlacesCreditsStats:
                     best = (artist_id, rating[0])
             if best:
                 artist_id, avg_rating = best
-                results[country.place_name] = (
-                    artist_names.get(artist_id, f"Artist {artist_id}"),
-                    avg_rating,
-                )
+                results[country.place_name] = (artist_names.get(artist_id, f"Artist {artist_id}"), avg_rating)
         return results
 
     # ------------------------------------------------------------------ #
@@ -171,30 +123,19 @@ class PlacesCreditsStats:
             results = {}
             for threshold in PUBLISHER_ALBUM_THRESHOLDS:
                 rows = (
-                    session.query(
-                        Publisher.publisher_name,
-                        order_expr.label("avg_rating"),
-                        album_count_expr.label("album_count"),
-                    )
+                    session.query(Publisher.publisher_name, order_expr.label("avg_rating"), album_count_expr.label("album_count"))
                     .select_from(Publisher)
                     .join(AlbumPublisher, Publisher.publisher_id == AlbumPublisher.publisher_id)
                     .join(Album, AlbumPublisher.album_id == Album.album_id)
                     .join(Track, Album.album_id == Track.album_id)
-                    .filter(
-                        Track.user_rating.isnot(None),
-                        Track.user_rating >= RATING_MIN,
-                        Track.user_rating <= RATING_MAX,
-                    )
+                    .filter(Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
                     .group_by(Publisher.publisher_id, Publisher.publisher_name)
                     .having(album_count_expr >= threshold)
                     .order_by(order)
                     .limit(limit)
                     .all()
                 )
-                results[threshold] = [
-                    (name, round(avg_rating, 2), album_count)
-                    for name, avg_rating, album_count in rows
-                ]
+                results[threshold] = [(name, round(avg_rating, 2), album_count) for name, avg_rating, album_count in rows]
             return results
 
         return {"highest": _leaderboard(False), "lowest": _leaderboard(True)}
@@ -228,28 +169,10 @@ class PlacesCreditsStats:
         return [(name, count) for name, count in rows]
 
     def _rated_composers_leaderboard(self, session):
-        base_query = self._composer_base_query(session).filter(
-            Track.user_rating.isnot(None),
-            Track.user_rating >= RATING_MIN,
-            Track.user_rating <= RATING_MAX,
-        )
+        base_query = self._composer_base_query(session).filter(Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
         return {
-            "highest": threshold_leaderboard(
-                session,
-                base_query,
-                Artist.artist_id,
-                Artist.artist_name,
-                Track.user_rating,
-                ascending=False,
-            ),
-            "lowest": threshold_leaderboard(
-                session,
-                base_query,
-                Artist.artist_id,
-                Artist.artist_name,
-                Track.user_rating,
-                ascending=True,
-            ),
+            "highest": threshold_leaderboard(session, base_query, Artist.artist_id, Artist.artist_name, Track.user_rating, ascending=False),
+            "lowest": threshold_leaderboard(session, base_query, Artist.artist_id, Artist.artist_name, Track.user_rating, ascending=True),
         }
 
     # ------------------------------------------------------------------ #
@@ -263,23 +186,14 @@ class PlacesCreditsStats:
         (rather than a Core select) otherwise auto-names each side's
         columns after its own table, leaving the union's column names
         mismatched."""
-        track_credits = session.query(
-            TrackArtistRole.artist_id.label("artist_id"), TrackArtistRole.role_id.label("role_id")
-        )
-        album_credits = session.query(
-            AlbumRoleAssociation.artist_id.label("artist_id"),
-            AlbumRoleAssociation.role_id.label("role_id"),
-        )
+        track_credits = session.query(TrackArtistRole.artist_id.label("artist_id"), TrackArtistRole.role_id.label("role_id"))
+        album_credits = session.query(AlbumRoleAssociation.artist_id.label("artist_id"), AlbumRoleAssociation.role_id.label("role_id"))
         return track_credits.union_all(album_credits).subquery()
 
     def _role_credit_counts(self, session, limit=5):
         credits = self._credit_union_rows(session)
         rows = (
-            session.query(
-                Artist.artist_name,
-                func.count().label("total_credits"),
-                func.count(func.distinct(credits.c.role_id)).label("distinct_roles"),
-            )
+            session.query(Artist.artist_name, func.count().label("total_credits"), func.count(func.distinct(credits.c.role_id)).label("distinct_roles"))
             .select_from(credits)
             .join(Artist, Artist.artist_id == credits.c.artist_id)
             .group_by(Artist.artist_id, Artist.artist_name)
@@ -288,10 +202,7 @@ class PlacesCreditsStats:
 
         by_total = sorted(rows, key=lambda r: r[1], reverse=True)[:limit]
         by_distinct = sorted(rows, key=lambda r: r[2], reverse=True)[:limit]
-        return {
-            "most_credits": [(name, total) for name, total, _distinct in by_total],
-            "most_distinct_roles": [(name, distinct) for name, _total, distinct in by_distinct],
-        }
+        return {"most_credits": [(name, total) for name, total, _distinct in by_total], "most_distinct_roles": [(name, distinct) for name, _total, distinct in by_distinct]}
 
     def _role_rating_comparison(self, session):
         role_counts = (
@@ -308,20 +219,11 @@ class PlacesCreditsStats:
         top_role_ids = [role_id for role_id, _name, _count in role_counts[:top_n]]
 
         rows = (
-            session.query(
-                Role.role_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-                func.count(Track.track_id).label("n"),
-            )
+            session.query(Role.role_name, func.avg(Track.user_rating).label("avg_rating"), func.count(Track.track_id).label("n"))
             .select_from(Role)
             .join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id)
             .join(Track, TrackArtistRole.track_id == Track.track_id)
-            .filter(
-                Role.role_id.in_(top_role_ids),
-                Track.user_rating.isnot(None),
-                Track.user_rating >= RATING_MIN,
-                Track.user_rating <= RATING_MAX,
-            )
+            .filter(Role.role_id.in_(top_role_ids), Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
             .group_by(Role.role_id, Role.role_name)
             .all()
         )
@@ -334,12 +236,7 @@ class PlacesCreditsStats:
     # ------------------------------------------------------------------ #
 
     def _prolific_artist_by_role(self, session, limit=5):
-        roles = (
-            session.query(Role.role_id, Role.role_name)
-            .join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id)
-            .distinct()
-            .all()
-        )
+        roles = session.query(Role.role_id, Role.role_name).join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id).distinct().all()
 
         results = {}
         for role_id, role_name in roles:
@@ -358,12 +255,7 @@ class PlacesCreditsStats:
         return results
 
     def _top_rated_artist_by_role(self, session):
-        roles = (
-            session.query(Role.role_id, Role.role_name)
-            .join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id)
-            .distinct()
-            .all()
-        )
+        roles = session.query(Role.role_id, Role.role_name).join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id).distinct().all()
 
         results = {}
         for role_id, role_name in roles:
@@ -371,29 +263,10 @@ class PlacesCreditsStats:
                 session.query(Artist)
                 .join(TrackArtistRole, Artist.artist_id == TrackArtistRole.artist_id)
                 .join(Track, TrackArtistRole.track_id == Track.track_id)
-                .filter(
-                    TrackArtistRole.role_id == role_id,
-                    Track.user_rating.isnot(None),
-                    Track.user_rating >= RATING_MIN,
-                    Track.user_rating <= RATING_MAX,
-                )
+                .filter(TrackArtistRole.role_id == role_id, Track.user_rating.isnot(None), Track.user_rating >= RATING_MIN, Track.user_rating <= RATING_MAX)
             )
             results[role_name] = {
-                "highest": threshold_leaderboard(
-                    session,
-                    base_query,
-                    Artist.artist_id,
-                    Artist.artist_name,
-                    Track.user_rating,
-                    ascending=False,
-                ),
-                "lowest": threshold_leaderboard(
-                    session,
-                    base_query,
-                    Artist.artist_id,
-                    Artist.artist_name,
-                    Track.user_rating,
-                    ascending=True,
-                ),
+                "highest": threshold_leaderboard(session, base_query, Artist.artist_id, Artist.artist_name, Track.user_rating, ascending=False),
+                "lowest": threshold_leaderboard(session, base_query, Artist.artist_id, Artist.artist_name, Track.user_rating, ascending=True),
             }
         return results

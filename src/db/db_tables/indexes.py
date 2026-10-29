@@ -1,32 +1,13 @@
-"""
-Explicit indexes on top of the ORM models, grouped by owning table.
+"""Explicit indexes on the ORM models; importing this module registers them with each table."""
 
-Importing this module registers the indexes with each table's metadata as a
-side effect, so it must be imported after all model modules.
-
-Indexes deliberately omitted here because they'd be redundant with an
-existing PRIMARY KEY / UNIQUE constraint (SQLite auto-indexes both):
-  - Track.track_file_path — already unique=True
-  - TrackGenre(track_id, genre_id), ArtistTypeAssociation(artist_id, artist_type_id),
-    ArtistTagAssociation(artist_id, tag_id), MoodTrackAssociation(mood_id, track_id)
-    — already composite primary keys
-  - AlbumPublisher(album_id, publisher_id) — already a composite primary key
-  - AlbumRoleAssociation(album_id, artist_id) — already a leftmost prefix of
-    the uq_album_artist_role(album_id, artist_id, role_id) unique constraint
-  - ChartEntry(chart_id, chart_week) — already a leftmost prefix of the
-    uq_chart_entry_week_position(chart_id, chart_week, position) unique
-    constraint, which covers the week-browser's primary query
-
-Note: SQLAlchemy's create_all() only emits DDL (including indexes) for
-tables that don't already exist — adding an Index() here does nothing for
-a database file where the owning table was created before this line was
-added. MusicDatabase._create_missing_indexes() in database.py handles
-backfilling indexes onto already-existing tables at startup.
-"""
+# Left out because a PK/UNIQUE constraint already indexes them (SQLite auto-indexes
+# both): Track.track_file_path, the composite-PK junction tables, the leftmost
+# prefixes of uq_album_artist_role and uq_chart_entry_week_position.
+# create_all() only adds indexes for new tables; MusicDatabase backfills the rest.
 
 from sqlalchemy import Index
 
-from src.db.db_tables.album import Album
+from src.db.db_tables.album import Album, AlbumVirtualTrack
 from src.db.db_tables.artist import Artist, ArtistInfluence, GroupMembership
 from src.db.db_tables.associations import AlbumPublisher, AlbumRoleAssociation, ArtistTagAssociation, ArtistTypeAssociation, PublisherFounder, TrackArtistRole, TrackGenre
 from src.db.db_tables.award import Award, AwardAssociation
@@ -42,14 +23,13 @@ from src.db.db_tables.tag import Tag
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 # --- Artist ---
-Index("idx_artists_name", Artist.artist_name)  # No longer a byproduct of unique=True -- artist_name isn't unique
-# anymore (two real people can share a name; MB import disambiguates by
-# MBID), so name lookups need their own explicit index.
+Index("idx_artists_name", Artist.artist_name)  # artist_name is not unique, so name lookups need their own index
 Index("idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day)  # "Most common birthdate (m+d)" statistic
 Index("idx_artists_end_month_day", Artist.end_month, Artist.end_day)  # "Most common deathdate (m+d)" statistic
 Index("idx_artists_begin_year", Artist.begin_year)  # Generation-bucket rating stat, oldest/youngest-artist stats
 
 # --- Album ---
+Index("uq_album_virtual_tracks_album_track", AlbumVirtualTrack.album_id, AlbumVirtualTrack.track_id, unique=True)  # One borrow per album/track pair
 Index("idx_albums_title", Album.album_name)
 Index("idx_albums_release_year", Album.release_year)  # Commonly filtered/sorted
 Index("idx_albums_release_month_day", Album.release_month, Album.release_day)  # "Most common album release date (m+d)" statistic
@@ -107,11 +87,8 @@ Index("idx_places_place_type", Place.place_type)  # Country-only filtering for r
 # --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)
 Index("idx_place_assoc_entity_type_id", PlaceAssociation.entity_type, PlaceAssociation.entity_id)  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
-Index(
-    "uq_place_assoc_entity_place_type", PlaceAssociation.entity_type, PlaceAssociation.entity_id, PlaceAssociation.place_id, PlaceAssociation.association_type_id, unique=True
-)  # Same entity linked to the same place with the same association type twice is a
-# duplicate (e.g. two "Headquarters" rows for one publisher pointing at the same
-# place) -- the same place under a *different* type is a distinct, valid fact.
+# Same entity + place + association type twice is a duplicate; a different type is a distinct fact.
+Index("uq_place_assoc_entity_place_type", PlaceAssociation.entity_type, PlaceAssociation.entity_id, PlaceAssociation.place_id, PlaceAssociation.association_type_id, unique=True)
 
 # --- Awards ---
 Index("idx_awards_mb_series_id", Award.mb_series_id, Award.award_year)  # Awards-sync find-or-create key

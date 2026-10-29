@@ -1,57 +1,36 @@
-"""
-Chart ORM models: Chart (one row per chart type, e.g. Hot 100 / Billboard 200)
-and ChartEntry (one row per chart-week/position), imported from static
-community-maintained CSV snapshots. See src/charts/ for the download/import/
-matching workers that populate these tables.
-"""
+"""Chart ORM models: Chart (one row per chart type) and ChartEntry (one row per week/position)."""
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    Date,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import CheckConstraint, Column, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from src.db.db_tables.base import Base
 
 
 class Chart(Base):
+    """Chart type (Hot 100, Billboard 200, ...) imported from CSV snapshots (see src/charts/)."""
+
     __tablename__ = "charts"
 
     chart_id = Column(Integer, primary_key=True)
     chart_key = Column(String(20), unique=True, nullable=False)  # 'hot-100' | 'billboard-200'
     chart_name = Column(String(100), nullable=False)  # "Billboard Hot 100"
     source_url = Column(String, nullable=False)
-    matched_entity_type = Column(
-        String, CheckConstraint("matched_entity_type IN ('Track', 'Album')"), nullable=False
-    )
+    matched_entity_type = Column(String, CheckConstraint("matched_entity_type IN ('Track', 'Album')"), nullable=False)
     last_downloaded_at = Column(DateTime)  # last successful CSV fetch
     last_synced_week = Column(Date)  # most recent chart_week imported; drives update diffing
     last_matched_at = Column(DateTime)  # last time the matching pass ran
-    # Fingerprint of the library's titles/artists as of the last matching
-    # pass (see chart_matching._rebuild_scratch_index). Lets a re-run skip
-    # rescoring entries that were already attempted and failed, but only
-    # while the library is provably unchanged -- any track/album rename,
-    # addition, or removal changes this and forces those entries to be
-    # retried, so a rename can never be silently missed.
+    # Library title/artist fingerprint at the last matching pass: while it is
+    # unchanged, a re-run skips entries that already failed to match.
     last_library_fingerprint = Column(String)
 
-    entries = relationship(
-        "ChartEntry", back_populates="chart", cascade="all, delete-orphan", passive_deletes=True
-    )
+    entries = relationship("ChartEntry", back_populates="chart", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class ChartEntry(Base):
+    """One chart position for one week, optionally matched to a Track or Album."""
+
     __tablename__ = "chart_entries"
-    __table_args__ = (
-        UniqueConstraint("chart_id", "chart_week", "position", name="uq_chart_entry_week_position"),
-    )
+    __table_args__ = (UniqueConstraint("chart_id", "chart_week", "position", name="uq_chart_entry_week_position"),)
 
     chart_entry_id = Column(Integer, primary_key=True)
     chart_id = Column(Integer, ForeignKey("charts.chart_id", ondelete="CASCADE"), nullable=False)
@@ -67,30 +46,19 @@ class ChartEntry(Base):
     entity_type = Column(String, CheckConstraint("entity_type IN ('Track', 'Album')"))
     entity_id = Column(Integer)
     match_score = Column(Float)  # SequenceMatcher-derived confidence at match time
-    # Set whenever this entry is scored (matched or not), regardless of
-    # outcome. Combined with Chart.last_library_fingerprint, lets a re-run
-    # tell "never attempted" (new chart week) apart from "attempted, no
-    # match, library unchanged since" (safe to skip).
+    # Set on every scoring attempt, matched or not; with Chart.last_library_fingerprint
+    # it tells "never attempted" apart from "attempted, library unchanged since".
     last_match_attempt_at = Column(DateTime)
 
     chart = relationship("Chart", back_populates="entries")
 
-    track = relationship(
-        "Track",
-        primaryjoin="and_(ChartEntry.entity_id == foreign(Track.track_id), "
-        "ChartEntry.entity_type == 'Track')",
-        viewonly=True,
-    )
-    album = relationship(
-        "Album",
-        primaryjoin="and_(ChartEntry.entity_id == foreign(Album.album_id), "
-        "ChartEntry.entity_type == 'Album')",
-        viewonly=True,
-    )
+    # uselist=False: foreign() on the remote side otherwise makes each of these a list.
+    track = relationship("Track", primaryjoin="and_(ChartEntry.entity_id == foreign(Track.track_id), ChartEntry.entity_type == 'Track')", uselist=False, viewonly=True)
+    album = relationship("Album", primaryjoin="and_(ChartEntry.entity_id == foreign(Album.album_id), ChartEntry.entity_type == 'Album')", uselist=False, viewonly=True)
 
     @property
     def entity(self):
-        """Return the matched Track/Album object, or None if unmatched."""
+        """The matched Track/Album object, or None if unmatched."""
         if self.entity_type == "Track":
             return self.track
         if self.entity_type == "Album":
@@ -99,4 +67,5 @@ class ChartEntry(Base):
 
     @property
     def is_matched(self) -> bool:
+        """True if the matching pass linked this entry to a Track or Album."""
         return self.entity_id is not None

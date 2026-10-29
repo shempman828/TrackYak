@@ -6,19 +6,12 @@ from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Int
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
-from src.db.db_tables.base import Base
-
-
-def _oxford_join(names: list) -> str:
-    """Join names as 'A' / 'A & B' / 'A, B, & C' (Oxford comma for 3+)."""
-    if len(names) == 1:
-        return names[0]
-    if len(names) == 2:
-        return f"{names[0]} & {names[1]}"
-    return f"{', '.join(names[:-1])}, & {names[-1]}"
+from src.db.db_tables.base import Base, oxford_join
 
 
 class Samples(Base):
+    """Directed link: the sampled_by track samples the sampled track."""
+
     __tablename__ = "samples"
     sampled_by_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True)
     sampled_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True)
@@ -28,6 +21,8 @@ class Samples(Base):
 
 
 class Track(Base):
+    """One audio file in the library, with its metadata and analysis results."""
+
     __tablename__ = "tracks"
 
     # Basic Properties
@@ -105,10 +100,7 @@ class Track(Base):
     second_pass = Column(Integer, CheckConstraint("second_pass IN (0, 1)"))
     track_quality = Column(String)
 
-    # Set whenever a change to this track (or something it references —
-    # artist/genre/mood/place/publisher credits, its album/disc, a rename or
-    # merge of one of those entities) makes its on-disk tags stale. Cleared
-    # by MetadataWriter after a successful write. See src/db/db_helpers/track_dirty.py.
+    # 1 = on-disk tags are stale; cleared by MetadataWriter (see db_helpers/track_dirty.py).
     needs_tag_write = Column(Integer, CheckConstraint("needs_tag_write IN (0, 1)"), nullable=False, default=1)
 
     # User Metadata
@@ -181,20 +173,17 @@ class Track(Base):
 
     # Tracks that *sample* this track
     sampled_by_tracks = relationship("Samples", foreign_keys=[Samples.sampled_id], back_populates="sampled", cascade="all, delete-orphan")
-    virtual_appearances = relationship("AlbumVirtualTrack", back_populates="track")
+    virtual_appearances = relationship("AlbumVirtualTrack", back_populates="track", cascade="all, delete-orphan", passive_deletes=True)
     usages = relationship("TrackUsage", back_populates="track", cascade="all, delete-orphan", passive_deletes=True)
 
     @property
     def primary_artists(self):
-        """Return only the artists credited as "Primary" for this track."""
+        """Artists credited as "Primary Artist" on this track."""
         return [assoc.artist for assoc in self.artist_roles if assoc.role and assoc.role.role_name == "Primary Artist"]
 
     @property
     def primary_artist_names(self):
-        """Return formatted primary artist names (Oxford comma style), with
-        any Featured Artist credits appended, e.g. "Queen Featuring David Bowie"
-        or "Queen Featuring David Bowie, Freddie Mercury, & Prince".
-        """
+        """Primary artist names plus any featured artists, e.g. "Queen Featuring David Bowie"."""
 
         def _names_for(role_name):
             names = [assoc.credited_name or "Unknown Artist" for assoc in self.artist_roles if assoc.role and assoc.role.role_name == role_name]
@@ -204,44 +193,44 @@ class Track(Base):
         if not primary_names:
             return "Unknown Artist"
 
-        result = _oxford_join(primary_names)
+        result = oxford_join(primary_names)
 
         featured_names = _names_for("Featured Artist")
         if featured_names:
-            result = f"{result} Featuring {_oxford_join(featured_names)}"
+            result = f"{result} Featuring {oxford_join(featured_names)}"
 
         return result
 
     @property
     def composer_names(self):
-        """Return list of composer names for this track."""
-        return [assoc.artist.artist_name for assoc in self.artist_roles if assoc.role and assoc.role.role_name == "Composer"]
+        """Credited names of this track's composers."""
+        return [name for assoc in self.artist_roles if assoc.role and assoc.role.role_name == "Composer" and (name := assoc.credited_name)]
 
     @property
     def disc_number(self):
-        """Get disc number from associated disc."""
+        """Disc number of the associated disc, or None."""
         return self.disc.disc_number if self.disc else None
 
     @property
     def publisher_names(self):
-        """Return list of publisher names for this track's album."""
+        """Publisher names of this track's album."""
         if not self.album:
             return []
         return [pub.publisher_name for pub in self.album.publishers]
 
     @property
     def sampled_tracks(self):
-        """Tracks this track samples (returns a list of Track objects)."""
+        """Tracks this track samples."""
         return [s.sampled for s in self.samples_used]
 
     @property
     def sampling_tracks(self):
-        """Tracks that sample this track (returns a list of Track objects)."""
+        """Tracks that sample this track."""
         return [s.sampled_by for s in self.sampled_by_tracks]
 
     @property
     def movement_number_roman(self):
-        """Return the movement number as a Roman numeral, or None if missing."""
+        """Movement number as a Roman numeral, or None if missing."""
         if self.movement_number is None or self.movement_number <= 0:
             return None
 
@@ -258,14 +247,14 @@ class Track(Base):
 
     @property
     def all_albums(self):
-        """Returns the primary album plus all albums that 'borrow' this track."""
+        """The primary album plus all albums that borrow this track."""
         albums = [self.album] if self.album else []
         borrowed_albums = [link.album for link in self.virtual_appearances]
         return albums + borrowed_albums
 
     @property
     def duration_formatted(self):
-        """Return duration in MM:SS format."""
+        """Duration in M:SS format, or "Unknown"."""
         if self.duration is None:
             return "Unknown"
         minutes = int(self.duration) // 60
@@ -274,36 +263,36 @@ class Track(Base):
 
     @property
     def album_MBID(self):
-        """Return the MusicBrainz ID of the album, if available."""
+        """MusicBrainz ID of the album, or None."""
         return self.album.MBID if self.album and self.album.MBID else None
 
     @property
     def album_complete(self):
-        """Return True if track has all album-level metadata filled in, False otherwise."""
+        """True if the track's album has passed its second metadata pass."""
         if not self.album:
             return False
         return self.album.second_pass == 1
 
     @property
     def is_complete(self):
-        """Return True if the track has the minimum expected metadata filled in."""
+        """True if the track has the minimum expected metadata filled in."""
         return bool(self.track_name and self.duration and self.artist_roles and self.album_id and self.track_number is not None)
 
     @property
     def has_audio_analysis(self):
-        """Return True if the key audio analysis fields are populated."""
+        """True if the key audio analysis fields are populated."""
         return all(v is not None for v in [self.bpm, self.key, self.energy, self.danceability])
 
     @property
     def age_in_years(self):
-        """Return how many years ago the track was recorded, or None if unknown."""
+        """Years since the track was recorded, or None if unknown."""
         if self.recorded_year:
             return date.today().year - self.recorded_year
         return None
 
     @property
     def used_in_summary(self):
-        """Return a short list of context labels for this track's usages."""
+        """Short context labels for this track's usages."""
         if not self.usages:
             return []
         return [f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "") for u in self.usages]

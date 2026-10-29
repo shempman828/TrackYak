@@ -1,4 +1,4 @@
-"""Tests for MusicDatabase._dedupe_duplicate_place_associations() -- the
+"""Tests for migrations.dedupe_place_associations() -- the
 one-time cleanup that removes place_associations rows duplicating the same
 entity/place/association-type combination (e.g. two "Headquarters" rows for
 one publisher pointing at the same place), so the uq_place_assoc_entity_place_type
@@ -6,16 +6,16 @@ index in indexes.py can be created on an existing database file. See the bug:
 publishers could get duplicate place associations.
 
 In-memory SQLite, same shape as tests/db/conftest.py's session fixture.
-The method is exercised against a minimal stand-in with just a .Session
-attribute, so no full MusicDatabase (and its shared-engine wiring) is needed.
+The function takes the engine directly, so no full MusicDatabase (and its
+shared-engine wiring) is needed.
 """
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.db.db_tables import migrations
 from src.db.db_tables.base import Base
-from src.db.db_tables.database import MusicDatabase
 import src.db.db_tables.indexes
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
@@ -42,16 +42,8 @@ def session():
     s.close()
 
 
-class _FakeDatabase:
-    """Just enough surface for _dedupe_duplicate_place_associations: a
-    .Session sessionmaker bound to the test engine."""
-
-    def __init__(self, session):
-        self.Session = sessionmaker(bind=session.get_bind())
-
-
 def _dedupe(session):
-    MusicDatabase._dedupe_duplicate_place_associations(_FakeDatabase(session))
+    migrations.dedupe_place_associations(session.get_bind())
 
 
 def _setup_publisher_and_places(session):

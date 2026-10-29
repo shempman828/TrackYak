@@ -1,4 +1,4 @@
-"""Publisher ORM model."""
+"""Publisher ORM models: Publisher (self-referential hierarchy) and its aliases."""
 
 from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -8,12 +8,14 @@ from src.db.db_tables.base import Base
 
 
 class Publisher(Base):
+    """Record label or publisher, nested under a parent company."""
+
     __tablename__ = "publishers"
 
     publisher_id = Column(Integer, primary_key=True)
     publisher_name = Column(String)
     description = Column(String)
-    parent_id = Column(Integer, ForeignKey("publishers.publisher_id"))
+    parent_id = Column(Integer, ForeignKey("publishers.publisher_id", ondelete="SET NULL"))
     parent = relationship("Publisher", remote_side=[publisher_id], backref="children")
     begin_year = Column(Integer)
     begin_month = Column(Integer)
@@ -40,13 +42,7 @@ class Publisher(Base):
 
 
 class PublisherAlias(Base):
-    """An alternate name for a publisher that always resolves to it.
-
-    Merging a duplicate publisher into a canonical one automatically adds
-    the merged-away name as an alias (see MergeDB.merge_entities), and
-    importing checks aliases before creating a new publisher, so the same
-    "duplicate" name doesn't keep coming back on every import.
-    """
+    """Alternate name that always resolves to one publisher (see MergeDB.merge_entities)."""
 
     __tablename__ = "publisher_alias"
 
@@ -59,13 +55,7 @@ class PublisherAlias(Base):
 
 
 class PublisherSplitAlias(Base):
-    """A recorded 'this combined name splits into these publishers' rule.
-
-    Unlike PublisherAlias (name -> one publisher), one alias_name here maps
-    to *multiple* Publisher rows, ordered by sort_order. Created
-    automatically when a Publisher is split into 2+ publishers (see
-    SplitDB.split_publisher), or directly via the alias-management dialog.
-    """
+    """Rule that one combined name splits into several publishers, ordered by sort_order."""
 
     __tablename__ = "publisher_split_alias"
 

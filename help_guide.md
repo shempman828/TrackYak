@@ -272,6 +272,13 @@ Credits, Album Credit, Publishers & Places, Awards, and Advanced. You don't
 need to touch most of these day-to-day — Overview and Tracks cover the common
 cases.
 
+The Overview tab shows two badges. **RIAA** is the certification level for
+the album's estimated sales: Gold at 500,000, Platinum at 1,000,000, "N×
+Platinum" for each further million, and Diamond at 10,000,000. **Possibly
+Incomplete** shows when a disc has a gap in its track numbers, or when the
+album has only one numbered track. Each disc is checked on its own, because
+track numbers start again at 1 on each disc.
+
 The Details tab carries the per-pressing metadata: language, release type,
 catalog number, release country, and **Media Format** — the physical or
 digital carrier (CD, 12" Vinyl, Digital Media, Cassette, and so on; mixed

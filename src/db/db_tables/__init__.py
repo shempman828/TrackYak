@@ -1,32 +1,11 @@
-"""
-Defines the database schema using SQLAlchemy ORM.
+"""SQLAlchemy ORM schema, re-exported so callers can `from src.db.db_tables import X`."""
 
-The schema is split by domain across this package's modules; everything is
-re-exported here so existing code can keep doing `from src.db.db_tables import X`
-or `import src.db.db_tables` unchanged.
-"""
-
-# Registers all Index(...) definitions against the tables above; must be
-# imported last, after every model class exists.
+# indexes imports every model it indexes itself, so import order here is free.
 from src.db.db_tables import indexes  # noqa: F401
 from src.db.db_tables.album import Album, AlbumAlias, AlbumVirtualTrack
-from src.db.db_tables.artist import (
-    Artist,
-    ArtistAlias,
-    ArtistInfluence,
-    ArtistSplitAlias,
-    GroupMembership,
-)
+from src.db.db_tables.artist import Artist, ArtistAlias, ArtistInfluence, ArtistSplitAlias, GroupMembership
 from src.db.db_tables.artist_type import ArtistType
-from src.db.db_tables.associations import (
-    AlbumPublisher,
-    AlbumRoleAssociation,
-    ArtistTagAssociation,
-    ArtistTypeAssociation,
-    PublisherFounder,
-    TrackArtistRole,
-    TrackGenre,
-)
+from src.db.db_tables.associations import AlbumPublisher, AlbumRoleAssociation, ArtistTagAssociation, ArtistTypeAssociation, PublisherFounder, TrackArtistRole, TrackGenre
 from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.base import Base, set_sqlite_pragma
 from src.db.db_tables.chart import Chart, ChartEntry

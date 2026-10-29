@@ -1,4 +1,4 @@
-"""Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMembership."""
+"""Artist-related ORM models: Artist, its aliases, ArtistInfluence, and GroupMembership."""
 
 from datetime import UTC, datetime
 
@@ -10,12 +10,12 @@ from src.db.db_tables.base import Base
 
 
 class Artist(Base):
+    """A person or group credited on tracks and albums."""
+
     __tablename__ = "artists"
 
     artist_id = Column(Integer, primary_key=True)
-    # Not unique: two distinct real people can share an exact name (MB
-    # import disambiguates by MBID, not name -- see
-    # publisher_musicbrainz_import.py / album_musicbrainz_review_import.py).
+    # Not unique: two real people can share a name; MB import disambiguates by MBID.
     artist_name = Column(String)
     isgroup = Column(Integer, CheckConstraint("isgroup IN (0, 1)"))
     begin_year = Column(Integer)
@@ -29,9 +29,7 @@ class Artist(Base):
     end_day = Column(Integer)
     biography = Column(String)
     disambiguation = Column(String)
-    # MusicBrainz-style filing name ("Beatles, The", "Davis, Miles"). Display/
-    # reference metadata only -- no list ordering keys off it yet. Filled from
-    # MB import (sort-name) and the one-time scripts/backfill_artist_sort_name.py.
+    # MusicBrainz filing name ("Beatles, The"); display only, no list sorts on it yet.
     sort_name = Column(String)
     MBID = Column(String)
     profile_pic_path = Column(String)
@@ -39,66 +37,27 @@ class Artist(Base):
     website_link = Column(String)
 
     tags = relationship("Tag", secondary="artist_tag_associations", back_populates="artists")
-    aliases = relationship(
-        "ArtistAlias", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True
-    )
+    aliases = relationship("ArtistAlias", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True)
     aliases_list = association_proxy("aliases", "alias_name")
-    types = relationship(
-        "ArtistType", secondary="artist_type_associations", back_populates="artists"
-    )
+    types = relationship("ArtistType", secondary="artist_type_associations", back_populates="artists")
     type_names = association_proxy("types", "type_name")
-    album_roles = relationship(
-        "AlbumRoleAssociation",
-        back_populates="artist",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    album_roles = relationship("AlbumRoleAssociation", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True)
     tracks = association_proxy("track_roles", "track")
-    track_roles = relationship(
-        "TrackArtistRole",
-        back_populates="artist",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    track_roles = relationship("TrackArtistRole", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True)
 
-    # Group membership relationships
-    member_memberships = relationship(
-        "GroupMembership",
-        foreign_keys="GroupMembership.member_id",
-        back_populates="member",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    group_memberships = relationship(
-        "GroupMembership",
-        foreign_keys="GroupMembership.group_id",
-        back_populates="group",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    # No passive_deletes on the four self-join collections below: older DB
+    # files have no ON DELETE on their FKs, so the ORM must delete these rows.
+    member_memberships = relationship("GroupMembership", foreign_keys="GroupMembership.member_id", back_populates="member", cascade="all, delete-orphan")
+    group_memberships = relationship("GroupMembership", foreign_keys="GroupMembership.group_id", back_populates="group", cascade="all, delete-orphan")
 
-    # Artist influence relationships (ADD THESE)
-    influencer_relations = relationship(
-        "ArtistInfluence",
-        foreign_keys="ArtistInfluence.influencer_id",
-        back_populates="influencer",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    influenced_relations = relationship(
-        "ArtistInfluence",
-        foreign_keys="ArtistInfluence.influenced_id",
-        back_populates="influenced",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    influencer_relations = relationship("ArtistInfluence", foreign_keys="ArtistInfluence.influencer_id", back_populates="influencer", cascade="all, delete-orphan")
+    influenced_relations = relationship("ArtistInfluence", foreign_keys="ArtistInfluence.influenced_id", back_populates="influenced", cascade="all, delete-orphan")
     # viewonly: writes to place_associations always go through PlaceAssociation
     # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
-        primaryjoin="and_(Artist.artist_id == PlaceAssociation.entity_id, "
-        "PlaceAssociation.entity_type == 'Artist')",
+        primaryjoin="and_(Artist.artist_id == PlaceAssociation.entity_id, PlaceAssociation.entity_type == 'Artist')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
         viewonly=True,
     )
@@ -108,32 +67,22 @@ class Artist(Base):
     awards = relationship(
         "Award",
         secondary="award_associations",
-        primaryjoin="and_(Artist.artist_id == AwardAssociation.entity_id, "
-        "AwardAssociation.entity_type == 'Artist')",
+        primaryjoin="and_(Artist.artist_id == AwardAssociation.entity_id, AwardAssociation.entity_type == 'Artist')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
         viewonly=True,
     )
 
-    founded_publisher_associations = relationship(
-        "PublisherFounder",
-        back_populates="artist",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    founded_publisher_associations = relationship("PublisherFounder", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True)
     founded_publishers = association_proxy("founded_publisher_associations", "publisher")
 
     @property
     def albums(self):
-        """Return albums where this artist is an Album Artist (role_id=1)."""
-        return [
-            assoc.album
-            for assoc in self.album_roles
-            if assoc.role_id == 1 and assoc.album is not None
-        ]
+        """Albums where this artist is credited as Album Artist."""
+        return [assoc.album for assoc in self.album_roles if assoc.role and assoc.role.role_name == "Album Artist" and assoc.album is not None]
 
     @property
     def age(self):
-        """Calculate artist's age or age at end."""
+        """Years from begin_year to end_year (or to this year if still active)."""
         if self.begin_year:
             end_year = self.end_year or datetime.now(UTC).year
             return end_year - self.begin_year
@@ -141,17 +90,17 @@ class Artist(Base):
 
     @property
     def track_count(self):
-        """Get total number of tracks by this artist."""
-        return len(self.tracks) if self.tracks else 0
+        """Number of distinct tracks this artist is credited on, in any role."""
+        return len({tr.track_id for tr in self.track_roles})
 
     @property
     def is_active(self):
-        """Return True if the artist has no recorded end year (still active)."""
+        """True if the artist has no recorded end year."""
         return self.end_year is None
 
     @property
     def career_span(self):
-        """Return a human-readable career span string, e.g. '2001-2015' or '2001-present'."""
+        """Career span string, e.g. '2001-2015' or '2001-present'."""
         if not self.begin_year:
             return None
         end = str(self.end_year) if self.end_year else "present"
@@ -159,16 +108,18 @@ class Artist(Base):
 
     @property
     def album_count(self):
-        """Return the number of albums this artist is credited as Album Artist on."""
+        """Number of albums this artist is credited as Album Artist on."""
         return len(self.albums)
 
     @property
     def role_count(self):
-        """Return the total number of album and track credits for this artist."""
+        """Total number of album and track credits for this artist."""
         return len(self.album_roles) + len(self.track_roles)
 
 
 class ArtistAlias(Base):
+    """Alternate name that always resolves to one artist."""
+
     __tablename__ = "artist_alias"
 
     alias_id = Column(Integer, primary_key=True)
@@ -183,13 +134,7 @@ class ArtistAlias(Base):
 
 
 class ArtistSplitAlias(Base):
-    """A recorded 'this combined name splits into these artists' rule.
-
-    Unlike ArtistAlias (name -> one artist), one alias_name here maps to
-    *multiple* Artist rows, ordered by sort_order. Created automatically
-    when an Artist is split into 2+ artists (see SplitDB.split_artist), or
-    directly via the alias-management dialog.
-    """
+    """Rule that one combined name splits into several artists, ordered by sort_order."""
 
     __tablename__ = "artist_split_alias"
 
@@ -200,31 +145,29 @@ class ArtistSplitAlias(Base):
 
     artist = relationship("Artist")
 
-    __table_args__ = (
-        UniqueConstraint("alias_name", "artist_id", name="uq_artist_split_alias_name_artist"),
-    )
+    __table_args__ = (UniqueConstraint("alias_name", "artist_id", name="uq_artist_split_alias_name_artist"),)
 
 
 class ArtistInfluence(Base):
+    """Directed link: the influencer artist influenced the influenced artist."""
+
     __tablename__ = "artist_influences"
 
-    influencer_id = Column(Integer, ForeignKey("artists.artist_id"), primary_key=True)
-    influenced_id = Column(Integer, ForeignKey("artists.artist_id"), primary_key=True)
+    influencer_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True)
+    influenced_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True)
     description = Column(Text)
 
-    influencer = relationship(
-        "Artist", foreign_keys=[influencer_id], back_populates="influencer_relations"
-    )
-    influenced = relationship(
-        "Artist", foreign_keys=[influenced_id], back_populates="influenced_relations"
-    )
+    influencer = relationship("Artist", foreign_keys=[influencer_id], back_populates="influencer_relations")
+    influenced = relationship("Artist", foreign_keys=[influenced_id], back_populates="influenced_relations")
 
 
 class GroupMembership(Base):
+    """Membership of one artist (member) in a group artist."""
+
     __tablename__ = "group_membership"
 
-    group_id = Column(Integer, ForeignKey("artists.artist_id"), primary_key=True)
-    member_id = Column(Integer, ForeignKey("artists.artist_id"), primary_key=True)
+    group_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True)
+    member_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True)
     role = Column(String)
     active_start_year = Column(Integer)
     active_end_year = Column(Integer)
