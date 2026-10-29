@@ -451,8 +451,11 @@ Sub-playlists that you did not select move to the top level. An open track
 window for a deleted playlist closes.
 
 **Getting tracks out**: right-click a playlist for Open Track Editor (or
-View Tracks for a smart one) to see everything in it, or Export to write it
-out as a standard `.m3u` file you can hand to another player. The file keeps
+View Tracks for a smart one) to see everything in it. Select one or more
+playlists and click Export to write each one out as a standard `.m3u` file
+you can hand to another player. When you export more than one playlist, one
+message shows how many were exported and names any that were skipped (for
+example, a playlist with no tracks). The file keeps
 the playlist's track order. Tracks stored outside the playlist folder are
 written with their full path, so other players can find them. Characters that
 are not allowed in file names (such as `/` or `?`) become `_` in the file name.

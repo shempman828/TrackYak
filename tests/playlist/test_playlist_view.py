@@ -126,21 +126,14 @@ class _FakePlaylist(SimpleNamespace):
 
 
 def _playlists():
-    return [
-        _FakePlaylist(
-            playlist_id=1, playlist_name="Old Name", parent_id=None, is_smart=False, track_count=0
-        )
-    ]
+    return [_FakePlaylist(playlist_id=1, playlist_name="Old Name", parent_id=None, is_smart=False, track_count=0)]
 
 
 class _FakeControllerRename:
     def __init__(self, playlists):
         self._by_id = {p.playlist_id: p for p in playlists}
         self.updates = []
-        self.get = SimpleNamespace(
-            get_all_entities=self._get_all_entities,
-            get_entity_object=lambda entity, playlist_id: self._by_id.get(playlist_id),
-        )
+        self.get = SimpleNamespace(get_all_entities=self._get_all_entities, get_entity_object=lambda entity, playlist_id: self._by_id.get(playlist_id))
         self.update = SimpleNamespace(update_entity=self._update_entity)
         self.add = SimpleNamespace()
         self.delete = SimpleNamespace()
@@ -387,15 +380,7 @@ def _deep_chain(depth_count):
     playlists = []
     parent_id = None
     for i in range(1, depth_count + 1):
-        playlists.append(
-            _FakePlaylistCap(
-                playlist_id=i,
-                playlist_name=f"level {i}",
-                parent_id=parent_id,
-                is_smart=False,
-                track_count=0,
-            )
-        )
+        playlists.append(_FakePlaylistCap(playlist_id=i, playlist_name=f"level {i}", parent_id=parent_id, is_smart=False, track_count=0))
         parent_id = i
     return playlists
 
@@ -403,12 +388,7 @@ def _deep_chain(depth_count):
 class _FakeControllerCap:
     def __init__(self, playlists):
         self._playlists = playlists
-        self.get = SimpleNamespace(
-            get_all_entities=lambda entity, **kwargs: (
-                self._playlists if entity == "Playlist" else []
-            ),
-            get_entity_object=lambda entity, **kwargs: None,
-        )
+        self.get = SimpleNamespace(get_all_entities=lambda entity, **kwargs: self._playlists if entity == "Playlist" else [], get_entity_object=lambda entity, **kwargs: None)
         self.update = SimpleNamespace()
         self.add = SimpleNamespace()
         self.delete = SimpleNamespace()
@@ -432,10 +412,7 @@ def test_playlists_past_max_depth_log_a_warning(qapp, caplog):
 
 class _FakeControllerState:
     def __init__(self):
-        self.get = SimpleNamespace(
-            get_all_entities=lambda entity, **kwargs: [],
-            get_entity_object=lambda entity, **kwargs: None,
-        )
+        self.get = SimpleNamespace(get_all_entities=lambda entity, **kwargs: [], get_entity_object=lambda entity, **kwargs: None)
         self.update = SimpleNamespace()
         self.add = SimpleNamespace()
         self.delete = SimpleNamespace()
@@ -481,10 +458,7 @@ class _FakeControllerRollback:
         self._next_id = 1
         self.created_playlists = {}
         self.deleted = []
-        self.get = SimpleNamespace(
-            get_all_entities=lambda entity, **kwargs: [],
-            get_entity_object=lambda entity, **kwargs: None,
-        )
+        self.get = SimpleNamespace(get_all_entities=lambda entity, **kwargs: [], get_entity_object=lambda entity, **kwargs: None)
         self.add = SimpleNamespace(add_entity=self._add_entity)
         self.update = SimpleNamespace()
         self.delete = SimpleNamespace(delete_entity=self._delete_entity)
@@ -521,3 +495,34 @@ def test_failed_smart_playlist_creation_removes_orphan_playlist(view_rollback):
 
     assert view_rollback.controller.created_playlists == {}
     assert ("Playlist", 1) in view_rollback.controller.deleted
+
+
+# ---------------------------------------------------------------------------
+# Tests for exporting a multi-selection: every playlist, one summary message.
+# ---------------------------------------------------------------------------
+
+
+def test_export_writes_every_selected_playlist_and_shows_one_summary(view, monkeypatch):
+    exported_ids = []
+    monkeypatch.setattr(playlist_view_module.PlaylistExporter, "export_playlist", lambda self, playlist_id: exported_ids.append(playlist_id) or playlist_id != 2)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: warnings.append(args[2]))
+    view.tree.setCurrentItem(_find_item(view.tree, 1))
+    _find_item(view.tree, 2).setSelected(True)
+    _find_item(view.tree, 3).setSelected(True)
+
+    view.export_selected_playlist()
+
+    assert sorted(exported_ids) == [1, 2, 3]
+    assert len(warnings) == 1
+    assert "2 playlists exported, 1 skipped: 'beta'" in warnings[0]
+
+
+def test_export_of_one_playlist_keeps_the_exporter_messages(view, monkeypatch):
+    calls = []
+    monkeypatch.setattr(view.exporter, "export_playlist", lambda playlist_id: calls.append(playlist_id) or True)
+    view.tree.setCurrentItem(_find_item(view.tree, 3))
+
+    view.export_selected_playlist()
+
+    assert calls == [3]

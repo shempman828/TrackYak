@@ -189,19 +189,25 @@ class PlaylistView(QWidget):
         self.tree.addTopLevelItem(item)
 
     def export_selected_playlist(self) -> None:
-        """Export the currently selected playlist."""
-        item = self.tree.currentItem()
-        if not item:
+        """Export every selected playlist; several at once get one summary message."""
+        playlist_items = [it for it in self.tree.selectedItems() if (data := it.data(0, Qt.UserRole)) and len(data) == 2 and data[0] == "playlist"]
+        if not playlist_items:
             show_status_message(self, "Please select a playlist to export.")
             return
 
-        item_data = item.data(0, Qt.UserRole)
-        if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
-            show_status_message(self, "Please select a valid playlist to export.")
+        if len(playlist_items) == 1:
+            self.exporter.export_playlist(playlist_items[0].data(0, Qt.UserRole)[1])
             return
 
-        playlist_id = item_data[1]
-        self.exporter.export_playlist(playlist_id)
+        # One summary instead of one popup per playlist; the log keeps each reason.
+        quiet_exporter = PlaylistExporter(self.controller, show_messages=False)
+        skipped = [it.text(0) for it in playlist_items if not quiet_exporter.export_playlist(it.data(0, Qt.UserRole)[1])]
+        exported = len(playlist_items) - len(skipped)
+        if not skipped:
+            show_status_message(self, f"Export complete: {exported} playlists exported.")
+            return
+        names = ", ".join(f"'{name}'" for name in skipped)
+        QMessageBox.warning(self, "Export Complete", f"{exported} playlists exported, {len(skipped)} skipped: {names}.\n\nSee the log for details.")
 
     def open_playlist_editor(self, playlist_id: int):
         """Open or focus an independent playlist editor window."""
