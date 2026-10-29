@@ -705,19 +705,31 @@ The Award Name filter opens a popup where you can type to search the list of
 names and tick one or more to show; leaving everything ticked (or nothing
 ticked) shows all names.
 
-**Adding an award**: New Award needs just a name — category, year, and a
-parent award are optional, for slotting it into an existing hierarchy.
+**Adding an award**: right-click the award list and choose Add New Award.
+Only the name is required — year (1000–2999), category, description,
+Wikipedia link, and a parent award are optional. OK stays disabled until you
+type a name, and the new award is selected when the dialog closes. Adding an
+award from an artist's view also links that artist to it.
 
-**Crediting someone**: from an award's detail panel, use Award Relationships
-to assign artists, albums, tracks, publishers, or places to it as Recipient,
-Nominee, Presenter, Judge, Host, or Sponsor/Organizer.
+**Crediting someone**: from an award's detail panel, use **Add Recipient...**
+or **Add Relationship...** to link an artist, album, track, or publisher as a
+recipient, nominee, honoree, finalist, presenter, judge, host, sponsor, or
+organizer (you can also type your own type). Search shows the first 200
+matches — type more to narrow it. New artists and publishers can be created
+from a name on the Create New tab; tracks and albums must already exist. The
+panel lists every relationship, recipients first; select one and click
+**Remove** to unlink it. Adding the same link twice is ignored.
 
 **Editing**: the detail panel also lets you change Name, Year, Category,
-Description, and Parent Award directly, and re-slot an award under a
-different parent without redoing it from scratch.
+Wikipedia Link, Description, and Parent Award. Save Changes is enabled only
+while something differs from the saved values. The Parent Award list leaves
+out the award itself and its own sub-awards, so a loop can't be made. You can
+also drag awards (several at once) onto another award to nest them under it,
+between awards to make them siblings, or onto empty space to make them
+top-level.
 
-Deleting an award promotes any child awards/categories up a level rather
-than deleting them along with it.
+Deleting an award also removes its relationship links, and promotes any child
+awards/categories up a level rather than deleting them along with it.
 
 ## Charts
 

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
-from src.award.award_series_import import fetch_award_series_relations, import_awards_for_entity
+from src.award.award_series_import import fetch_award_series_relations, import_awards_for_entity, sync_awards
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.award import Award, AwardAssociation
@@ -57,12 +57,7 @@ def _explode(*_args, **_kwargs):
 
 @pytest.fixture
 def no_network():
-    with patch.multiple(
-        "src.award.award_series_import.musicbrainzngs",
-        get_recording_by_id=_explode,
-        get_release_group_by_id=_explode,
-        get_artist_by_id=_explode,
-    ):
+    with patch.multiple("src.award.award_series_import.musicbrainzngs", get_recording_by_id=_explode, get_release_group_by_id=_explode, get_artist_by_id=_explode):
         yield
 
 
@@ -154,11 +149,20 @@ def test_relations_none_reports_failure_without_network(session, no_network):
 
 def test_fetch_award_series_relations_returns_list_or_none_on_failure():
     relations = [_relation("series-1", "Release group award", "Grammy Award", "2000")]
-    with patch(
-        "src.award.award_series_import.musicbrainzngs.get_release_group_by_id",
-        return_value={"release-group": {"series-relation-list": relations}},
-    ):
+    with patch("src.award.award_series_import.musicbrainzngs.get_release_group_by_id", return_value={"release-group": {"series-relation-list": relations}}):
         assert fetch_award_series_relations("Album", "rg-mbid-1") == relations
 
     with patch("src.award.award_series_import.musicbrainzngs.get_release_group_by_id", side_effect=RuntimeError("down")):
         assert fetch_award_series_relations("Album", "rg-mbid-1") is None
+
+
+def test_cancelled_sync_reports_only_checked_entities(session):
+    for i in range(30):
+        _add_entity(session, "Artist", f"mbid-{i}")
+    progress = []
+
+    with patch("src.award.award_series_import.fetch_award_series_relations", return_value=[]):
+        stats = sync_awards(session, progress_callback=lambda c, t: progress.append((c, t)), is_cancelled=lambda: True)
+
+    assert stats.entities_checked == 24
+    assert progress[-1] == (24, 30)

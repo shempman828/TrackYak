@@ -1,3 +1,6 @@
+"""Awards view: filterable award tree with a single detail panel."""
+
+from collections import defaultdict
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -6,8 +9,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -17,29 +18,31 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy.exc import SQLAlchemyError
 
+from src.award.award_common import award_display_text, delete_awards
 from src.award.award_detail import AwardDetailTab
+from src.award.award_new import AddAwardDialog
 from src.common.hierarchy_ops import is_hierarchy_descendant
 from src.common.widgets.multi_select_filter_button import MultiSelectFilterButton
-from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 
 
 class AwardView(QWidget):
-    """Main view showing award list and a single detail panel"""
+    """Main view showing award list and a single detail panel."""
 
     award_updated = Signal()
 
     def __init__(self, controller: Any):
         super().__init__()
         self.controller = controller
-        self.all_awards: list[Any] = []  # Safe default in case load_awards() fails
-        self._is_deleting = False  # Guard flag to block selection signal during delete
+        self.all_awards: list[Any] = []
+        self._suppress_selection = False  # set while a reload or delete rebuilds the tree
         self.flat_view = False
+        self._current_detail: AwardDetailTab | None = None
         self.init_ui()
         self.award_updated.connect(self.refresh_award_list)
         self.load_awards()
@@ -48,11 +51,9 @@ class AwardView(QWidget):
         """Build the layout: search/list on the left, one detail panel on the right."""
         main_layout = QHBoxLayout(self)
 
-        # Left panel with search box and award list
         left_panel = QVBoxLayout()
         left_panel.setContentsMargins(0, 0, 10, 0)
 
-        # Search section
         search_group = QGroupBox("Search Awards")
         search_layout = QVBoxLayout(search_group)
 
@@ -61,7 +62,6 @@ class AwardView(QWidget):
         self.search_box.textChanged.connect(self._filter_awards)
         search_layout.addWidget(self.search_box)
 
-        # Filter options
         filter_layout = QHBoxLayout()
 
         self.year_filter = QComboBox()
@@ -75,17 +75,15 @@ class AwardView(QWidget):
         self.name_filter = MultiSelectFilterButton()
         self.name_filter.selection_changed.connect(self._filter_awards)
 
-        filter_layout.addWidget(QLabel("Year:"))
-        filter_layout.addWidget(self.year_filter)
-        filter_layout.addWidget(QLabel("Category:"))
-        filter_layout.addWidget(self.category_filter)
-        filter_layout.addWidget(QLabel("Award Name:"))
-        filter_layout.addWidget(self.name_filter)
+        for text, widget in (("&Year:", self.year_filter), ("Ca&tegory:", self.category_filter), ("Award &Name:", self.name_filter)):
+            label = QLabel(text)
+            label.setBuddy(widget)
+            filter_layout.addWidget(label)
+            filter_layout.addWidget(widget)
 
         search_layout.addLayout(filter_layout)
         left_panel.addWidget(search_group)
 
-        # Award tree
         list_group = QGroupBox("Awards")
         list_layout = QVBoxLayout(list_group)
 
@@ -109,20 +107,16 @@ class AwardView(QWidget):
         self.award_tree.setDragDropMode(QAbstractItemView.InternalMove)
         self.award_tree.itemSelectionChanged.connect(self._on_award_selected)
         self.award_tree.dropEvent = self._award_tree_drop_event
-        # Enable context menu
         self.award_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.award_tree.customContextMenuRequested.connect(self._show_context_menu)
         list_layout.addWidget(self.award_tree)
 
-        # Delete key shortcut (works when the tree has focus)
         delete_shortcut = QShortcut(QKeySequence(Qt.Key_Delete), self.award_tree)
         delete_shortcut.activated.connect(self._delete_selected_award)
 
         left_panel.addWidget(list_group)
-
         main_layout.addLayout(left_panel)
 
-        # Detail panel — shows one award at a time, like the other entity views
         self.detail_container = QWidget()
         self.detail_layout = QVBoxLayout(self.detail_container)
         self.detail_layout.setContentsMargins(0, 0, 0, 0)
@@ -132,80 +126,56 @@ class AwardView(QWidget):
         self._placeholder.setProperty("textRole", "note")
         self.detail_layout.addWidget(self._placeholder)
 
-        self._current_detail = None  # the AwardDetailTab currently shown, if any
         main_layout.addWidget(self.detail_container, stretch=1)
 
-    def _show_context_menu(self, position):
-        """Show context menu for award tree."""
+    def _show_context_menu(self, position) -> None:
+        """Show the Add/Delete context menu for the award tree."""
         menu = QMenu(self)
-
-        # Add actions
         add_action = menu.addAction("Add New Award")
         add_action.triggered.connect(self._create_new_award)
 
-        # Only show delete action if one or more items are selected
         selected_items = self.award_tree.selectedItems()
         if selected_items:
             label = f"Delete {len(selected_items)} Awards" if len(selected_items) > 1 else "Delete Award"
             delete_action = menu.addAction(label)
             delete_action.triggered.connect(self._delete_selected_award)
 
-        # Show the menu at the cursor position
-        menu.exec_(self.award_tree.mapToGlobal(position))
+        menu.exec(self.award_tree.mapToGlobal(position))
+
+    # ─────────────────────────────────────────────── Loading / filtering
 
     def load_awards(self) -> None:
-        """Load awards from database and update filters."""
-        try:
-            awards = self.controller.get.get_all_entities("Award")
-            # Sort awards by year (descending) then by name
-            awards = sorted(awards, key=lambda a: (-(a.award_year or 0), a.award_name.lower()))
-
-            self.all_awards = awards
-            self._update_filters(awards)
-            self._populate_award_list(awards)
-            logger.info(f"Loaded {len(awards)} awards")
-
-        except (SQLAlchemyError, AttributeError) as e:
-            logger.error(f"Error loading awards: {e}")
-            QMessageBox.critical(self, "Error", "Failed to load awards")
+        """Load awards from the database, refresh the filters and reapply them."""
+        awards = self.controller.get.get_all_entities("Award")
+        self.all_awards = sorted(awards, key=lambda a: (-(a.award_year or 0), a.award_name.lower()))
+        self._update_filters(self.all_awards)
+        self._filter_awards()
+        logger.info(f"Loaded {len(self.all_awards)} awards")
 
     def _update_filters(self, awards: list[Any]) -> None:
-        """Update year and category filter dropdowns."""
-        # Store current selections
+        """Repopulate the year, category and name filters, keeping current choices."""
         current_year = self.year_filter.currentText()
         current_category = self.category_filter.currentText()
 
-        # Block signals so that clearing/repopulating the dropdowns doesn't
-        # trigger _filter_awards mid-update with incomplete data
+        # Blocked so that clearing the combos does not filter against half-built choices.
         self.year_filter.blockSignals(True)
         self.category_filter.blockSignals(True)
-
         try:
-            # Update years
             self.year_filter.clear()
             self.year_filter.addItem("All Years")
-            years = sorted({a.award_year for a in awards if a.award_year}, reverse=True)
-            for year in years:
+            for year in sorted({a.award_year for a in awards if a.award_year}, reverse=True):
                 self.year_filter.addItem(str(year))
 
-            # Update categories
             self.category_filter.clear()
             self.category_filter.addItem("All Categories")
-            categories = sorted({a.award_category for a in awards if a.award_category})
-            for category in categories:
+            for category in sorted({a.award_category for a in awards if a.award_category}):
                 self.category_filter.addItem(category)
 
-            # Update the award-name multi-select filter
             self.name_filter.set_values(sorted({a.award_name for a in awards}))
 
-            # Restore selections if possible
-            if current_year in [self.year_filter.itemText(i) for i in range(self.year_filter.count())]:
-                self.year_filter.setCurrentText(current_year)
-            if current_category in [self.category_filter.itemText(i) for i in range(self.category_filter.count())]:
-                self.category_filter.setCurrentText(current_category)
-
+            self.year_filter.setCurrentIndex(max(self.year_filter.findText(current_year), 0))
+            self.category_filter.setCurrentIndex(max(self.category_filter.findText(current_category), 0))
         finally:
-            # Always re-enable signals, even if something above raised an error
             self.year_filter.blockSignals(False)
             self.category_filter.blockSignals(False)
 
@@ -213,131 +183,121 @@ class AwardView(QWidget):
         """Toggle between the nested hierarchy and a flat list."""
         self.flat_view = self.flat_view_button.isChecked()
         self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
-        # Drag-and-drop reparenting doesn't make sense against a flat list.
+        # Drag-and-drop reparenting makes no sense against a flat list.
         self.award_tree.setDragEnabled(not self.flat_view)
-        # Reapply any active search/year/category filters, rather than
-        # repopulating from the full unfiltered award list.
         self._filter_awards()
 
-    @staticmethod
-    def _award_display_text(award: Any) -> str:
-        """Display text with year and category if available."""
-        display_text = award.award_name
-        if award.award_year:
-            display_text = f"[{award.award_year}] {display_text}"
-        if award.award_category:
-            display_text = f"{display_text} - {award.award_category}"
-        return display_text
-
     def _populate_award_list(self, awards: list[Any]) -> None:
-        """Populate the award tree widget with award data in hierarchical structure."""
-        self.award_tree.clear()
+        """Fill the tree with `awards`, nested by parent unless flat view is on."""
+        self._suppress_selection = True
+        try:
+            self.award_tree.clear()
+            if self.flat_view:
+                for award in awards:
+                    self._make_item(self.award_tree, award)
+                return
 
-        if self.flat_view:
-            # `awards` is already sorted (year desc, then name) by load_awards().
+            # An award whose parent is filtered out is shown as a root, so filtering never hides a match.
+            shown_ids = {a.award_id for a in awards}
+            children_by_parent: dict[int, list[Any]] = defaultdict(list)
+            roots = []
             for award in awards:
-                item = QTreeWidgetItem(self.award_tree, [self._award_display_text(award)])
-                item.setData(0, Qt.UserRole, award.award_id)
-            return
+                if award.parent_id in shown_ids:
+                    children_by_parent[award.parent_id].append(award)
+                else:
+                    roots.append(award)
 
-        # Create a dictionary to store awards by parent_id
-        awards_by_parent = {}
-        root_awards = []
+            def add_subtree(parent_item, award, seen: set) -> None:
+                if award.award_id in seen:  # corrupt cyclic data must not recurse forever
+                    return
+                seen.add(award.award_id)
+                item = self._make_item(parent_item, award)
+                for child in children_by_parent.get(award.award_id, ()):
+                    add_subtree(item, child, seen)
 
-        for award in awards:
-            if award.parent_id is None:
-                root_awards.append(award)
-            else:
-                if award.parent_id not in awards_by_parent:
-                    awards_by_parent[award.parent_id] = []
-                awards_by_parent[award.parent_id].append(award)
+            seen: set = set()
+            for award in roots:
+                add_subtree(self.award_tree, award, seen)
+            self.award_tree.expandAll()
+        finally:
+            self._restore_selection()
+            self._suppress_selection = False
 
-        # Helper function to recursively build tree
-        def add_award_to_tree(parent_item, award):
-            item = QTreeWidgetItem(parent_item, [self._award_display_text(award)])
-            item.setData(0, Qt.UserRole, award.award_id)
-
-            # Add children if any
-            if award.award_id in awards_by_parent:
-                for child_award in awards_by_parent[award.award_id]:
-                    add_award_to_tree(item, child_award)
-
-            return item
-
-        # Add root awards to tree
-        for award in root_awards:
-            add_award_to_tree(self.award_tree, award)
-
-        # Expand all items by default
-        self.award_tree.expandAll()
+    @staticmethod
+    def _make_item(parent, award: Any) -> QTreeWidgetItem:
+        """Create a tree item for `award` under `parent`."""
+        item = QTreeWidgetItem(parent, [award_display_text(award)])
+        item.setData(0, Qt.UserRole, award.award_id)
+        return item
 
     def _filter_awards(self) -> None:
-        """Filter awards based on search text and filters."""
-        search_text = self.search_box.text().lower()
+        """Apply the search text and the filters to the award list."""
+        search_text = self.search_box.text().strip().lower()
         year_filter = self.year_filter.currentText()
         category_filter = self.category_filter.currentText()
 
         filtered = self.all_awards
-
-        # Apply text search
         if search_text:
             filtered = [
                 a for a in filtered if search_text in a.award_name.lower() or (a.award_category and search_text in a.award_category.lower()) or (a.award_year and search_text in str(a.award_year))
             ]
-
-        # Apply year filter
         if year_filter != "All Years":
             filtered = [a for a in filtered if a.award_year and str(a.award_year) == year_filter]
-
-        # Apply category filter
         if category_filter != "All Categories":
             filtered = [a for a in filtered if a.award_category == category_filter]
-
-        # Apply award-name filter (empty selection means "all names")
+        # An empty name selection means "all names".
         selected_names = self.name_filter.committed_selection()
         if selected_names:
             filtered = [a for a in filtered if a.award_name in selected_names]
 
         self._populate_award_list(filtered)
 
-    def _on_award_selected(self) -> None:
-        """Swap the detail panel to show the selected award — one at a time, no tabs."""
-        # Don't react to selection changes triggered by delete/reload
-        if self._is_deleting:
-            return
+    def _find_item(self, award_id: int) -> QTreeWidgetItem | None:
+        """Tree item for `award_id`, or None if it is filtered out."""
+        iterator = QTreeWidgetItemIterator(self.award_tree)
+        while item := iterator.value():
+            if item.data(0, Qt.UserRole) == award_id:
+                return item
+            iterator += 1
+        return None
 
+    def _restore_selection(self) -> None:
+        """Reselect the award shown in the detail panel after the tree is rebuilt."""
+        if self._current_detail is None:
+            return
+        item = self._find_item(self._current_detail.award.award_id)
+        if item is not None:
+            self.award_tree.setCurrentItem(item)
+
+    # ─────────────────────────────────────────────── Detail panel
+
+    def _on_award_selected(self) -> None:
+        """Show the single selected award in the detail panel."""
+        if self._suppress_selection:
+            return
         selected_items = self.award_tree.selectedItems()
-        # Only show a detail panel when exactly one item is selected
         if len(selected_items) != 1:
             return
 
-        selected = selected_items[0]
-        award_id = selected.data(0, Qt.UserRole)
-        try:
-            award = self.controller.get.get_entity_object("Award", award_id=award_id)
-            if not award:
-                logger.warning(f"No award found with ID: {award_id}")
-                return
-
-            self._show_detail(award)
-            logger.info(f"Opened detail panel for {award.award_name}")
-
-        except (SQLAlchemyError, AttributeError) as e:
-            logger.error(f"Error loading award details: {e}")
-            QMessageBox.critical(self, "Error", "Failed to load award details")
+        award_id = selected_items[0].data(0, Qt.UserRole)
+        award = self.controller.get.get_entity_object("Award", award_id=award_id)
+        if not award:
+            logger.warning(f"No award found with ID: {award_id}")
+            return
+        self._show_detail(award)
 
     def _show_detail(self, award: Any) -> None:
-        """Replace whatever is in the detail panel with a fresh panel for `award`."""
+        """Replace the detail panel content with a new panel for `award`."""
         self._clear_detail()
         self._placeholder.hide()
         detail = AwardDetailTab(award, self.controller)
-        # _delete_award emits save_requested after deleting; clear the panel then.
-        detail.save_requested.connect(self._clear_detail)
+        detail.saved.connect(self.refresh_award_list)
+        detail.deleted.connect(self._on_detail_deleted)
         self.detail_layout.addWidget(detail)
         self._current_detail = detail
 
     def _clear_detail(self) -> None:
-        """Tear down the current detail panel and restore the placeholder."""
+        """Remove the current detail panel and show the placeholder again."""
         if self._current_detail is not None:
             self.detail_layout.removeWidget(self._current_detail)
             self._current_detail.setParent(None)
@@ -345,153 +305,107 @@ class AwardView(QWidget):
             self._current_detail = None
         self._placeholder.show()
 
-    def _create_new_award(self) -> None:
-        """Create a new award with a proper multi-field dialog."""
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Create New Award")
-        layout = QFormLayout(dialog)
-
-        # Name field
-        name_edit = QLineEdit()
-        name_edit.setPlaceholderText("Required award name")
-        layout.addRow("Award Name:", name_edit)
-
-        # Category field
-        category_edit = QLineEdit()
-        category_edit.setPlaceholderText("Optional category")
-        layout.addRow("Category:", category_edit)
-
-        # Year field - plain text so any year can be entered
-        year_edit = QLineEdit()
-        year_edit.setPlaceholderText("Optional year (e.g. 1623, 2024)")
-        layout.addRow("Year:", year_edit)
-
-        # Parent selection
-        parent_combo = QComboBox()
-        parent_combo.addItem("No parent (root award)", None)
-
-        # Populate with existing awards
-        for award in self.all_awards:
-            parent_combo.addItem(f"{award.award_name} (ID: {award.award_id})", award.award_id)
-
-        layout.addRow("Parent Award:", parent_combo)
-
-        # Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addRow(buttons)
-
-        if dialog.exec() != QDialog.Accepted:
-            return
-
-        name = name_edit.text().strip()
-        if not name:
-            show_status_message(self, "Award name is required.")
-            return
-
-        category = category_edit.text().strip() or None
-        year_text = year_edit.text().strip()
-        year = None
-        if year_text:
-            try:
-                year = int(year_text)
-            except ValueError:
-                show_status_message(self, "Year must be a whole number.")
-                return
-        parent_id = parent_combo.currentData()
-
-        try:
-            award_data = {"award_name": name, "parent_id": parent_id}
-
-            if category:
-                award_data["award_category"] = category
-            if year:
-                award_data["award_year"] = year
-
-            self.controller.add.add_entity("Award", **award_data)
-            self.load_awards()
-
-            logger.info(f"Created new award: {name}")
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error creating new award: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to create new award: {e}")
-
-    def refresh_award_list(self) -> None:
-        """Refresh the award list and reload the open detail panel, if any."""
+    def _on_detail_deleted(self) -> None:
+        """Close the panel of a deleted award and reload the list."""
+        self._clear_detail()
         self.load_awards()
 
-        if self._current_detail is not None and hasattr(self._current_detail, "award"):
-            try:
-                updated_award = self.controller.get.get_entity_object("Award", award_id=self._current_detail.award.award_id)
-                if updated_award:
-                    self._current_detail.award = updated_award
-            except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Error refreshing award detail panel: {e}")
+    def refresh_award_list(self) -> None:
+        """Reload the list and rebuild the open detail panel if it has no unsaved changes."""
+        self.load_awards()
+        if self._current_detail is None or self._current_detail.is_dirty():
+            return
+        updated = self.controller.get.get_entity_object("Award", award_id=self._current_detail.award.award_id)
+        if updated:
+            self._show_detail(updated)
+        else:
+            self._clear_detail()
 
-    def _award_tree_drop_event(self, event):
-        """Handle drop events to set parent-child relationships."""
-        try:
-            # Get the dragged item and drop target
-            dragged_item = self.award_tree.currentItem()
-            if not dragged_item:
-                event.ignore()
-                return
+    def _select_award(self, award_id: int) -> None:
+        """Select `award_id` in the tree, or show it directly if the filters hide it."""
+        item = self._find_item(award_id)
+        if item is not None:
+            self.award_tree.setCurrentItem(item)
+            self.award_tree.scrollToItem(item)
+            return
+        award = self.controller.get.get_entity_object("Award", award_id=award_id)
+        if award:
+            self._show_detail(award)
 
-            # No drop target => empty space => make it a root award; otherwise
-            # the target becomes the parent.
-            drop_target = self.award_tree.itemAt(event.pos())
-            new_parent_id = drop_target.data(0, Qt.UserRole) if drop_target else None
+    # ─────────────────────────────────────────────── Create / move / delete
 
-            dragged_award_id = dragged_item.data(0, Qt.UserRole)
+    def _create_new_award(self) -> None:
+        """Open the new-award dialog and select the created award."""
+        dialog = AddAwardDialog(self.controller, parent=self)
+        if dialog.exec() != QDialog.Accepted or dialog.created_award_id is None:
+            return
+        self.load_awards()
+        self._select_award(dialog.created_award_id)
 
-            # Prevent an award from being its own parent
-            if new_parent_id == dragged_award_id:
-                event.ignore()
-                return
+    @staticmethod
+    def _drop_parent_id(target: QTreeWidgetItem | None, indicator) -> int | None:
+        """New parent for a drop: the target when dropped on it, else the target's parent."""
+        if target is None or indicator == QAbstractItemView.OnViewport:
+            return None
+        if indicator == QAbstractItemView.OnItem:
+            return target.data(0, Qt.UserRole)
+        # Above/below an item: the dragged awards become siblings of the target.
+        parent = target.parent()
+        return parent.data(0, Qt.UserRole) if parent else None
 
-            # Prevent circular chains (dropping onto a descendant)
-            if new_parent_id is not None and is_hierarchy_descendant(dragged_award_id, new_parent_id, self.all_awards, id_attr="award_id"):
-                logger.warning(f"Rejected drop: award {new_parent_id} is a descendant of {dragged_award_id}")
-                event.ignore()
-                return
+    def _top_selected_ids(self) -> list[int]:
+        """IDs of selected awards that have no selected ancestor (those move with their parent)."""
+        selected = self.award_tree.selectedItems()
+        selected_ids = {item.data(0, Qt.UserRole) for item in selected}
+        top_ids = []
+        for item in selected:
+            ancestor = item.parent()
+            while ancestor is not None and ancestor.data(0, Qt.UserRole) not in selected_ids:
+                ancestor = ancestor.parent()
+            if ancestor is None:
+                top_ids.append(item.data(0, Qt.UserRole))
+        return top_ids
 
-            # Update the parent_id in the database
-            self.controller.update.update_entity("Award", dragged_award_id, parent_id=new_parent_id)
+    def _reparent_awards(self, award_ids: list[int], new_parent_id: int | None) -> bool:
+        """Move awards under `new_parent_id`, skipping cycles and no-ops; return True if any moved."""
+        parent_by_id = {a.award_id: a.parent_id for a in self.all_awards}
+        moved, failed = 0, []
+        for award_id in award_ids:
+            if award_id == new_parent_id or parent_by_id.get(award_id) == new_parent_id:
+                continue
+            if new_parent_id is not None and is_hierarchy_descendant(award_id, new_parent_id, self.all_awards, id_attr="award_id"):
+                logger.warning(f"Rejected move: award {new_parent_id} is a descendant of {award_id}")
+                continue
+            if self.controller.update.update_entity("Award", award_id, parent_id=new_parent_id):
+                moved += 1
+            else:
+                failed.append(award_id)
 
-            # Accept the drop event
+        if failed:
+            QMessageBox.warning(self, "Move Failed", f"Could not move {len(failed)} award(s). See the log for details.")
+        if moved:
+            logger.info(f"Moved {moved} award(s) under parent {new_parent_id}")
+            self.refresh_award_list()
+        return bool(moved)
+
+    def _award_tree_drop_event(self, event) -> None:
+        """Reparent the dragged awards in the database instead of moving tree items."""
+        target = self.award_tree.itemAt(event.position().toPoint())
+        new_parent_id = self._drop_parent_id(target, self.award_tree.dropIndicatorPosition())
+        # The tree is rebuilt from the DB, so Qt's own item move must not run.
+        if self._reparent_awards(self._top_selected_ids(), new_parent_id):
             event.accept()
-
-            # Reload the awards to reflect the new hierarchy
-            self.load_awards()
-
-            logger.info(f"Updated parent for award {dragged_award_id} to {new_parent_id}")
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error handling drop event: {e}")
+        else:
             event.ignore()
 
     def _delete_selected_award(self) -> None:
         """Delete all selected awards after confirmation."""
-        selected_items = self.award_tree.selectedItems()
-        if not selected_items:
-            return
-
-        # Collect the award IDs and objects for all selected items
-        selected_ids = [item.data(0, Qt.UserRole) for item in selected_items]
+        selected_ids = [item.data(0, Qt.UserRole) for item in self.award_tree.selectedItems()]
         awards_to_delete = [a for a in self.all_awards if a.award_id in selected_ids]
-
         if not awards_to_delete:
             return
 
-        # Only the explicitly selected awards are deleted. Any child awards are
-        # not deleted -- the DB sets their parent_id to NULL, so they become
-        # top-level awards instead of being wiped out along with the parent.
-        all_ids_to_delete: list[int] = list(selected_ids)
-
-        # Build confirmation message
+        # Child awards are not deleted: the DB sets their parent_id to NULL.
         has_children = any(a.parent_id in selected_ids for a in self.all_awards if a.award_id not in selected_ids)
 
         if len(awards_to_delete) == 1:
@@ -510,42 +424,15 @@ class AwardView(QWidget):
             title = "Delete Multiple Awards"
 
         reply = QMessageBox.question(self, title, message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-
         if reply != QMessageBox.Yes:
             return
 
-        try:
-            # Set guard flag so _on_award_selected ignores signals during reload
-            self._is_deleting = True
+        if self._current_detail is not None and self._current_detail.award.award_id in selected_ids:
+            self._clear_detail()
 
-            # Clear the detail panel if it's showing an award being deleted
-            if self._current_detail is not None and hasattr(self._current_detail, "award") and self._current_detail.award.award_id in all_ids_to_delete:
-                self._clear_detail()
-
-            # Delete each award (delete associations first to avoid FK errors)
-            deleted_names = []
-            for award_id in all_ids_to_delete:
-                try:
-                    # Remove any AwardAssociation rows that reference this award
-                    associations = self.controller.get.get_all_entities("AwardAssociation", award_id=award_id)
-                    for assoc in associations:
-                        self.controller.delete.delete_entity("AwardAssociation", assoc.association_id)
-                except SQLAlchemyError as e:
-                    logger.warning(f"Could not remove associations for award {award_id}: {e}")
-
-                self.controller.delete.delete_entity("Award", award_id)
-                award_obj = next((a for a in self.all_awards if a.award_id == award_id), None)
-                if award_obj:
-                    deleted_names.append(award_obj.award_name)
-
-            logger.info(f"Deleted awards: {', '.join(deleted_names)}")
-
-            # Reload the list now that deletion is done
-            self.load_awards()
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error deleting award(s): {e}")
-            QMessageBox.critical(self, "Error", f"Failed to delete award(s): {e}")
-        finally:
-            # Always clear the guard flag
-            self._is_deleting = False
+        ok = delete_awards(self.controller, [a.award_id for a in awards_to_delete])
+        self.load_awards()
+        if not ok:
+            QMessageBox.critical(self, "Error", "Failed to delete the award(s). See the log for details.")
+            return
+        logger.info(f"Deleted awards: {', '.join(a.award_name for a in awards_to_delete)}")

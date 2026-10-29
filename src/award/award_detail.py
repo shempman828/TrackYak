@@ -1,221 +1,153 @@
+"""Editable detail panel for one award."""
+
+from collections import defaultdict
 from typing import Any
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTabWidget, QTextEdit, QVBoxLayout, QWidget
-from sqlalchemy.exc import SQLAlchemyError
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QTextEdit, QVBoxLayout, QWidget
 
+from src.award.award_common import ENTITY_FIELDS, RECIPIENT, award_display_text, delete_awards, entity_display_name, parse_award_year
 from src.award.award_relationship_dialog import AwardRelationshipDialog
+from src.common.hierarchy_ops import hierarchy_descendant_ids
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger
 
 
 class AwardDetailTab(QWidget):
-    """Detailed award information tab with editing functionality."""
+    """Detail panel that edits one award and its relationships."""
 
-    save_requested = Signal()
+    saved = Signal()
+    deleted = Signal()
 
     def __init__(self, award: Any, controller: Any):
         super().__init__()
         self.award = award
         self.controller = controller
-        self._original_values = {}
+        self._original_values: dict = {}
         self.init_ui()
+        self._original_values = self._form_values()
+        self._update_save_state()
 
     def init_ui(self) -> None:
-        """Set up the tab layout with scroll area and sections."""
+        """Set up the scroll area and the sections."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
-        self.layout = QVBoxLayout(content)
+        self._content_layout = QVBoxLayout(content)
 
         self._create_basic_info_section()
         self._populate_parent_combo()
         self._create_relationships_section()
         self._create_description_section()
         self._create_actions_section()
-
-        # Populate current associations after UI is built
-        self._refresh_recipient_display()
+        self._refresh_relationships()
 
         scroll.setWidget(content)
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(scroll)
 
     def _create_basic_info_section(self) -> None:
-        """Create section for basic award information."""
+        """Create the name, year, category, link and parent fields."""
         basic_group = QGroupBox("Basic Information")
         layout = QGridLayout()
 
-        # Award Name
-        layout.addWidget(QLabel("Award Name:"), 0, 0)
-        self.name_edit = QLineEdit(self.award.award_name or "")
-        self.name_edit.textChanged.connect(self._enable_save)
-        layout.addWidget(self.name_edit, 0, 1)
+        def add_row(row: int, label: str, widget: QWidget) -> None:
+            label_widget = QLabel(label)
+            label_widget.setBuddy(widget)
+            layout.addWidget(label_widget, row, 0)
+            layout.addWidget(widget, row, 1)
 
-        # Award Year
-        layout.addWidget(QLabel("Year:"), 1, 0)
+        self.name_edit = QLineEdit(self.award.award_name or "")
+        self.name_edit.textChanged.connect(self._update_save_state)
+        add_row(0, "Award &Name:", self.name_edit)
+
         self.year_edit = QLineEdit(str(self.award.award_year) if self.award.award_year else "")
         self.year_edit.setPlaceholderText("e.g., 2024")
-        self.year_edit.textChanged.connect(self._enable_save)
-        layout.addWidget(self.year_edit, 1, 1)
+        self.year_edit.textChanged.connect(self._update_save_state)
+        add_row(1, "&Year:", self.year_edit)
 
-        # Award Category
-        layout.addWidget(QLabel("Category:"), 2, 0)
         self.category_edit = QLineEdit(self.award.award_category or "")
         self.category_edit.setPlaceholderText("e.g., Best Album, Lifetime Achievement")
-        self.category_edit.textChanged.connect(self._enable_save)
-        layout.addWidget(self.category_edit, 2, 1)
+        self.category_edit.textChanged.connect(self._update_save_state)
+        add_row(2, "&Category:", self.category_edit)
 
-        # Parent Award
-        layout.addWidget(QLabel("Parent Award:"), 3, 0)
+        self.wikipedia_edit = QLineEdit(self.award.wikipedia_link or "")
+        self.wikipedia_edit.setPlaceholderText("https://en.wikipedia.org/...")
+        self.wikipedia_edit.textChanged.connect(self._update_save_state)
+        add_row(3, "&Wikipedia Link:", self.wikipedia_edit)
+
         self.parent_combo = QComboBox()
-        self.parent_combo.currentIndexChanged.connect(self._enable_save)
-        layout.addWidget(self.parent_combo, 3, 1)
+        self.parent_combo.currentIndexChanged.connect(self._update_save_state)
+        add_row(4, "&Parent Award:", self.parent_combo)
 
         basic_group.setLayout(layout)
-        self.layout.addWidget(basic_group)
+        self._content_layout.addWidget(basic_group)
+
+    def _populate_parent_combo(self) -> None:
+        """Fill the parent combo, excluding this award and its descendants (they would form a cycle)."""
+        self.parent_combo.blockSignals(True)
+        try:
+            self.parent_combo.addItem("None", None)
+            awards = self.controller.get.get_all_entities("Award")
+            excluded = {self.award.award_id} | hierarchy_descendant_ids([self.award.award_id], awards, id_attr="award_id")
+            candidates = [a for a in awards if a.award_id not in excluded]
+            for award in sorted(candidates, key=lambda a: award_display_text(a).casefold()):
+                self.parent_combo.addItem(award_display_text(award), award.award_id)
+            index = self.parent_combo.findData(self.award.parent_id) if self.award.parent_id else 0
+            self.parent_combo.setCurrentIndex(max(index, 0))
+        finally:
+            self.parent_combo.blockSignals(False)
 
     def _create_relationships_section(self) -> None:
-        """Create section for award relationships."""
+        """Create the relationship list and its Add/Remove buttons."""
         rel_group = QGroupBox("Award Relationships")
         layout = QVBoxLayout()
 
-        # Recipient section
-        recipient_layout = QHBoxLayout()
-        recipient_layout.addWidget(QLabel("Recipient:"))
         self.recipient_label = QLabel("No recipient")
         self.recipient_label.setWordWrap(True)
-        recipient_layout.addWidget(self.recipient_label, 1)
+        layout.addWidget(self.recipient_label)
 
-        self.set_recipient_btn = QPushButton("Set Recipient")
-        self.set_recipient_btn.clicked.connect(self._open_relationship_dialog)
-        recipient_layout.addWidget(self.set_recipient_btn)
+        self.relationship_list = QListWidget()
+        self.relationship_list.setMinimumHeight(100)
+        self.relationship_list.itemSelectionChanged.connect(self._on_relationship_selection_changed)
+        layout.addWidget(self.relationship_list)
 
-        self.clear_recipient_btn = QPushButton("Clear")
-        self.clear_recipient_btn.clicked.connect(self._clear_recipient)
-        self.clear_recipient_btn.setEnabled(False)
-        recipient_layout.addWidget(self.clear_recipient_btn)
+        button_row = QHBoxLayout()
+        self.set_recipient_btn = QPushButton("Add Recipient...")
+        self.set_recipient_btn.clicked.connect(lambda: self._open_relationship_dialog(RECIPIENT))
+        button_row.addWidget(self.set_recipient_btn)
 
-        layout.addLayout(recipient_layout)
+        self.manage_relationships_btn = QPushButton("Add Relationship...")
+        self.manage_relationships_btn.clicked.connect(lambda: self._open_relationship_dialog("nominee"))
+        button_row.addWidget(self.manage_relationships_btn)
 
-        # Other relationships section
-        layout.addWidget(QLabel("Other Relationships:"))
-        self.other_relationships_label = QLabel("No other relationships")
-        self.other_relationships_label.setWordWrap(True)
-        layout.addWidget(self.other_relationships_label)
-
-        # Manage all relationships button
-        self.manage_relationships_btn = QPushButton("Manage All Relationships")
-        self.manage_relationships_btn.clicked.connect(self._open_relationship_dialog)
-        layout.addWidget(self.manage_relationships_btn)
+        self.remove_relationship_btn = QPushButton("Remove")
+        self.remove_relationship_btn.setEnabled(False)
+        self.remove_relationship_btn.clicked.connect(self._remove_selected_relationship)
+        button_row.addWidget(self.remove_relationship_btn)
+        button_row.addStretch()
+        layout.addLayout(button_row)
 
         rel_group.setLayout(layout)
-        self.layout.addWidget(rel_group)
-
-    def _open_relationship_dialog(self) -> None:
-        """Open the relationship management dialog."""
-        dialog = AwardRelationshipDialog(self.award, self.controller, self)
-        dialog.relationship_added.connect(self._on_relationship_added)
-        dialog.exec()
-
-    def _refresh_recipient_display(self) -> None:
-        try:
-            associations = self.controller.get.get_all_entities("AwardAssociation", award_id=self.award.award_id)
-        except SQLAlchemyError as e:
-            logger.error(f"Error refreshing relationships: {e}")
-            self.recipient_label.setText("Error loading")
-            self.other_relationships_label.setText("Error loading")
-            self.clear_recipient_btn.setEnabled(False)
-            return
-
-        lookup = {"Artist": ("Artist", "artist_id"), "Album": ("Album", "album_id"), "Track": ("Track", "track_id"), "Publisher": ("Publisher", "publisher_id"), "Place": ("Place", "place_id")}
-
-        def name_of(entity):
-            for attr in ("name", "artist_name", "album_name", "track_name", "publisher_name", "place_name"):
-                if hasattr(entity, attr):
-                    return getattr(entity, attr)
-            return "Unknown"
-
-        # Separate recipient from other relationships
-        recipient_text = "No recipient"
-        other_relationships = []
-        has_recipient = False
-
-        for assoc in associations:
-            model = lookup.get(assoc.entity_type)
-            if not model:
-                continue
-
-            model_name, id_field = model
-            try:
-                entity = self.controller.get.get_entity_object(model_name, **{id_field: assoc.entity_id})
-                display_name = name_of(entity) if entity else "Not found"
-
-                relationship_text = f"{assoc.entity_type}: {display_name}"
-                if assoc.association_type:
-                    relationship_text = f"{assoc.association_type} - {relationship_text}"
-
-                # Check if this is the recipient
-                if assoc.association_type == "recipient":
-                    recipient_text = relationship_text
-                    has_recipient = True
-                else:
-                    other_relationships.append(relationship_text)
-
-            except (AttributeError, SQLAlchemyError) as e:
-                logger.error(f"Error loading entity {assoc.entity_type} {assoc.entity_id}: {e}")
-                error_text = f"{assoc.entity_type}: Error loading"
-                if assoc.association_type == "recipient":
-                    recipient_text = error_text
-                    has_recipient = True
-                else:
-                    other_relationships.append(error_text)
-
-        # Update recipient display
-        self.recipient_label.setText(recipient_text)
-        self.clear_recipient_btn.setEnabled(has_recipient)
-
-        # Update other relationships display
-        if other_relationships:
-            self.other_relationships_label.setText("\n".join(other_relationships))
-        else:
-            self.other_relationships_label.setText("No other relationships")
-
-    def _clear_recipient(self) -> None:
-        """Clear only the recipient relationship."""
-        try:
-            associations = self.controller.get.get_all_entities("AwardAssociation", award_id=self.award.award_id)
-
-            # Remove only recipient associations
-            for assoc in associations:
-                if assoc.association_type == "recipient":
-                    self.controller.delete.delete_entity("AwardAssociation", assoc.association_id)
-
-            self._enable_save()
-            self._refresh_recipient_display()
-            logger.info(f"Cleared recipient for award {self.award.award_id}")
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error clearing recipient: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to clear recipient: {e}")
+        self._content_layout.addWidget(rel_group)
 
     def _create_description_section(self) -> None:
-        """Create section for award description."""
+        """Create the description editor."""
         desc_group = QGroupBox("Description")
         layout = QVBoxLayout()
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlainText(self.award.award_description or "")
         self.description_edit.setPlaceholderText("Enter award description, ceremony details, or notes...")
-        self.description_edit.textChanged.connect(self._enable_save)
+        self.description_edit.textChanged.connect(self._update_save_state)
         self.description_edit.setMinimumHeight(120)
         layout.addWidget(self.description_edit)
 
         desc_group.setLayout(layout)
-        self.layout.addWidget(desc_group)
+        self._content_layout.addWidget(desc_group)
 
     def _create_actions_section(self) -> None:
-        """Create action buttons section."""
+        """Create the Save and Delete buttons."""
         action_group = QGroupBox("Actions")
         layout = QHBoxLayout()
 
@@ -229,124 +161,142 @@ class AwardDetailTab(QWidget):
         layout.addWidget(self.delete_btn)
 
         action_group.setLayout(layout)
-        self.layout.addWidget(action_group)
+        self._content_layout.addWidget(action_group)
 
-    def _populate_parent_combo(self) -> None:
-        """Populate parent award combo box, excluding current award."""
-        self.parent_combo.blockSignals(True)
-        try:
-            self.parent_combo.addItem("None", None)
-            try:
-                awards = self.controller.get.get_all_entities("Award")
-                for award in awards:
-                    if award.award_id != self.award.award_id:  # Exclude self
-                        display_text = award.award_name
-                        if award.award_year:
-                            display_text = f"[{award.award_year}] {display_text}"
-                        self.parent_combo.addItem(display_text, award.award_id)
+    # ─────────────────────────────────────────────── Relationships
 
-                # Set current parent
-                if self.award.parent_id:
-                    for i in range(self.parent_combo.count()):
-                        if self.parent_combo.itemData(i) == self.award.parent_id:
-                            self.parent_combo.setCurrentIndex(i)
-                            break
-            except SQLAlchemyError as e:
-                logger.error(f"Error populating parent awards: {e}")
-        finally:
-            self.parent_combo.blockSignals(False)
+    def _open_relationship_dialog(self, default_relationship: str) -> None:
+        """Open the relationship picker with `default_relationship` preselected."""
+        dialog = AwardRelationshipDialog(self.award, self.controller, self, default_relationship=default_relationship)
+        dialog.relationship_added.connect(self._on_relationship_added)
+        dialog.exec()
 
-    def _enable_save(self) -> None:
-        """Enable the save button when changes are detected."""
-        self.save_btn.setEnabled(True)
+    def _refresh_relationships(self) -> None:
+        """Reload the relationship list and the recipient summary."""
+        associations = self.controller.get.get_all_entities("AwardAssociation", award_id=self.award.award_id)
+
+        # One query per entity type rather than one per association.
+        ids_by_type: dict[str, list[int]] = defaultdict(list)
+        for assoc in associations:
+            if assoc.entity_type in ENTITY_FIELDS:
+                ids_by_type[assoc.entity_type].append(assoc.entity_id)
+        entities: dict[tuple[str, int], Any] = {}
+        for entity_type, ids in ids_by_type.items():
+            id_attr = ENTITY_FIELDS[entity_type][1]
+            for entity in self.controller.get.get_all_entities(entity_type, **{f"{id_attr}__in": ids}):
+                entities[(entity_type, getattr(entity, id_attr))] = entity
+
+        rows = []
+        for assoc in associations:
+            entity = entities.get((assoc.entity_type, assoc.entity_id))
+            name = entity_display_name(assoc.entity_type, entity) if entity else "Not found"
+            rows.append((assoc, f"{assoc.entity_type}: {name}"))
+        # Recipients first, then by relationship type and name.
+        rows.sort(key=lambda r: (r[0].association_type != RECIPIENT, r[0].association_type or "", r[1].casefold()))
+
+        self.relationship_list.clear()
+        for assoc, label in rows:
+            item = QListWidgetItem(f"{(assoc.association_type or 'related').capitalize()} - {label}")
+            item.setData(Qt.UserRole, assoc.association_id)
+            self.relationship_list.addItem(item)
+
+        recipients = [label for assoc, label in rows if assoc.association_type == RECIPIENT]
+        self.recipient_label.setText(f"Recipient: {', '.join(recipients)}" if recipients else "No recipient")
+        self._on_relationship_selection_changed()
+
+    def _on_relationship_selection_changed(self) -> None:
+        """Enable Remove only while a relationship is selected."""
+        self.remove_relationship_btn.setEnabled(bool(self.relationship_list.selectedItems()))
+
+    def _on_relationship_added(self, entity_type: str, entity_id: int, relationship_type: str) -> None:
+        """Store a relationship picked in the dialog, skipping exact duplicates."""
+        key = {"award_id": self.award.award_id, "entity_type": entity_type, "entity_id": entity_id, "association_type": relationship_type}
+        if self.controller.get.get_all_entities("AwardAssociation", **key):
+            show_status_message(self, "That relationship already exists.")
+            return
+        if not self.controller.add.add_entity("AwardAssociation", **key):
+            QMessageBox.critical(self, "Error", "Failed to add the relationship. See the log for details.")
+            return
+        self._refresh_relationships()
+        logger.info(f"Added {relationship_type} relationship: {entity_type} {entity_id} to award {self.award.award_id}")
+
+    def _remove_selected_relationship(self) -> None:
+        """Delete the selected relationship row."""
+        items = self.relationship_list.selectedItems()
+        if not items:
+            return
+        association_id = items[0].data(Qt.UserRole)
+        if not self.controller.delete.delete_entity("AwardAssociation", association_id):
+            QMessageBox.critical(self, "Error", "Failed to remove the relationship. See the log for details.")
+            return
+        self._refresh_relationships()
+        show_status_message(self, "Relationship removed")
+
+    # ─────────────────────────────────────────────── Save / delete
+
+    def _form_values(self) -> dict:
+        """Current raw field values, for change detection."""
+        return {
+            "name": self.name_edit.text(),
+            "year": self.year_edit.text(),
+            "category": self.category_edit.text(),
+            "wikipedia": self.wikipedia_edit.text(),
+            "description": self.description_edit.toPlainText(),
+            "parent_id": self.parent_combo.currentData(),
+        }
+
+    def is_dirty(self) -> bool:
+        """True when a field differs from the last saved state."""
+        return self._form_values() != self._original_values
+
+    def _update_save_state(self) -> None:
+        """Enable Save only when there are unsaved changes."""
+        self.save_btn.setEnabled(self.is_dirty())
 
     def _save_changes(self) -> None:
-        """Save changes to the award and refresh parent view."""
+        """Validate and save the fields, then emit `saved`."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Missing Name", "Award name is required.")
+            return
         try:
-            # Validate year
-            year_text = self.year_edit.text().strip()
-            award_year = int(year_text) if year_text else None
+            award_year = parse_award_year(self.year_edit.text())
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Year", str(e))
+            return
 
-            if award_year and (award_year < 1000 or award_year > 2999):
-                QMessageBox.warning(self, "Invalid Year", "Please enter a valid year between 1000 and 2999.")
-                return
+        updates = {
+            "award_name": name,
+            "award_year": award_year,
+            "award_category": self.category_edit.text().strip() or None,
+            "award_description": self.description_edit.toPlainText().strip() or None,
+            "wikipedia_link": self.wikipedia_edit.text().strip() or None,
+            "parent_id": self.parent_combo.currentData(),
+        }
+        if not self.controller.update.update_entity("Award", self.award.award_id, **updates):
+            QMessageBox.critical(self, "Error", "Failed to save changes. See the log for details.")
+            return
 
-            # First update the basic award information
-            updates = {
-                "award_name": self.name_edit.text().strip(),
-                "award_year": award_year,
-                "award_category": self.category_edit.text().strip() or None,
-                "award_description": self.description_edit.toPlainText().strip() or None,
-                "parent_id": self.parent_combo.currentData(),
-            }
-
-            self.controller.update.update_entity("Award", self.award.award_id, **updates)
-
-            self.save_btn.setEnabled(False)
-
-            # Update the tab name
-            tab_widget = None
-            parent = self.parent()
-            while parent and not isinstance(parent, QTabWidget):
-                parent = parent.parent()
-
-            if isinstance(parent, QTabWidget):
-                tab_widget = parent
-                tab_index = tab_widget.indexOf(self)
-                if tab_index != -1:
-                    new_name = self.name_edit.text().strip()
-                    tab_name = f"{new_name[:15]}..." if len(new_name) > 15 else new_name
-                    tab_widget.setTabText(tab_index, tab_name)
-
-            # Emit signal to refresh the award list and tree
-            if hasattr(self.parent().parent(), "award_updated"):
-                self.parent().parent().award_updated.emit()
-
-            logger.info(f"Updated award {self.award.award_id}")
-
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Year", "Please enter a valid numeric year.")
-        except (SQLAlchemyError, AttributeError, RuntimeError) as e:
-            logger.error(f"Error saving award: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save changes: {e!s}")
+        self._original_values = self._form_values()
+        self._update_save_state()
+        logger.info(f"Updated award {self.award.award_id}")
+        show_status_message(self, "Award saved")
+        self.saved.emit()
 
     def _delete_award(self) -> None:
-        """Delete the current award after confirmation."""
-        children = self.controller.get.get_all_entities("Award", parent_id=self.award.award_id) or []
-
+        """Delete this award after confirmation, then emit `deleted`."""
+        children = self.controller.get.get_all_entities("Award", parent_id=self.award.award_id)
         message = f"Are you sure you want to delete the award '{self.award.award_name}'?"
         if children:
             message += f"\n\nIt has {len(children)} child award(s). They will not be deleted -- they will become top-level awards."
 
         reply = QMessageBox.question(self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
 
-        if reply == QMessageBox.Yes:
-            try:
-                # Delete the award - associations will be automatically deleted by ORM cascade,
-                # and child awards' parent_id will be set to NULL (they become top-level)
-                self.controller.delete.delete_entity("Award", self.award.award_id)
-                show_status_message(self, "Award deleted successfully")
-                logger.info(f"Deleted award {self.award.award_id}")
-
-                # Emit signal to notify parent to close this tab
-                self.save_requested.emit()
-
-            except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Error deleting award: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to delete award: {e!s}")
-
-    def _on_relationship_added(self, entity_type: str, entity_id: int, relationship_type: str) -> None:
-        """Handle new relationship from dialog."""
-        try:
-            # Create the award association
-            association_data = {"award_id": self.award.award_id, "entity_type": entity_type, "entity_id": entity_id, "association_type": relationship_type}
-
-            self.controller.add.add_entity("AwardAssociation", **association_data)
-
-            self._enable_save()
-            self._refresh_recipient_display()
-            logger.info(f"Added {relationship_type} relationship: {entity_type} {entity_id} to award {self.award.award_id}")
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error adding relationship: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to add relationship: {e}")
+        if not delete_awards(self.controller, [self.award.award_id]):
+            QMessageBox.critical(self, "Error", "Failed to delete the award. See the log for details.")
+            return
+        logger.info(f"Deleted award {self.award.award_id}")
+        show_status_message(self, "Award deleted")
+        self.deleted.emit()

@@ -10,14 +10,7 @@ from src.award.award_view import AwardView
 
 
 def _award(award_id, name, year=None, category=None, parent_id=None):
-    return SimpleNamespace(
-        award_id=award_id,
-        award_name=name,
-        award_year=year,
-        award_category=category,
-        award_description="",
-        parent_id=parent_id,
-    )
+    return SimpleNamespace(award_id=award_id, award_name=name, award_year=year, award_category=category, award_description="", wikipedia_link=None, parent_id=parent_id)
 
 
 def _make_controller(awards):
@@ -60,11 +53,7 @@ def _visible_names(view) -> set[str]:
 
 
 def test_committing_one_name_shows_only_that_award(qapp):
-    awards = [
-        _award(1, "Grammy Award", year=2021),
-        _award(2, "Mercury Prize", year=2020),
-        _award(3, "Polaris", year=2019),
-    ]
+    awards = [_award(1, "Grammy Award", year=2021), _award(2, "Mercury Prize", year=2020), _award(3, "Polaris", year=2019)]
     view = AwardView(_make_controller(awards))
 
     _check_only(view.name_filter, "Mercury Prize")
@@ -116,10 +105,28 @@ def test_reload_after_delete_drops_stale_name_from_filter(qapp):
     # and the filter falls back to "All" since its selected name no longer
     # exists.
     remaining = [awards[0]]
-    view.controller.get.get_all_entities.side_effect = lambda model_name, **kw: (
-        list(remaining) if model_name == "Award" else []
-    )
+    view.controller.get.get_all_entities.side_effect = lambda model_name, **kw: list(remaining) if model_name == "Award" else []
     view.load_awards()
 
     assert view.name_filter.committed_selection() == set()
     assert view.name_filter.button_text() == "All"
+
+
+def test_reload_keeps_the_active_search(qapp):
+    awards = [_award(1, "Grammy Award", year=2021), _award(2, "Mercury Prize", year=2020)]
+    view = AwardView(_make_controller(awards))
+
+    view.search_box.setText("mercury")
+    view.load_awards()
+
+    assert _visible_names(view) == {"[2020] Mercury Prize"}
+
+
+def test_match_whose_parent_is_filtered_out_is_shown_as_root(qapp):
+    awards = [_award(1, "Grammy Award"), _award(2, "Grammy Award", category="Best Album", parent_id=1)]
+    view = AwardView(_make_controller(awards))
+
+    view.search_box.setText("best album")
+
+    assert view.award_tree.topLevelItemCount() == 1
+    assert view.award_tree.topLevelItem(0).text(0) == "Grammy Award - Best Album"

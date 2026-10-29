@@ -149,7 +149,7 @@ class ArtistActionsMixin:
     def _add_award(self, artist):
         """Open the Add Award dialog for an artist."""
         try:
-            dialog = AddAwardDialog(self.controller, "Artist", artist.artist_id, self)
+            dialog = AddAwardDialog(self.controller, "Artist", artist.artist_id, self, entity_name=artist.artist_name)
             if dialog.exec_() == QDialog.Accepted:
                 self._on_artist_selected()
         except SQLAlchemyError as e:
