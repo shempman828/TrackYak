@@ -400,7 +400,7 @@ class AwardView(QWidget):
 
     def _delete_selected_award(self) -> None:
         """Delete all selected awards after confirmation."""
-        selected_ids = [item.data(0, Qt.UserRole) for item in self.award_tree.selectedItems()]
+        selected_ids = {item.data(0, Qt.UserRole) for item in self.award_tree.selectedItems()}
         awards_to_delete = [a for a in self.all_awards if a.award_id in selected_ids]
         if not awards_to_delete:
             return
