@@ -141,7 +141,7 @@ class _EditHeader(QFrame):
         if album is not None and cache is not None:
             try:
                 # Imported lazily: src.album.edit pulls in track edit tabs.
-                from src.album.edit.base_album_widget import rounded_pixmap
+                from src.album.view.album_widget import rounded_pixmap
 
                 px = cache.get_pixmap(album, "front", bool(_safe_attr(album, "art_is_explicit", False)))
                 if px and not px.isNull():

@@ -9,10 +9,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from src.album.edit.base_album_edit import AlbumEditor
-from src.album.edit.base_album_widget import AlbumWidget
 from src.album.view.album_context_menu import AlbumContextMenuMixin
 from src.album.view.album_filtering import AlbumFilteringMixin
 from src.album.view.album_sorting import AlbumSortingMixin
+from src.album.view.album_widget import AlbumWidget
 from src.common.widgets.flow_layout import ChipArea, FlowLayout
 from src.common.widgets.layout_utils import clear_layout
 from src.db.db_tables import Album, AlbumRoleAssociation

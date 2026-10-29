@@ -3,9 +3,9 @@ Details/Tracks/Artwork/Advanced tabs.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit
+from PySide6.QtWidgets import QDialog, QFormLayout, QLabel, QLineEdit
 from sqlalchemy.orm.exc import DetachedInstanceError
 
 from src.album.disc.disc_view import DiscTabView
@@ -29,19 +29,21 @@ def test_new_album_dialog_constructs_without_raising(qapp):
 
 
 # ---------------------------------------------------------------------------
-# Regression test for AlbumEditor.closeEvent.
+# Regression test for AlbumEditor.reject (Cancel / Esc / window close).
 # ---------------------------------------------------------------------------
 
 
-def test_close_event_accepts_when_album_is_detached(qapp):
-    dialog = AlbumEditor.__new__(AlbumEditor)
-    event = MagicMock()
+def test_reject_closes_when_album_is_detached(qapp):
+    class _Bare(AlbumEditor):
+        def __init__(self):
+            QDialog.__init__(self)
 
-    with patch.object(AlbumEditor, "_has_unsaved_changes", side_effect=DetachedInstanceError("x")):
-        dialog.closeEvent(event)
+    dialog = _Bare()
 
-    event.accept.assert_called_once()
-    event.ignore.assert_not_called()
+    with patch.object(AlbumEditor, "_has_unsaved_changes", side_effect=DetachedInstanceError("x")), patch.object(QDialog, "reject") as base_reject:
+        dialog.reject()
+
+    base_reject.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -97,14 +99,7 @@ def test_artwork_tab_leaves_controls_enabled_when_no_embed_running(qapp):
 
 
 def test_advanced_tab_renders_dash_for_corrupt_gain_and_peak(qapp):
-    album = SimpleNamespace(
-        album_gain="not-a-number",
-        album_peak=object(),
-        tracks=[],
-        total_duration=None,
-        total_plays=None,
-        average_rating=None,
-    )
+    album = SimpleNamespace(album_gain="not-a-number", album_peak=object(), tracks=[], total_duration=None, total_plays=None, average_rating=None)
     editor = _StubEditor(album=album, field_widgets={})
 
     tab = AdvancedTab(editor).build()
@@ -116,14 +111,7 @@ def test_advanced_tab_renders_dash_for_corrupt_gain_and_peak(qapp):
 
 
 def test_advanced_tab_formats_numeric_gain_and_peak(qapp):
-    album = SimpleNamespace(
-        album_gain=-6.12345,
-        album_peak=0.987654,
-        tracks=[],
-        total_duration=None,
-        total_plays=None,
-        average_rating=None,
-    )
+    album = SimpleNamespace(album_gain=-6.12345, album_peak=0.987654, tracks=[], total_duration=None, total_plays=None, average_rating=None)
     editor = _StubEditor(album=album, field_widgets={})
 
     tab = AdvancedTab(editor).build()
@@ -137,14 +125,7 @@ def test_advanced_tab_first_pass_widget_still_added(qapp):
     """The removed dead _row() helper must not affect the first_pass/second_pass
     widgets, which are added directly (not via _row)."""
     field = QLineEdit()
-    album = SimpleNamespace(
-        album_gain=None,
-        album_peak=None,
-        tracks=[],
-        total_duration=None,
-        total_plays=None,
-        average_rating=None,
-    )
+    album = SimpleNamespace(album_gain=None, album_peak=None, tracks=[], total_duration=None, total_plays=None, average_rating=None)
     editor = _StubEditor(album=album, field_widgets={"first_pass": field})
 
     tab = AdvancedTab(editor).build()

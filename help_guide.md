@@ -311,7 +311,17 @@ artwork…" note while it runs, then the preview updates — so a big image or a
 long tracklist no longer freezes the editor while it works. If some files
 cannot be written, a warning lists them; the album's thumbnail then keeps
 showing what the files actually hold. Art with transparent areas shows on a
-white background, not black.
+white background, not black. If the file you choose is not a readable image,
+the editor tells you and does not change the tracks. **Clear** asks you to
+confirm before it removes the cover from the track files.
+
+**Saving and closing**: Save needs an album name. The release month must be
+1–12 and the day must be 1–31 (or empty). If a value is not valid, or the
+save fails, the editor stays open and keeps your edits. Cancel, Esc and the
+window close button all ask before they discard unsaved changes. You cannot
+close the editor while cover art is still being written. If you add a
+publisher, place, award or credit that the album already has, a message
+tells you that it was not added.
 
 **Other things you can do**: right-click a cover (or empty grid space) for
 New Album, Add to Queue, Merge into another album, Delete, Delete Empty

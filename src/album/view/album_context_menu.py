@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_merge import AlbumMerge
 from src.album.edit.album_new import NewAlbumDialog
-from src.album.edit.base_album_widget import AlbumWidget
+from src.album.view.album_widget import AlbumWidget
 from src.common.widgets.qt_text import esc_amp
 from src.core.status_widget import show_status_message
 from src.foundation.logger_config import logger

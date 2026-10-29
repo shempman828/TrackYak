@@ -6,8 +6,8 @@ Motivating bugs:
   boxes, but pressing Enter in either box called _handle_add() directly,
   bypassing that minimum.
 - _build_publishers_section / _build_places_section made unguarded
-  controller calls, unlike the Awards section's guarded equivalent, so a
-  bad row would raise uncaught during tab construction.
+  controller calls, so a DB error would raise uncaught during tab
+  construction. Rows now come from the mapped publisher/place relationships.
 - Publisher/place/award/artist-credit "Remove" buttons popped a "Confirm
   Remove" QMessageBox before calling through, even though these rows are
   trivial to re-add -- Remove must call the helper directly.
@@ -15,6 +15,7 @@ Motivating bugs:
 
 from PySide6.QtWidgets import QMessageBox, QPushButton
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.edit.album_tab import AlbumTabBuilder
 from src.common.widgets.entity_completer_edit import invalidate_entity_cache
@@ -30,6 +31,7 @@ class _FakePublisher:
 class _FakeAlbumPublisher:
     def __init__(self, publisher_id=1):
         self.publisher_id = publisher_id
+        self.publisher = _FakePublisher(publisher_id)
 
 
 class _FakePlace:
@@ -40,8 +42,9 @@ class _FakePlace:
 
 
 class _FakePlaceAssociation:
-    def __init__(self, place_id=1):
+    def __init__(self, place_id=1, place=None):
         self.place_id = place_id
+        self.place = place
         self.association_type = None
 
 
@@ -69,7 +72,7 @@ class _FakeGet:
     def get_all_entities(self, model_name, **kwargs):
         if model_name == "AlbumPublisher":
             if self._raise_on_publishers:
-                raise AttributeError("boom")
+                raise SQLAlchemyError("boom")
             if self._with_publisher:
                 return [_FakeAlbumPublisher()]
         return []
@@ -133,7 +136,7 @@ class _Host:
 
     def get_album_place_associations(self):
         if self._raise_on_places:
-            raise AttributeError("boom")
+            raise SQLAlchemyError("boom")
         return self._place_associations
 
 
@@ -174,7 +177,7 @@ def test_remove_buttons_call_through_without_confirmation(qapp, monkeypatch):
         raise AssertionError("Remove must not show a confirmation dialog")
 
     monkeypatch.setattr(QMessageBox, "question", staticmethod(_boom))
-    view = _Host(_FakeController(with_publisher=True, place=_FakePlace()), place_associations=[_FakePlaceAssociation()])
+    view = _Host(_FakeController(with_publisher=True, place=_FakePlace()), place_associations=[_FakePlaceAssociation(place=_FakePlace())])
     builder = AlbumTabBuilder(view)
 
     _click(builder._build_publishers_section(), "Remove")

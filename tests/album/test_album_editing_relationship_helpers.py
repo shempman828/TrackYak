@@ -77,9 +77,7 @@ class _Controller:
 def _helper(controller, album=None):
     refreshed = []
     album = album or SimpleNamespace(album_id=1, album_roles=[], tracks=[])
-    helper = RelationshipHelpers(
-        controller, album, lambda: refreshed.append(True), widget=QWidget()
-    )
+    helper = RelationshipHelpers(controller, album, lambda: refreshed.append(True), widget=QWidget())
     return helper, refreshed
 
 
@@ -144,10 +142,7 @@ def test_change_credited_alias_surfaces_warning_when_update_fails(qapp, monkeypa
 def test_add_artist_credit_ignores_matched_id_when_multiple_names_typed(qapp, monkeypatch):
     """matched_artist_id only makes sense for a single typed name; with
     several names it must not be silently applied to all of them."""
-    artists_by_name = {
-        "Deakin": SimpleNamespace(artist_id=1, artist_name="Deakin"),
-        "Panda Bear": SimpleNamespace(artist_id=2, artist_name="Panda Bear"),
-    }
+    artists_by_name = {"Deakin": SimpleNamespace(artist_id=1, artist_name="Deakin"), "Panda Bear": SimpleNamespace(artist_id=2, artist_name="Panda Bear")}
     role = SimpleNamespace(role_id=5, role_name="Performer")
 
     class _MultiGet(_Get):
@@ -163,18 +158,130 @@ def test_add_artist_credit_ignores_matched_id_when_multiple_names_typed(qapp, mo
     album = SimpleNamespace(album_id=1, album_roles=[], tracks=[])
     helper, refreshed = _helper(controller, album=album)
 
-    monkeypatch.setattr(
-        "src.album.edit.album_editing_relationship_helpers.RelationshipHelpers._prompt_credited_alias",
-        lambda self, artist, current_alias_id=None: (True, None),
-    )
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.RelationshipHelpers._prompt_credited_alias", lambda self, artist, current_alias_id=None: (True, None))
 
     # matched_artist_id=1 would (incorrectly, pre-fix) get applied to BOTH
     # names if the precondition weren't enforced.
-    helper.add_artist_credit(
-        ["Deakin", "Panda Bear"], ["Performer"], matched_artist_id=1, matched_role_id=None
-    )
+    helper.add_artist_credit(["Deakin", "Panda Bear"], ["Performer"], matched_artist_id=1, matched_role_id=None)
 
     credit_calls = [kw for model, kw in add.calls if model == "AlbumRoleAssociation"]
     artist_ids_credited = {kw["artist_id"] for kw in credit_calls}
     assert artist_ids_credited == {1, 2}
     assert refreshed == [True]
+
+
+# ---------------------------------------------------------------------------
+# Credit conversion, association writes and sort order.
+# ---------------------------------------------------------------------------
+
+
+class _ConvertGet(_Get):
+    def __init__(self, track_rows):
+        super().__init__()
+        self._track_rows = track_rows
+
+    def get_all_entities(self, model_name, **_kwargs):
+        return self._track_rows if model_name == "TrackArtistRole" else []
+
+
+def _convert_setup(track_rows, delete_ok=True):
+    add = _Add()
+    add.add_entities = lambda model, rows: []
+    delete = _Delete(ok=delete_ok)
+    controller = _Controller(get=_ConvertGet(track_rows), add=add, delete=delete)
+    tracks = [SimpleNamespace(track_id=1), SimpleNamespace(track_id=2)]
+    album = SimpleNamespace(album_id=1, album_roles=[], tracks=tracks)
+    role_assoc = SimpleNamespace(association_id=9, artist=object(), role=object(), artist_id=3, role_id=4, credited_alias_id=None)
+    helper, refreshed = _helper(controller, album=album)
+    return helper, refreshed, delete, role_assoc
+
+
+def test_convert_to_per_track_keeps_album_credit_when_track_rows_are_missing(qapp, monkeypatch):
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: shown.append(a[2])))
+    helper, _refreshed, delete, role_assoc = _convert_setup(track_rows=[SimpleNamespace(track_id=1)])
+
+    helper.convert_credit_to_per_track(role_assoc)
+
+    assert delete.calls == []
+    assert len(shown) == 1
+
+
+def test_convert_to_per_track_deletes_album_credit_once_every_track_has_it(qapp):
+    rows = [SimpleNamespace(track_id=1), SimpleNamespace(track_id=2)]
+    helper, refreshed, delete, role_assoc = _convert_setup(track_rows=rows)
+
+    helper.convert_credit_to_per_track(role_assoc)
+
+    assert delete.calls == [("AlbumRoleAssociation", (9,), {})]
+    assert refreshed == [True]
+
+
+def test_convert_to_album_level_warns_when_track_rows_not_removed(qapp, monkeypatch):
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a[1])))
+    controller = _Controller(delete=_Delete(ok=False))
+    album = SimpleNamespace(album_id=1, album_roles=[], tracks=[SimpleNamespace(track_id=1)])
+    helper, refreshed = _helper(controller, album=album)
+
+    helper.convert_credit_to_album_level(3, 4)
+
+    assert shown == ["Partly Converted"]
+    assert refreshed == [True]
+
+
+@pytest.mark.parametrize(
+    ("method", "inputs", "link_model"),
+    [
+        ("add_publisher", {"publisher_name": "P"}, "AlbumPublisher"),
+        ("add_place", {"place_name": "Pl", "association_type": ""}, "PlaceAssociation"),
+        ("add_album_award", {"award_name": "A"}, "AwardAssociation"),
+    ],
+)
+def test_rejected_association_write_warns_and_does_not_refresh(qapp, monkeypatch, method, inputs, link_model):
+    shown = []
+    parents = {"Publisher": SimpleNamespace(publisher_id=1), "Place": SimpleNamespace(place_id=1), "Award": SimpleNamespace(award_id=1)}
+    controller = _Controller(get=_Get(entity_objects=parents), add=_Add(returns={link_model: None}))
+    helper, refreshed = _helper(controller)
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs", staticmethod(lambda *a, **k: inputs))
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: [])
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.find_or_create_association_type", lambda *a, **k: None)
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a[1])))
+
+    getattr(helper, method)()
+
+    assert shown == ["Not Added"]
+    assert refreshed == []
+
+
+def test_add_place_cancel_is_silent(qapp, monkeypatch):
+    toasts = []
+    helper, refreshed = _helper(_Controller())
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.AutocompleteDialog.get_inputs", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.fetch_association_types", lambda *a, **k: [])
+    monkeypatch.setattr("src.album.edit.album_editing_relationship_helpers.show_status_message", lambda *a, **k: toasts.append(a))
+
+    helper.add_place()
+
+    assert toasts == []
+    assert refreshed == []
+
+
+def test_add_artist_credit_gives_each_new_artist_its_own_sort_order(qapp, monkeypatch):
+    artists = {"A": SimpleNamespace(artist_id=1), "B": SimpleNamespace(artist_id=2)}
+    role = SimpleNamespace(role_id=5)
+
+    class _NameGet(_Get):
+        def get_entity_object(self, model_name, **kwargs):
+            return artists.get(kwargs.get("artist_name")) if model_name == "Artist" else role
+
+    add = _Add()
+    existing = SimpleNamespace(role_id=5, sort_order=3)
+    album = SimpleNamespace(album_id=1, album_roles=[existing], tracks=[])
+    helper, _refreshed = _helper(_Controller(get=_NameGet(), add=add), album=album)
+    monkeypatch.setattr(RelationshipHelpers, "_prompt_credited_alias", lambda self, artist, current_alias_id=None: (True, None))
+
+    helper.add_artist_credit(["A", "B"], ["Producer"])
+
+    orders = [kw["sort_order"] for model, kw in add.calls if model == "AlbumRoleAssociation"]
+    assert orders == [4, 5]

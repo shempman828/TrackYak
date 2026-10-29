@@ -1,8 +1,10 @@
-"""Builds the Relationships/Awards/Artists tabs for the album edit dialog."""
+"""Builds the Album credit, Publishers & Places and Awards tabs for the album editor."""
+
+import html
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_context import artist_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget
@@ -18,9 +20,7 @@ _ROLE_VARIANT_PREFIXES = ("Additional ", "Assistant ")
 
 
 def _role_group_sort_key(name: str) -> tuple:
-    """Sort key grouping role variants (Additional/Assistant X) under their
-    base role X, base-role groups ordered alphabetically, "Album Artist"
-    pinned first."""
+    """Sort key: "Album Artist" first, then base roles A-Z with their Additional/Assistant variants."""
     if name == "Album Artist":
         return (0, "", 0, "")
 
@@ -35,22 +35,34 @@ def _role_group_sort_key(name: str) -> tuple:
     return (1, base_name.lower(), variant_rank, name.lower())
 
 
-class _CreditFlowArea(QWidget):
-    """Container for a role group's FlowLayout of credit chips.
+def _placeholder_label(text: str) -> QLabel:
+    """Return an empty-state label in the app's placeholder text style."""
+    label = QLabel(text)
+    label.setProperty("textRole", "placeholder")
+    return label
 
-    Same workaround as artist_edit_types.py's _ChipArea: a FlowLayout's real
-    height depends on how many rows it wraps into at a given width, which
-    Qt can't know ahead of time, so the enclosing group box would otherwise
-    only ever reserve room for one row. Recomputing minimumHeight from
-    heightForWidth() whenever the width changes keeps the reserved space
-    accurate as credits wrap.
-    """
+
+def _remove_button(text: str, accessible_name: str) -> QPushButton:
+    """Return a danger-styled remove button with an accessible name."""
+    button = QPushButton(text)
+    button.setProperty("danger", True)
+    button.setAccessibleName(accessible_name)
+    return button
+
+
+class _CreditFlowArea(QWidget):
+    """Container for a role group's FlowLayout of credit chips that reserves height for wrapped rows."""
+
+    # Same workaround as artist_edit_types._ChipArea: Qt cannot know a FlowLayout's
+    # wrapped height ahead of time, so minimumHeight is recomputed on every resize.
 
     def resizeEvent(self, event):
+        """Recompute the reserved height for the new width."""
         super().resizeEvent(event)
         self.refresh_height()
 
     def refresh_height(self):
+        """Set minimumHeight to the flow layout's height at the current width."""
         layout = self.layout()
         if layout is None:
             return
@@ -60,7 +72,7 @@ class _CreditFlowArea(QWidget):
 
 
 class AlbumTabBuilder:
-    """Builder class for creating the different tabs in the album view"""
+    """Build the relationship tabs of the album editor from its album and helper."""
 
     def __init__(self, album_view):
         self.view = album_view
@@ -73,7 +85,7 @@ class AlbumTabBuilder:
     # =========================================================================
 
     def build_relationships_tab(self):
-        """Build tab for publishers and place associations"""
+        """Build the Publishers & Places tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
@@ -84,7 +96,7 @@ class AlbumTabBuilder:
         return tab
 
     def build_awards_tab(self):
-        """Build the awards tab with add functionality"""
+        """Build the Awards tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
@@ -97,7 +109,7 @@ class AlbumTabBuilder:
         return tab
 
     def build_artists_tab(self):
-        """Build the artists and credits tab"""
+        """Build the Album credit tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
@@ -115,11 +127,7 @@ class AlbumTabBuilder:
     # =========================================================================
 
     def _build_add_artist_credit_row(self):
-        """Inline artist + role entry row, replacing the old popup dialog.
-
-        Mirrors the search bar in track_edit_roles.py: entity completers for
-        both artist and role, with an Add button — no modal.
-        """
+        """Build the inline artist + role completer row with its Add button."""
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 8)
@@ -140,9 +148,7 @@ class AlbumTabBuilder:
 
         def _handle_add():
             if not add_btn.isEnabled():
-                # Enter can fire this from either search box directly,
-                # bypassing the button -- honor the same minimum-length gate.
-                return
+                return  # Enter in either box bypasses the button; keep the same length gate
             artist_names = artist_search.split_names()
             role_names = role_search.split_names()
             if not artist_names or not role_names:
@@ -150,8 +156,7 @@ class AlbumTabBuilder:
             self.helper.add_artist_credit(
                 artist_names,
                 role_names,
-                # matched_id only names a single typed artist/role -- with
-                # several entered at once each is resolved by name instead.
+                # matched_id names only a single typed entry; several are resolved by name.
                 matched_artist_id=artist_search.matched_id() if len(artist_names) == 1 else None,
                 matched_role_id=role_search.matched_id() if len(role_names) == 1 else None,
             )
@@ -168,38 +173,35 @@ class AlbumTabBuilder:
         return row
 
     def _build_publishers_section(self):
-        """Build publishers section"""
+        """Build the Publishers group with remove buttons and an Add button."""
         group = QGroupBox("Publishers")
         layout = QVBoxLayout(group)
 
         try:
-            album_publishers = self.controller.get.get_all_entities("AlbumPublisher", album_id=self.album.album_id)
-        except (AttributeError, TypeError) as e:
+            album_publishers = self.controller.get.get_all_entities("AlbumPublisher", album_id=self.album.album_id) or []
+            rows = [(ap, ap.publisher) for ap in album_publishers if ap.publisher is not None]
+        except SQLAlchemyError as e:
             logger.error(f"Error loading album publishers: {e}")
-            album_publishers = []
+            rows = []
 
-        if album_publishers:
-            for album_publisher in album_publishers:
-                publisher = self.controller.get.get_entity_object("Publisher", publisher_id=album_publisher.publisher_id)
-                if publisher:
-                    widget = QWidget()
-                    widget_layout = QHBoxLayout(widget)
-                    widget_layout.setContentsMargins(0, 0, 0, 0)
+        if rows:
+            for album_publisher, publisher in rows:
+                widget = QWidget()
+                widget_layout = QHBoxLayout(widget)
+                widget_layout.setContentsMargins(0, 0, 0, 0)
 
-                    mb_badge = " \U0001f517" if publisher.MBID else ""
-                    name_label = QLabel(f"{publisher.publisher_name}{mb_badge}")
-                    if publisher.MBID:
-                        name_label.setToolTip("Linked to MusicBrainz")
-                    widget_layout.addWidget(name_label)
+                mb_badge = " \U0001f517" if publisher.MBID else ""
+                name_label = QLabel(f"{publisher.publisher_name}{mb_badge}")
+                if publisher.MBID:
+                    name_label.setToolTip("Linked to MusicBrainz")
+                widget_layout.addWidget(name_label)
 
-                    remove_btn = QPushButton("Remove")
-                    remove_btn.clicked.connect(lambda checked, ap=album_publisher: self.helper.remove_publisher(ap))
-                    widget_layout.addWidget(remove_btn)
-                    layout.addWidget(widget)
+                remove_btn = _remove_button("Remove", f"Remove publisher {publisher.publisher_name}")
+                remove_btn.clicked.connect(lambda checked, ap=album_publisher: self.helper.remove_publisher(ap))
+                widget_layout.addWidget(remove_btn)
+                layout.addWidget(widget)
         else:
-            empty_label = QLabel("No publishers associated")
-            empty_label.setStyleSheet("font-style: italic;")
-            layout.addWidget(empty_label)
+            layout.addWidget(_placeholder_label("No publishers associated"))
 
         add_btn = QPushButton("Add Publisher")
         add_btn.clicked.connect(self.helper.add_publisher)
@@ -208,40 +210,36 @@ class AlbumTabBuilder:
         return group
 
     def _build_places_section(self):
-        """Build places section"""
+        """Build the album-level Place Associations group."""
         group = QGroupBox("Place Associations")
         layout = QVBoxLayout(group)
 
         try:
-            place_associations = self.view.get_album_place_associations()
-        except (AttributeError, TypeError) as e:
+            rows = [(a, a.place) for a in self.view.get_album_place_associations() if a.place is not None]
+        except SQLAlchemyError as e:
             logger.error(f"Error loading album place associations: {e}")
-            place_associations = []
+            rows = []
 
-        if place_associations:
-            for association in place_associations:
-                place = self.controller.get.get_entity_object("Place", place_id=association.place_id)
-                if place:
-                    widget = QWidget()
-                    widget_layout = QHBoxLayout(widget)
-                    widget_layout.setContentsMargins(0, 0, 0, 0)
+        if rows:
+            for association, place in rows:
+                widget = QWidget()
+                widget_layout = QHBoxLayout(widget)
+                widget_layout.setContentsMargins(0, 0, 0, 0)
 
-                    assoc_type_name = association.association_type.type_name if association.association_type else ""
-                    mb_badge = " \U0001f517" if place.MBID else ""
-                    place_text = f"{place.place_name} ({assoc_type_name}){mb_badge}"
-                    place_label = QLabel(place_text)
-                    if place.MBID:
-                        place_label.setToolTip("Linked to MusicBrainz")
-                    widget_layout.addWidget(place_label)
+                assoc_type_name = association.association_type.type_name if association.association_type else ""
+                mb_badge = " \U0001f517" if place.MBID else ""
+                place_text = f"{place.place_name} ({assoc_type_name}){mb_badge}"
+                place_label = QLabel(place_text)
+                if place.MBID:
+                    place_label.setToolTip("Linked to MusicBrainz")
+                widget_layout.addWidget(place_label)
 
-                    remove_btn = QPushButton("Remove")
-                    remove_btn.clicked.connect(lambda checked, a=association: self.helper.remove_place(a))
-                    widget_layout.addWidget(remove_btn)
-                    layout.addWidget(widget)
+                remove_btn = _remove_button("Remove", f"Remove place {place.place_name}")
+                remove_btn.clicked.connect(lambda checked, a=association: self.helper.remove_place(a))
+                widget_layout.addWidget(remove_btn)
+                layout.addWidget(widget)
         else:
-            empty_label = QLabel("No place associations")
-            empty_label.setStyleSheet("font-style: italic;")
-            layout.addWidget(empty_label)
+            layout.addWidget(_placeholder_label("No place associations"))
 
         add_btn = QPushButton("Add Place Association")
         add_btn.clicked.connect(self.helper.add_place)
@@ -250,25 +248,15 @@ class AlbumTabBuilder:
         return group
 
     def _build_track_places_section(self):
-        """Places common to every track on the album.
-
-        Reuses the track editor's PlacesTab with the full set of the
-        album's tracks, the same way base_album_edit_tabs.GenresTab reuses
-        the track GenresTab: adding or removing a place here writes it to
-        every track, so PlacesTab's existing multi-track intersection and
-        write-to-all-tracks behavior double as the album-level view and the
-        trickle-down edit mechanism.
-
-        Independent of the album-level "Place Associations" section above --
-        those are PlaceAssociation rows with entity_type="Album", these are
-        entity_type="Track".
-        """
+        """Build the group of places common to every track; edits apply to all tracks."""
+        # Reuses the track PlacesTab across all tracks (entity_type="Track"), separate
+        # from the album-level Place Associations (entity_type="Album") above.
         group = QGroupBox("Track Places (common to all tracks)")
         layout = QVBoxLayout(group)
 
         tracks = self.album.tracks or []
         if not tracks:
-            layout.addWidget(QLabel("This album has no tracks yet."))
+            layout.addWidget(_placeholder_label("This album has no tracks yet."))
             return group
 
         info = QLabel("Places common to every track on this album. Adding or removing a place here applies it to all of the album's tracks.")
@@ -281,26 +269,25 @@ class AlbumTabBuilder:
         return group
 
     def _build_awards_list(self):
-        """Build the awards list content"""
+        """Build the list of the album's awards, or an empty-state label."""
         try:
             award_associations = self.controller.get.get_all_entities("AwardAssociation", entity_id=self.album.album_id, entity_type="Album") or []
             album_awards = [assoc.award for assoc in award_associations if assoc.award is not None]
-        except (AttributeError, TypeError) as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading album awards: {e}")
             album_awards = []
 
         if not album_awards:
-            label = QLabel("No awards associated with this album.")
+            label = _placeholder_label("No awards associated with this album.")
             label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet("font-style: italic;")
             return label
 
         group = QGroupBox("Album Awards")
         layout = QVBoxLayout(group)
 
-        for award in album_awards:
+        for index, award in enumerate(album_awards):
             layout.addWidget(self._build_award_widget(award))
-            if award != album_awards[-1]:
+            if index < len(album_awards) - 1:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.HLine)
                 sep.setFrameShadow(QFrame.Sunken)
@@ -309,7 +296,7 @@ class AlbumTabBuilder:
         return group
 
     def _build_award_widget(self, award):
-        """Build individual award widget"""
+        """Build one award's name, details and remove button."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -319,7 +306,7 @@ class AlbumTabBuilder:
             award_category = getattr(award, "award_category", None)
             award_desc = getattr(award, "award_description", None)
 
-            layout.addWidget(QLabel(f"<b>{award_name}</b>"))
+            layout.addWidget(QLabel(f"<b>{html.escape(str(award_name))}</b>"))
 
             details_widget = QWidget()
             details_layout = QHBoxLayout(details_widget)
@@ -335,7 +322,7 @@ class AlbumTabBuilder:
                 desc_label.setWordWrap(True)
                 layout.addWidget(desc_label)
 
-            remove_btn = QPushButton("Remove Award")
+            remove_btn = _remove_button("Remove Award", f"Remove award {award_name}")
             remove_btn.clicked.connect(lambda checked, a=award: self.helper.remove_album_award_association(a))
             layout.addWidget(remove_btn)
 
@@ -346,16 +333,15 @@ class AlbumTabBuilder:
         return widget
 
     def _build_artists_list(self):
-        """Build the artists and credits list."""
-        if not hasattr(self.album, "album_roles") or not self.album.album_roles:
-            return QLabel("No artist information available.")
+        """Build the album credits grouped by role, or an empty-state label."""
+        if not getattr(self.album, "album_roles", None):
+            return _placeholder_label("No album-level credits yet.")
 
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setSpacing(4)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Group roles by type
         roles_by_type: dict[str, list] = {}
         for role_assoc in self.album.album_roles:
             role_name = role_assoc.role.role_name if role_assoc.role else "Unknown Role"
@@ -363,48 +349,28 @@ class AlbumTabBuilder:
             artist_name = role_assoc.credited_name or "Unknown Artist"
             roles_by_type[role_name].append((artist_name, role_assoc))
 
-        # Smaller font for the group-box title
-        small_font = QFont()
-        small_font.setPointSize(9)
+        # One point smaller than the app font, so it still follows display scaling.
+        small_font = QApplication.font()
+        small_font.setPointSizeF(max(small_font.pointSizeF() - 1, 6))
 
-        # Role-group display order must be stable and independent of
-        # AlbumRoleAssociation.sort_order — that column is only unique
-        # *within* a role's own credits (see add_artist_credit /
-        # move_artist_credit), so the album's flat, globally-ordered
-        # album_roles list interleaves different roles arbitrarily. Using
-        # that list's first-appearance order as group order meant editing
-        # any single credit could change which role's group renders first
-        # (groups "jumping around"). Pin Album Artist to the top and sort
-        # the rest alphabetically instead, so group order never shifts.
-        # "Additional "/"Assistant " variants (e.g. "Assistant Producer")
-        # are grouped under their base role ("Producer") rather than
-        # sorting purely alphabetically, which would scatter them.
+        # sort_order is unique only within a role, so group order comes from
+        # the role name instead; otherwise groups move whenever a credit changes.
         ordered_role_names = sorted(roles_by_type, key=_role_group_sort_key)
 
         for role_name in ordered_role_names:
             artist_tuples = roles_by_type[role_name]
             role_group = QGroupBox(esc_amp(role_name))
-            role_group.setFont(small_font)  # ← shrinks the group title
-            # QVBoxLayout stretches child widgets to the full available width
-            # by default, so with only a couple of roles each QGroupBox was
-            # spreading across the whole tab instead of hugging its chips.
-            # Cap the horizontal size to sizeHint so it collapses to its
-            # content, and left-align it below.
+            role_group.setFont(small_font)
+            # Hug the chips instead of spreading across the full tab width.
             role_group.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
             role_layout = QVBoxLayout(role_group)
             role_layout.setContentsMargins(6, 4, 6, 4)
 
-            # Credit chips flow left-to-right, wrapping to the next line, so
-            # multiple credits pack per row instead of one full-width row
-            # each — see _CreditFlowArea for why the group box needs the
-            # manual height recompute to fit the wrapped rows.
             flow_area = _CreditFlowArea()
             flow = FlowLayout(flow_area, margin=0, h_spacing=6, v_spacing=4)
             role_layout.addWidget(flow_area)
 
-            # artist_tuples is already in credit order (Album.album_roles is
-            # ordered by sort_order) — no alphabetical re-sort here, since
-            # that would defeat the whole point of letting it be reordered.
+            # Already in credit (sort_order) order; do not re-sort.
             last_index = len(artist_tuples) - 1
             for index, (artist_name, role_assoc) in enumerate(artist_tuples):
                 chip = self._build_artist_credit_chip(artist_name, role_assoc, index, last_index)
@@ -415,8 +381,6 @@ class AlbumTabBuilder:
             flow_area.refresh_height()
             layout.addWidget(role_group, 0, Qt.AlignLeft)
 
-        # Keep the role groups clustered at the top instead of stretching
-        # to fill any leftover vertical space in the scroll area.
         layout.addStretch(1)
 
         return container
@@ -448,7 +412,7 @@ class AlbumTabBuilder:
         chip_layout.addWidget(down_btn)
 
         name_label = QLabel(artist_name)
-        apply_scaled_style(name_label, "font-size: 11px;")  # ← smaller text
+        apply_scaled_style(name_label, "font-size: 11px;")
         chip_layout.addWidget(name_label)
 
         credit_btn = QPushButton("Credit as…")
@@ -465,8 +429,8 @@ class AlbumTabBuilder:
         to_track_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.convert_credit_to_per_track(ra))
         chip_layout.addWidget(to_track_btn)
 
-        remove_btn = QPushButton("Remove")
-        remove_btn.setFixedHeight(22)  # ← compact button
+        remove_btn = _remove_button("Remove", f"Remove credit for {artist_name}")
+        remove_btn.setFixedHeight(22)
         apply_scaled_style(remove_btn, "font-size: 10px; padding: 1px 6px;")
         remove_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra))
         chip_layout.addWidget(remove_btn)

@@ -1,19 +1,10 @@
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.edit.base_album_widget import ScrollableAlbumFlow
+from src.album.view.album_widget import ScrollableAlbumFlow
 from src.artist.detail.artist_detail_awards import AwardsWidget
 from src.artist.detail.artist_detail_credits import CreditsWidget
 from src.artist.detail.artist_detail_header import HeaderWidget

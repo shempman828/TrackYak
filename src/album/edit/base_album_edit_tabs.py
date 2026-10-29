@@ -1,3 +1,5 @@
+"""Tab builders for the album editor: Details, Tracks, Artwork, Aliases, Genres, Track Credits, Advanced."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -6,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from src.album.disc.disc_view import DiscTabView
+from src.album.edit.album_cover_art_mixin import ARTWORK_PREVIEW_SIZE
 from src.common.widgets.detail_card import DetailCard
 from src.track.edit.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.edit.track_edit_roles import RolesTab as TrackRolesTab
@@ -24,6 +27,13 @@ def _format_duration(total_seconds):
     return f"{minutes}:{seconds:02d}"
 
 
+def _no_tracks_label() -> QLabel:
+    """Return the empty-state label for tabs that need at least one track."""
+    label = QLabel("This album has no tracks yet.")
+    label.setProperty("textRole", "placeholder")
+    return label
+
+
 # =========================================================================
 # Inner tab classes
 # =========================================================================
@@ -36,6 +46,7 @@ class DetailsTab:
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the Identity, Status & Links and Flags cards."""
         tab = QWidget()
         outer = QHBoxLayout(tab)
         outer.setSpacing(16)
@@ -47,30 +58,14 @@ class DetailsTab:
         left.addWidget(
             self._build_form_card(
                 "Identity",
-                (
-                    ("Language", "album_language"),
-                    ("Release Type", "release_type"),
-                    ("Catalog Number", "catalog_number"),
-                    ("Release Country", "release_country"),
-                    ("Media Format", "media_format"),
-                ),
+                (("Language", "album_language"), ("Release Type", "release_type"), ("Catalog Number", "catalog_number"), ("Release Country", "release_country"), ("Media Format", "media_format")),
             )
         )
         left.addStretch()
 
         right = QVBoxLayout()
         right.setSpacing(16)
-        right.addWidget(
-            self._build_form_card(
-                "Status & Links",
-                (
-                    ("Status", "status"),
-                    ("Est. Sales", "estimated_sales"),
-                    ("MBID", "MBID"),
-                    ("Wikipedia Link", "album_wikipedia_link"),
-                ),
-            )
-        )
+        right.addWidget(self._build_form_card("Status & Links", (("Status", "status"), ("Est. Sales", "estimated_sales"), ("MBID", "MBID"), ("Wikipedia Link", "album_wikipedia_link"))))
         right.addWidget(self._build_flags_card())
         right.addStretch()
 
@@ -79,6 +74,7 @@ class DetailsTab:
         return tab
 
     def _build_form_card(self, title: str, rows: tuple[tuple[str, str], ...]) -> DetailCard:
+        """Return a card with a labelled form row for each (label, field name) pair."""
         card = DetailCard(title)
         form = QFormLayout()
         form.setSpacing(10)
@@ -91,6 +87,7 @@ class DetailsTab:
         return card
 
     def _build_flags_card(self) -> DetailCard:
+        """Return a card with the live, compilation and explicit-art checkboxes."""
         card = DetailCard("Flags")
         for field_name in ("is_live", "is_compilation", "art_is_explicit"):
             w = self.editor.field_widgets.get(field_name)
@@ -109,14 +106,12 @@ class TracksTab:
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the disc / track view and hook its changes to the editor refresh."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
         disc_view = DiscTabView(self.editor.album, self.editor.controller, parent=tab)
-        # Track add/remove/reassignment here isn't routed through
-        # RelationshipHelpers like credits/places/awards are, so the editor
-        # needs its own hook to know other tabs' track snapshots (Genres,
-        # Track Credits) just went stale.
+        # Track changes bypass RelationshipHelpers; refresh so Genres/Track Credits see them.
         disc_view.tracks_changed.connect(self.editor.refresh_view)
         layout.addWidget(disc_view)
         return tab
@@ -128,49 +123,38 @@ class TracksTab:
 class ArtworkTab:
     """Front cover, rear cover, and liner art -- each with a pick + clear button."""
 
-    # After any cover change the parent editor's header thumbnail is
-    # refreshed immediately (see AlbumCoverArtMixin._on_cover_embed_done)
-    # so the two stay in sync.
-
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build one preview group with Choose/Clear buttons per cover type."""
         tab = QWidget()
         layout = QHBoxLayout(tab)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(16)
 
-        # Every pick/clear button, so the editor can disable them all while a
-        # background embed is in flight (see AlbumCoverArtMixin._start_cover_embed).
+        # Collected so the editor can disable them all while an embed runs.
         self.editor._cover_buttons = []
 
-        for cover_type, label in (
-            ("front", "Front Cover"),
-            ("rear", "Rear Cover"),
-            ("liner", "Liner Art"),
-        ):
+        for cover_type, label in (("front", "Front Cover"), ("rear", "Rear Cover"), ("liner", "Liner Art")):
             group = QGroupBox(label)
             g_layout = QVBoxLayout(group)
 
             display = QLabel()
             display.setAlignment(Qt.AlignCenter)
-            display.setFixedSize(250, 250)
+            display.setFixedSize(ARTWORK_PREVIEW_SIZE, ARTWORK_PREVIEW_SIZE)
             display.setProperty("coverPlaceholder", True)
             display.setWordWrap(True)
-            # Store on the editor so _pick_cover / _clear_cover can reach them
             setattr(self.editor, f"{cover_type}_cover_display", display)
             g_layout.addWidget(display)
 
             btn_row = QHBoxLayout()
             pick_btn = QPushButton("Choose…")
-            pick_btn.clicked.connect(
-                lambda checked=False, ct=cover_type: self.editor._pick_cover(ct)
-            )
+            pick_btn.setAccessibleName(f"Choose {label}")
+            pick_btn.clicked.connect(lambda checked=False, ct=cover_type: self.editor._pick_cover(ct))
             clear_btn = QPushButton("Clear")
-            clear_btn.clicked.connect(
-                lambda checked=False, ct=cover_type: self.editor._clear_cover(ct)
-            )
+            clear_btn.setAccessibleName(f"Clear {label}")
+            clear_btn.clicked.connect(lambda checked=False, ct=cover_type: self.editor._clear_cover(ct))
             btn_row.addWidget(pick_btn)
             btn_row.addWidget(clear_btn)
             self.editor._cover_buttons += [pick_btn, clear_btn]
@@ -186,10 +170,7 @@ class ArtworkTab:
 
         self.editor._load_artwork_previews()
 
-        # A rebuild (e.g. refresh_view() while this tab is active) replaces
-        # _cover_buttons with a fresh, enabled set -- if a background embed
-        # is still running, re-disable them immediately instead of letting
-        # pick/clear briefly become clickable mid-embed.
+        # A rebuild mid-embed creates enabled buttons; disable them again at once.
         if getattr(self.editor, "_cover_embed_worker", None) is not None:
             self.editor._set_cover_controls_enabled(False)
 
@@ -206,18 +187,16 @@ class AliasesTab:
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the alias list and the inline add row."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        info = QLabel(
-            "Aliases are alternative titles for this album (e.g. localized names, working titles)."
-        )
+        info = QLabel("Aliases are alternative titles for this album (e.g. localized names, working titles).")
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        # Alias list container — rebuilt on refresh
         self.editor.aliases_container = QWidget()
         self.editor.aliases_layout = QVBoxLayout(self.editor.aliases_container)
         self.editor.aliases_layout.setSpacing(4)
@@ -225,7 +204,6 @@ class AliasesTab:
 
         self.editor._refresh_aliases_list()
 
-        # Inline add row
         add_group = QGroupBox("Add New Alias")
         add_row = QHBoxLayout(add_group)
 
@@ -252,15 +230,14 @@ class AliasesTab:
 class GenresTab:
     """Genres common to every track on the album; edits trickle down to every track."""
 
-    # Reuses the track editor's association-tab widget with the full set of
-    # the album's tracks: its existing common-items intersection and
-    # write-to-all-tracks behavior double as the album-level view and the
-    # trickle-down edit mechanism.
+    # Reuses the track GenresTab across all tracks: its intersection view and
+    # write-to-all-tracks behavior are the album-level view and edit.
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the shared-genre editor, or an empty state when there are no tracks."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -268,13 +245,11 @@ class GenresTab:
 
         tracks = self.editor.album.tracks or []
         if not tracks:
-            layout.addWidget(QLabel("This album has no tracks yet."))
+            layout.addWidget(_no_tracks_label())
+            layout.addStretch()
             return tab
 
-        info = QLabel(
-            "Genres common to every track on this album. Adding or "
-            "removing a genre here applies it to all of the album's tracks."
-        )
+        info = QLabel("Genres common to every track on this album. Adding or removing a genre here applies it to all of the album's tracks.")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -290,18 +265,14 @@ class GenresTab:
 class TrackCreditsTab:
     """Artist/role credits common to every track on the album; can convert to album-level."""
 
-    # Reuses the track editor's RolesTab with the full set of the album's
-    # tracks, the same way GenresTab reuses TrackGenresTab -- edits trickle
-    # down via RolesTab's own multi-track intersection/batch-write behavior.
-    # Also passes an on_convert_to_album hook so each role chip gets a
-    # "→ Album" button that turns a credit shared by every track into a
-    # single album-level credit instead (the inverse of the "→ Track"
-    # button on the Album credit tab).
+    # Reuses the track RolesTab across all tracks, like GenresTab; on_convert_to_album
+    # adds the "→ Album" button (inverse of "→ Track" on the Album credit tab).
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the shared-credit editor, or an empty state when there are no tracks."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -309,7 +280,8 @@ class TrackCreditsTab:
 
         tracks = self.editor.album.tracks or []
         if not tracks:
-            layout.addWidget(QLabel("This album has no tracks yet."))
+            layout.addWidget(_no_tracks_label())
+            layout.addStretch()
             return tab
 
         info = QLabel(
@@ -321,25 +293,16 @@ class TrackCreditsTab:
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        roles_widget = TrackRolesTab(
-            tracks, self.editor.controller, parent=tab, on_convert_to_album=self._convert_to_album
-        )
+        roles_widget = TrackRolesTab(tracks, self.editor.controller, parent=tab, on_convert_to_album=self._convert_to_album)
         roles_widget.load(tracks)
         layout.addWidget(roles_widget)
         roles_stretch_idx = layout.count() - 1
-        # roles_widget defaults to a Preferred vertical size policy, so
-        # without a stretch here this outer layout would hand it any
-        # leftover tab space too, on top of the same fix inside RolesTab
-        # itself.
+        # Without this stretch the Preferred-policy roles_widget takes all spare height.
         layout.addStretch(1)
         trailing_stretch_idx = layout.count() - 1
 
         def _sync_outer_stretch(overflow: bool) -> None:
-            # Mirrors RolesTab's own internal table/stretch swap: once its
-            # table no longer fits its height cap, this tab's roles_widget
-            # should claim this layout's leftover space too, instead of the
-            # trailing stretch leaving it blank below an inner table that
-            # itself wants to be taller.
+            # Mirror RolesTab's swap: an overflowing table takes the spare height.
             layout.setStretch(roles_stretch_idx, 1 if overflow else 0)
             layout.setStretch(trailing_stretch_idx, 0 if overflow else 1)
 
@@ -348,6 +311,7 @@ class TrackCreditsTab:
         return tab
 
     def _convert_to_album(self, artist_id, role_id):
+        """Turn a credit shared by every track into one album-level credit."""
         self.editor.helper.convert_credit_to_album_level(artist_id, role_id)
 
 
@@ -361,6 +325,7 @@ class AdvancedTab:
         self.editor = editor
 
     def build(self) -> QWidget:
+        """Build the pass flags, ReplayGain tiles, library stats and status badges."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -437,6 +402,7 @@ class AdvancedTab:
 
     @staticmethod
     def _stat_tile(label_text: str, value_text: str) -> QFrame:
+        """Return a value-over-caption stat tile."""
         tile = QFrame()
         tile.setObjectName("StatTile")
         tile.setMinimumWidth(110)
@@ -453,12 +419,14 @@ class AdvancedTab:
 
     @staticmethod
     def _badge(text: str, state: str) -> QLabel:
+        """Return a badge label styled by state (good, warn or neutral)."""
         lbl = QLabel(text)
         lbl.setProperty("badgeState", state)
         return lbl
 
     @staticmethod
     def _format_decimal(value, places: int) -> str:
+        """Format value to places decimals, or "—" when it is None."""
         if value is None:
             return "—"
         try:

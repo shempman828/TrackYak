@@ -1,5 +1,7 @@
-"""base_album_edit.py"""
+"""AlbumEditor: the tabbed dialog for editing one album and its relationships."""
 
+from collections.abc import Callable
+import html
 import sqlite3
 from typing import ClassVar
 import webbrowser
@@ -43,48 +45,25 @@ from src.foundation.logger_config import logger
 from src.metadata.writers.metadata_writer import MetadataWriter
 from src.track.edit.track_edit_roles import RolesTab
 
-# Fallback suggestions used if the controller can't supply distinct values
-# already present in the database.
+# Fallback suggestions, merged with the values already in the library.
 ALBUM_LANGUAGE_SUGGESTIONS = ["English", "French", "German", "Italian", "Spanish", "Portuguese", "Japanese", "Korean", "Chinese", "Russian", "Instrumental", "Multiple"]
-# RELEASE_TYPE_SUGGESTIONS lives in release_type_utils.py alongside the
-# normalization helper, since both need the same canonical casing.
 STATUS_SUGGESTIONS = ["Official", "Promotional", "Bootleg", "Withdrawn", "Expunged", "Cancelled"]
-# MusicBrainz's common `format` values -- the completer merges these with
-# whatever's already used across the library (see _fetch_field_suggestions).
 MEDIA_FORMAT_SUGGESTIONS = ["CD", '12" Vinyl', '7" Vinyl', "Vinyl", "Digital Media", "Cassette", "SACD", "Hybrid SACD", "DVD-Video", "DVD-Audio", "Blu-ray"]
+_SUGGESTION_FALLBACKS = {"album_language": ALBUM_LANGUAGE_SUGGESTIONS, "release_type": RELEASE_TYPE_SUGGESTIONS, "status": STATUS_SUGGESTIONS, "media_format": MEDIA_FORMAT_SUGGESTIONS}
 
-
-# =============================================================================
-# AlbumEditor — main dialog
-# =============================================================================
+# Nullable int fields edited as QLineEdits; ranges match the album table's CHECK constraints.
+_NULLABLE_INT_RANGES = {"release_year": (1, 9999), "release_month": (1, 12), "release_day": (1, 31), "estimated_sales": (0, 999_999_999)}
 
 
 class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
-    """
-    Comprehensive album editor dialog with tabbed interface.
+    """Tabbed album editor: metadata, tracks, artwork, aliases, genres, credits, relationships and stats."""
 
-    Tabs
-    ────
-    Details          - core metadata (language, type, catalog #, live/compilation flags, sales, MBID, Wikipedia link)
-    Tracks           - DiscTabView for disc / track structure
-    Artwork          - front cover, rear cover, liner art with pickers
-    Aliases          - add / remove / type album aliases
-    Genres           - genres common to all album tracks; edits trickle down to every track
-    Track Credits    - artist/role credits common to all album tracks; edits trickle down
-                       to every track; a credit can be converted to an album-level credit
-    Album credit     - relationship helpers (built by AlbumTabBuilder)
-    Publishers & Places - relationship helpers (built by AlbumTabBuilder)
-    Awards           - relationship helpers (built by AlbumTabBuilder)
-    Advanced         - metadata-complete flag, ReplayGain, library stats
-    """
+    # Shared by every editor so the full album scan for completer values runs once per session.
+    _suggestion_cache: ClassVar[dict[str, list[str]] | None] = None
 
-    # Caches shared across all AlbumEditor instances/openings so the (expensive)
-    # full album-table scan for completer suggestions only happens once per
-    # app session, not once per album edit dialog.
-    _album_language_cache = None
-    _release_type_cache = None
-    _status_cache = None
-    _media_format_cache = None
+    # Tabs whose data another tab can change (credits move between Track Credits and
+    # Album credit; Genres/Track Credits snapshot album.tracks), so refresh_view marks them stale.
+    _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = ("Publishers && Places", "Album credit", "Track Credits", "Genres")
 
     def __init__(self, controller, album, parent=None):
         super().__init__(parent)
@@ -96,8 +75,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self._config = Config()
         self._metadata_writer = MetadataWriter(controller)
 
-        # Always reload the album from DB on open — avoids stale cover paths
-        # when the editor is reopened after a previous cover change.
+        # Reload on open so a reopened editor never shows stale cover paths.
         try:
             fresh = controller.get.get_entity_object("Album", album_id=album.album_id)
             self.album = fresh if fresh is not None else album
@@ -105,19 +83,18 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             logger.warning(f"Failed to reload album {album.album_id} on editor open: {e}")
             self.album = album
 
-        self.helper = RelationshipHelpers(controller, album, self.refresh_view, widget=self)
+        self.helper = RelationshipHelpers(controller, self.album, self.refresh_view, widget=self)
         self.field_widgets: dict = {}
         self.tab_builder = AlbumTabBuilder(self)
+        self._stale_tabs: set[str] = set()
 
-        self.setWindowTitle(f"Edit Album: {album.album_name}")
+        self.setWindowTitle(f"Edit Album: {self.album.album_name}")
         self.setMinimumSize(1100, 750)
 
         self.init_editable_widgets()
         self.init_ui()
 
-        # Stop any in-flight background cover embed on every exit path
-        # (OK / Cancel / window close) so its signals never reach a
-        # torn-down dialog. See AlbumCoverArtMixin._cleanup_cover_embed.
+        # Stop any in-flight cover embed on every exit path so its signals never reach a closed dialog.
         self.finished.connect(lambda _result: self._cleanup_cover_embed())
 
         self._fit_to_screen()
@@ -127,32 +104,27 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # =========================================================================
 
     def init_editable_widgets(self):
-        """Create one widget per editable ALBUM_FIELD, pre-filled from the album.
-
-        For integer fields that allow NULL we use a nullable QLineEdit
-        instead of a plain QSpinBox so the user can clear the value back to
-        NULL by clearing the text.
-        """
-        NULLABLE_INT_FIELDS = {"release_day", "release_month", "release_year", "estimated_sales"}
+        """Create one widget per editable ALBUM_FIELD, pre-filled from the album."""
         for field_name, field_config in ALBUM_FIELDS.items():
             if not field_config.editable:
                 continue
             current_value = getattr(self.album, field_name, None)
 
-            if field_config.type is int and field_name in NULLABLE_INT_FIELDS:
-                min_val = field_config.min if field_config.min is not None else 0
-                max_val = field_config.max if field_config.max is not None else 9_999_999
-                widget = create_nullable_int_field(min_val=int(min_val), max_val=int(max_val), current_value=current_value, group_separator=(field_name == "estimated_sales"))
+            if field_config.type is int and field_name in _NULLABLE_INT_RANGES:
+                # A QLineEdit (not a QSpinBox) so the value can be cleared back to NULL.
+                min_val, max_val = _NULLABLE_INT_RANGES[field_name]
+                widget = create_nullable_int_field(min_val=min_val, max_val=max_val, current_value=current_value, group_separator=(field_name == "estimated_sales"))
             else:
                 widget = AlbumUIComponents.create_editable_field(field_config, current_value)
             self.field_widgets[field_name] = widget
 
-        self._attach_completer("album_language", self._get_album_language_suggestions())
-        self._attach_completer("release_type", self._get_release_type_suggestions())
-        self._attach_completer("media_format", self._get_media_format_suggestions())
-        self._setup_status_combo()
+        suggestions = self._get_field_suggestions()
+        self._attach_completer("album_language", suggestions["album_language"])
+        self._attach_completer("release_type", suggestions["release_type"])
+        self._attach_completer("media_format", suggestions["media_format"])
+        self._setup_status_combo(suggestions["status"])
 
-    def _setup_status_combo(self):
+    def _setup_status_combo(self, suggestions):
         """Replace the plain status field with a dropdown of known statuses."""
         field_config = ALBUM_FIELDS.get("status")
         if not field_config or not field_config.editable:
@@ -162,7 +134,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         combo.setEditable(True)
         combo.setInsertPolicy(QComboBox.NoInsert)
         combo.addItem("")  # allows clearing the field back to NULL
-        combo.addItems(self._get_status_suggestions())
+        combo.addItems(suggestions)
         if current_value:
             idx = combo.findText(current_value, Qt.MatchFixedString)
             if idx >= 0:
@@ -183,47 +155,45 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         completer.setCompletionMode(QCompleter.PopupCompletion)
         widget.setCompleter(completer)
 
-    def _get_album_language_suggestions(self):
-        if AlbumEditor._album_language_cache is None:
-            AlbumEditor._album_language_cache = self._fetch_field_suggestions("album_language", ALBUM_LANGUAGE_SUGGESTIONS)
-        return AlbumEditor._album_language_cache
+    def _get_field_suggestions(self) -> dict[str, list[str]]:
+        """Return the cached completer values for every suggestion field, loading them on first use."""
+        if AlbumEditor._suggestion_cache is None:
+            AlbumEditor._suggestion_cache = self._fetch_field_suggestions()
+        return AlbumEditor._suggestion_cache
 
-    def _get_release_type_suggestions(self):
-        if AlbumEditor._release_type_cache is None:
-            AlbumEditor._release_type_cache = self._fetch_field_suggestions("release_type", RELEASE_TYPE_SUGGESTIONS)
-        return AlbumEditor._release_type_cache
-
-    def _get_status_suggestions(self):
-        if AlbumEditor._status_cache is None:
-            AlbumEditor._status_cache = self._fetch_field_suggestions("status", STATUS_SUGGESTIONS)
-        return AlbumEditor._status_cache
-
-    def _get_media_format_suggestions(self):
-        if AlbumEditor._media_format_cache is None:
-            AlbumEditor._media_format_cache = self._fetch_field_suggestions("media_format", MEDIA_FORMAT_SUGGESTIONS)
-        return AlbumEditor._media_format_cache
-
-    def _fetch_field_suggestions(self, field_name, fallback):
-        """Distinct values already used for `field_name` across the library,
-        merged with a small generic fallback list in case lookup fails.
-        Deduplicated case-insensitively so e.g. "Album" and "album" don't
-        show up as two separate suggestions; the first casing seen wins."""
-        suggestions = {}
-        for value in fallback:
-            suggestions.setdefault(value.lower(), value)
+    def _fetch_field_suggestions(self) -> dict[str, list[str]]:
+        """Merge each field's fallback list with the distinct values used across the library."""
+        # Case-insensitive dedupe ("Album" and "album" are one entry); first casing seen wins.
+        merged = {field: {value.lower(): value for value in fallback} for field, fallback in _SUGGESTION_FALLBACKS.items()}
         try:
-            albums = self.controller.get.get_all_entities("Album") or []
-            for a in albums:
-                value = (getattr(a, field_name, None) or "").strip()
-                if value:
-                    suggestions.setdefault(value.lower(), value)
+            for album in self.controller.get.get_all_entities("Album") or []:
+                for field, values in merged.items():
+                    value = (getattr(album, field, None) or "").strip()
+                    if value:
+                        values.setdefault(value.lower(), value)
         except SQLAlchemyError:
-            logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
-        return sorted(suggestions.values(), key=str.lower)
+            logger.debug("Could not fetch album field suggestions", exc_info=True)
+        return {field: sorted(values.values(), key=str.lower) for field, values in merged.items()}
 
     # =========================================================================
     # Main UI layout
     # =========================================================================
+
+    def _tab_builders(self) -> dict[str, Callable[[], QWidget]]:
+        """Return tab title → builder callable, in display order."""
+        return {
+            "Overview": self._build_header_section,
+            "Details": lambda: DetailsTab(self).build(),
+            "Tracks": lambda: TracksTab(self).build(),
+            "Artwork": lambda: ArtworkTab(self).build(),
+            "Aliases": lambda: AliasesTab(self).build(),
+            "Genres": lambda: GenresTab(self).build(),
+            "Track Credits": lambda: TrackCreditsTab(self).build(),
+            "Album credit": self.tab_builder.build_artists_tab,
+            "Publishers && Places": self.tab_builder.build_relationships_tab,
+            "Awards": self.tab_builder.build_awards_tab,
+            "Advanced": lambda: AdvancedTab(self).build(),
+        }
 
     def init_ui(self):
         """Build the full dialog layout."""
@@ -233,43 +203,29 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
-        self._details_tab = DetailsTab(self)
-        self._tracks_tab = TracksTab(self)
-        self._artwork_tab = ArtworkTab(self)
-        self._aliases_tab = AliasesTab(self)
-        self._genres_tab = GenresTab(self)
-        self._track_credits_tab = TrackCreditsTab(self)
-        self._advanced_tab = AdvancedTab(self)
-
-        self.tabs.addTab(self._build_header_section(), "Overview")
-        self.tabs.addTab(self._details_tab.build(), "Details")
-        self.tabs.addTab(self._tracks_tab.build(), "Tracks")
-        self.tabs.addTab(self._artwork_tab.build(), "Artwork")
-        self.tabs.addTab(self._aliases_tab.build(), "Aliases")
-        self.tabs.addTab(self._genres_tab.build(), "Genres")
-        self.tabs.addTab(self._track_credits_tab.build(), "Track Credits")
-        self.tabs.addTab(self.tab_builder.build_artists_tab(), "Album credit")
-        self.tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers && Places")
-        self.tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
-        self.tabs.addTab(self._advanced_tab.build(), "Advanced")
+        for title, builder in self._tab_builders().items():
+            self.tabs.addTab(builder(), title)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         main_layout.addWidget(self.tabs)
 
         self._add_dialog_buttons(main_layout)
 
+        wiki_widget = self.field_widgets.get("album_wikipedia_link")
+        if isinstance(wiki_widget, QLineEdit):
+            wiki_widget.editingFinished.connect(self._rebuild_link_buttons)
+
     # =========================================================================
-    # Header section  (cover thumbnail + editable info — collapsible)
+    # Header section  (cover thumbnail + editable info)
     # =========================================================================
 
     def _build_header_section(self):
-        """Cover image on the left; editable album info on the right. Pinned to top."""
-        # Create a container that fills the tab and pushes content up
+        """Build the Overview tab: cover on the left, editable album info on the right, pinned to the top."""
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
 
-        # Your original header content (unchanged)
         header = QWidget()
         header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         row = QHBoxLayout(header)
@@ -278,7 +234,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         row.addWidget(self._build_cover_widget())
         row.addWidget(self._build_info_section(), 1)
 
-        # Add the header at the top, then a stretch to push it up
         container_layout.addWidget(header, 0, Qt.AlignTop)
         container_layout.addStretch()
 
@@ -287,7 +242,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _build_cover_widget(self):
         """Cover thumbnail only — no Change Cover button (use Artwork tab)."""
         widget = QWidget()
-        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # FIX: prevent horizontal stretch
+        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # keep the cover from stretching sideways
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignTop)
 
@@ -311,7 +266,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _build_info_section(self):
         """Right-hand side of the header: title, subtitle, artists, date, description, links."""
         widget = QWidget()
-        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # FIX: prevent vertical stretch
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # keep the info column from stretching vertically
         layout = QVBoxLayout(widget)
         layout.setSpacing(6)
 
@@ -335,8 +290,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
 
-        # Release date — labelled spinboxes stacked as a form group, framed
-        # as a single chip so the three parts read as one control.
+        # Release date — labelled fields framed as one chip so the three parts read as one control.
         date_frame = QFrame()
         date_frame.setObjectName("DateChipGroup")
         date_group = QHBoxLayout(date_frame)
@@ -362,7 +316,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         date_row.addStretch()
         layout.addLayout(date_row)
 
-        # Description
         desc_label = QLabel("Description")
         desc_label.setProperty("title", True)
         layout.addWidget(desc_label)
@@ -372,23 +325,21 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             self.desc_widget = QTextEdit()
             self.desc_widget.setPlainText(self.album.album_description or "")
 
-        self.desc_widget.setMinimumHeight(100)  # FIX: taller (was 60)
-        self.desc_widget.setMaximumHeight(200)  # FIX: taller (was 120)
+        self.desc_widget.setMinimumHeight(100)
+        self.desc_widget.setMaximumHeight(200)
         self.desc_widget.setObjectName("AlbumDescriptionEdit")
         self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.desc_widget)
 
-        # External links (buttons remain here, unchanged)
         self._links_row = QHBoxLayout()
         self._links_row.setSpacing(8)
 
         self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
         self.lookup_button.setObjectName("PrimaryButton")
         self.lookup_button.setToolTip(
-            "Search MusicBrainz release groups by album title/artist and fill "
-            "in blank fields (MBID, release type, live/compilation, release "
-            "date) from the selected match. Never overwrites fields you've "
-            "already filled in."
+            "Search MusicBrainz releases by album title/artist and fill in blank fields "
+            "(MBID, release type, live/compilation, release date) from the selected match. "
+            "Never overwrites fields you've already filled in."
         )
         self.lookup_button.clicked.connect(self._lookup_musicbrainz)
         self._links_row.addWidget(self.lookup_button)
@@ -405,16 +356,11 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         return widget
 
     # =========================================================================
-    # Link button helpers  (called after Wikipedia search saves a link)
+    # Link buttons
     # =========================================================================
 
     def _rebuild_link_buttons(self):
-        """Add / refresh the Wikipedia and MusicBrainz buttons in the header links row.
-
-        Called once during construction and again any time a Wikipedia link is
-        saved so the button appears immediately without reopening the editor.
-        """
-        # Remove old buttons if they exist
+        """Add or refresh the Wikipedia, MusicBrainz and Reimport buttons in the header links row."""
         for btn_attr in ("_wiki_btn", "_mb_btn", "_reimport_btn"):
             btn = getattr(self, btn_attr, None)
             if btn is not None:
@@ -423,18 +369,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 btn.deleteLater()
                 setattr(self, btn_attr, None)
 
-        wiki_link = getattr(self.album, "album_wikipedia_link", None)
-        # Also check the live widget value in case the user typed it in Advanced tab
-        if not wiki_link:
-            w = self.field_widgets.get("album_wikipedia_link")
-            if w is not None and hasattr(w, "text"):
-                wiki_link = w.text().strip() or None
+        # The live field value wins so an edited (or cleared) link shows at once.
+        wiki_widget = self.field_widgets.get("album_wikipedia_link")
+        wiki_link = wiki_widget.text().strip() if isinstance(wiki_widget, QLineEdit) else getattr(self.album, "album_wikipedia_link", None)
 
         if wiki_link:
             self._wiki_btn = QPushButton("🌐 Wikipedia")
             self._wiki_btn.setToolTip(wiki_link)
-            _url = wiki_link  # capture for lambda
-            self._wiki_btn.clicked.connect(lambda: webbrowser.open(_url))
+            self._wiki_btn.clicked.connect(lambda: webbrowser.open(wiki_link))
             self._links_row.insertWidget(0, self._wiki_btn)
 
         mbid = getattr(self.album, "MBID", None)
@@ -452,8 +394,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             self._links_row.insertWidget(insert_idx + 1, self._reimport_btn)
 
     # =========================================================================
-    # Alias helpers  (called by AliasesTab, kept on the editor for
-    # easy access from _rebuild_current_tab)
+    # Alias helpers  (called by AliasesTab)
     # =========================================================================
 
     def _refresh_aliases_list(self):
@@ -472,12 +413,13 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             row_widget.setObjectName("AliasRow")
             row = QHBoxLayout(row_widget)
             row.setContentsMargins(12, 8, 10, 8)
-            name_lbl = QLabel(f"<b>{alias.alias_name}</b>")
+            name_lbl = QLabel(f"<b>{html.escape(alias.alias_name or '')}</b>")
             type_lbl = QLabel(alias.alias_type or "—")
             type_lbl.setProperty("textRole", "muted")
             remove_btn = QPushButton("✕ Remove")
             remove_btn.setFixedWidth(90)
             remove_btn.setProperty("danger", True)
+            remove_btn.setAccessibleName(f"Remove alias {alias.alias_name}")
             remove_btn.clicked.connect(lambda checked=False, a=alias: self._remove_alias(a))
             row.addWidget(name_lbl, 2)
             row.addWidget(type_lbl, 1)
@@ -485,28 +427,34 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             self.aliases_layout.addWidget(row_widget)
 
     def _add_alias(self):
+        """Add the alias typed in the Aliases tab and refresh the list."""
         alias_name = self.new_alias_name.text().strip()
         if not alias_name:
             QMessageBox.warning(self, "Missing Name", "Please enter an alias name.")
             return
         alias_type = self.new_alias_type.text().strip() or None
         try:
-            self.controller.add.add_entity("AlbumAlias", album_id=self.album.album_id, alias_name=alias_name, alias_type=alias_type)
+            if self.controller.add.add_entity("AlbumAlias", album_id=self.album.album_id, alias_name=alias_name, alias_type=alias_type) is None:
+                QMessageBox.critical(self, "Error", "Could not add alias.")
+                return
             self.new_alias_name.clear()
             self.new_alias_type.clear()
-            self.album = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
+            self._reload_album()
             self._refresh_aliases_list()
         except SQLAlchemyError as e:
             logger.exception("Failed to add album alias")
             QMessageBox.critical(self, "Error", f"Could not add alias: {e}")
 
     def _remove_alias(self, alias):
+        """Ask for confirmation, then delete the alias and refresh the list."""
         confirm = QMessageBox.question(self, "Remove Alias", f"Remove alias '{getattr(alias, 'alias_name', alias)}'?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
         try:
-            self.controller.delete.delete_entity("AlbumAlias", alias.alias_id)
-            self.album = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
+            if not self.controller.delete.delete_entity("AlbumAlias", alias.alias_id):
+                QMessageBox.critical(self, "Error", "Could not remove alias.")
+                return
+            self._reload_album()
             self._refresh_aliases_list()
         except SQLAlchemyError as e:
             logger.exception("Failed to remove album alias")
@@ -517,14 +465,12 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # =========================================================================
 
     def _add_dialog_buttons(self, layout):
-        """Save + Cancel."""
+        """Add the Save and Cancel buttons."""
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_changes)
-        button_box.rejected.connect(self.close)
+        button_box.rejected.connect(self.reject)
 
-        # Disabled while a background cover embed is running so the dialog
-        # can't be dismissed mid-rewrite, leaving some tracks embedded and
-        # others not (see AlbumCoverArtMixin._set_cover_controls_enabled).
+        # Disabled during a cover embed (see AlbumCoverArtMixin._set_cover_controls_enabled).
         self._dialog_button_box = button_box
 
         layout.addWidget(button_box)
@@ -533,34 +479,33 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # Unsaved-changes guard
     # =========================================================================
 
-    def closeEvent(self, event):
+    def reject(self):
+        """Close without saving, unless a cover embed is running or the user keeps unsaved changes."""
+        # Cancel, Esc and the window close button (via QDialog.closeEvent) all land here.
+        worker = getattr(self, "_cover_embed_worker", None)
+        if worker is not None and worker.isRunning():
+            QMessageBox.information(self, "Cover Art In Progress", "Wait for the cover art to finish updating before you close the editor.")
+            return
         try:
             has_changes = self._has_unsaved_changes()
         except DetachedInstanceError:
-            # The DB session can already be closed here if the whole app is
-            # shutting down (MainWindow.closeEvent closes it before this
-            # dialog's closeEvent fires). Nothing to compare or save then.
+            # App shutdown closes the DB session before this dialog; nothing to compare then.
             logger.info("Album is detached from its session; closing without unsaved-changes check")
-            event.accept()
-            return
+            has_changes = False
         if has_changes:
             reply = QMessageBox.question(self, "Unsaved Changes", "You have unsaved changes. Close without saving?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
-                event.ignore()
                 return
-        event.accept()
+        super().reject()
 
     def _has_unsaved_changes(self) -> bool:
+        """Return True when any editable field differs from the loaded album."""
         return bool(self._collect_changed_fields())
 
     def _collect_changed_fields(self) -> dict:
-        """Compare each editable widget's current value against the value
-        loaded from the album and return only the fields that actually
-        differ — untouched fields are omitted so save doesn't rewrite them."""
+        """Return {field: new value} for each editable field whose widget differs from the album."""
         changes = {}
         for field_name, widget in self.field_widgets.items():
-            if field_name == "album_description":
-                continue
             field_config = ALBUM_FIELDS.get(field_name)
             if not (field_config and field_config.editable):
                 continue
@@ -570,151 +515,101 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             original = getattr(self.album, field_name, None)
             if value_changed(original, current):
                 changes[field_name] = current
-
-        if self.desc_widget is not None:
-            if hasattr(self.desc_widget, "toPlainText"):
-                desc_val = self.desc_widget.toPlainText().strip() or None
-            elif hasattr(self.desc_widget, "text"):
-                desc_val = self.desc_widget.text().strip() or None
-            else:
-                desc_val = None
-            if value_changed(self.album.album_description, desc_val):
-                changes["album_description"] = desc_val
-
         return changes
+
+    def _validation_error(self) -> str | None:
+        """Return a message for the first field that cannot be saved, or None when all are valid."""
+        name_widget = self.field_widgets.get("album_name")
+        if isinstance(name_widget, QLineEdit) and not name_widget.text().strip():
+            return "The album name cannot be empty."
+        for field_name, (min_val, max_val) in _NULLABLE_INT_RANGES.items():
+            widget = self.field_widgets.get(field_name)
+            # An "intermediate" value (e.g. month 0) passes the validator while typing but fails the DB CHECK.
+            if isinstance(widget, QLineEdit) and widget.text().strip() and not widget.hasAcceptableInput():
+                friendly = ALBUM_FIELDS[field_name].friendly or field_name
+                return f"{friendly} must be between {min_val:,} and {max_val:,}, or empty."
+        return None
 
     # =========================================================================
     # Save / refresh
     # =========================================================================
 
     def save_changes(self):
+        """Validate and write the changed fields, then close; stay open and warn on failure."""
+        error = self._validation_error()
+        if error:
+            QMessageBox.warning(self, "Cannot Save", error)
+            return
         try:
             kwargs = self._collect_changed_fields()
-            if kwargs:
-                self.controller.update.update_entity("Album", self.album.album_id, **kwargs)
+            # update_entity returns False (never raises) when the write fails.
+            if kwargs and not self.controller.update.update_entity("Album", self.album.album_id, **kwargs):
+                QMessageBox.critical(self, "Error", "Failed to save changes. Your edits are still in the editor.")
+                return
             self.accept()
-
         except SQLAlchemyError as e:
             logger.error(f"Error saving album changes: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
 
-    # Tabs whose data can be mutated from more than one place -- e.g. an
-    # artist credit can move between Track Credits and Album credit via
-    # the convert-to-album/convert-to-per-track buttons -- so both are kept
-    # in sync unconditionally, the same way Publishers & Places already was.
-    # Genres and Track Credits also both snapshot self.album.tracks at
-    # build time, so a track added/removed on the Tracks tab (see
-    # DiscTabView.tracks_changed) makes them stale the same way.
-    _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = ("Publishers && Places", "Album credit", "Track Credits", "Genres")
+    def _reload_album(self):
+        """Re-fetch and expire the album so relationship collections reload from the DB."""
+        updated = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
+        if not updated:
+            return
+        # The identity map returns the same instance and expire_on_commit=False keeps its
+        # cached collections, so writes made through the DB layer stay invisible without this.
+        self.controller.get.session.expire(updated)
+        self.album = updated
+        self.helper.album = updated
+        self.tab_builder.album = updated
 
     def refresh_view(self):
-        """Called by RelationshipHelpers after any relationship change.
-
-        Always rebuilds the tabs listed in _ALWAYS_REFRESHED_TABS so a
-        change made from one of them is immediately visible on the others
-        without switching tabs. Also rebuilds the currently active tab if
-        it isn't already one of those.
-        """
+        """Reload the album after a relationship change; rebuild the current tab and mark dependent tabs stale."""
         try:
-            updated = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
-            if updated:
-                # get_entity_object returns the SAME identity-mapped Album
-                # instance (this session never expunges it), and every write
-                # that lands here -- RelationshipHelpers' add/remove/move on
-                # AlbumRoleAssociation, AlbumPublisher, PlaceAssociation,
-                # AwardAssociation, a track add/delete, etc. -- goes through
-                # the DB layer directly rather than mutating `updated`'s own
-                # relationship collections (album_roles, publisher_associations,
-                # places, awards, tracks, discs, ...). The session is opened
-                # with expire_on_commit=False (src/db/db_engine.py), so the
-                # commit() those writes already did doesn't invalidate an
-                # already-cached collection either -- without this, a tab
-                # rebuilt below (even one in _ALWAYS_REFRESHED_TABS) would
-                # just redisplay the same pre-edit list. Expiring forces the
-                # next access of any of `updated`'s attributes to reload from
-                # the DB actually just written to.
-                self.controller.get.session.expire(updated)
-                self.album = updated
-                self.helper.album = updated
-                self.tab_builder.album = updated
+            self._reload_album()
+            self._rebuild_link_buttons()
 
-            for title in self._ALWAYS_REFRESHED_TABS:
-                self._rebuild_tab_by_title(title)
-
-            # Only rebuild the current tab if it wasn't already refreshed
-            # above — avoids a double-rebuild (and the flash of the tab
-            # switching) when the user is already on one of those tabs.
             current_title = self.tabs.tabText(self.tabs.currentIndex())
-            if current_title not in self._ALWAYS_REFRESHED_TABS:
-                self._rebuild_current_tab()
+            self._stale_tabs.update(title for title in self._ALWAYS_REFRESHED_TABS if title != current_title)
+            self._stale_tabs.discard(current_title)
+            self._rebuild_tab_by_title(current_title)
 
             logger.info("Album view refreshed")
         except SQLAlchemyError as e:
             logger.error(f"Error refreshing album view: {e}")
 
+    def _on_tab_changed(self, idx: int):
+        """Rebuild a stale tab when the user switches to it."""
+        title = self.tabs.tabText(idx)
+        if title in self._stale_tabs:
+            self._stale_tabs.discard(title)
+            self._rebuild_tab_by_title(title)
+
     # =========================================================================
     # Tab rebuild helpers
     # =========================================================================
 
-    def _get_tab_rebuild_map(self) -> dict:
-        """Return a mapping of tab title → builder callable."""
-        return {
-            "Overview": self._build_header_section,
-            "Details": lambda: DetailsTab(self).build(),
-            "Tracks": lambda: TracksTab(self).build(),
-            "Artwork": lambda: ArtworkTab(self).build(),
-            "Aliases": lambda: AliasesTab(self).build(),
-            "Genres": lambda: GenresTab(self).build(),
-            "Track Credits": lambda: TrackCreditsTab(self).build(),
-            "Album credit": self.tab_builder.build_artists_tab,
-            "Publishers && Places": self.tab_builder.build_relationships_tab,
-            "Awards": self.tab_builder.build_awards_tab,
-            "Advanced": lambda: AdvancedTab(self).build(),
-        }
-
     @staticmethod
     def _capture_scroll_positions(widget: QWidget) -> list[int]:
-        """Return the vertical scroll value of every scroll area in widget,
-        in traversal order, so it can be reapplied to a rebuilt replacement."""
+        """Return the vertical scroll value of every scroll area in widget, in traversal order."""
         return [area.verticalScrollBar().value() for area in widget.findChildren(QAbstractScrollArea)]
 
     @staticmethod
     def _restore_scroll_positions(widget: QWidget, positions: list[int]):
-        """Reapply values captured by _capture_scroll_positions to the
-        corresponding scroll areas of a rebuilt tab widget.
-
-        Deferred via singleShot(0, ...): a just-inserted QScrollArea hasn't
-        had its resize/layout event processed yet, so its scrollbar range
-        (and therefore setValue's clamp) isn't valid until the event loop
-        catches up.
-        """
+        """Reapply captured scroll values to the matching scroll areas of a rebuilt tab."""
 
         def _apply():
             areas = widget.findChildren(QAbstractScrollArea)
             for area, value in zip(areas, positions, strict=False):
                 area.verticalScrollBar().setValue(value)
 
-        QTimer.singleShot(0, _apply)
+        # Deferred: a new scroll area's range is not valid until its first layout pass.
+        # widget is the context object, so Qt drops the call if the tab is deleted first.
+        QTimer.singleShot(0, widget, _apply)
 
     def _refresh_track_credits_tab(self, idx: int) -> bool:
-        """Reload the Track Credits tab's RolesTab in place rather than
-        tearing down and reconstructing the whole tab (as the generic
-        rebuild path below does).
-
-        RolesTab.load() runs its row fetch on a background QThread and
-        already preserves scroll position correctly around that (see
-        RolesTab._on_roles_loaded). Replacing the tab widget wholesale on
-        every refresh_view() call raced that: the generic capture/restore
-        below fires via QTimer.singleShot(0, ...) before the async load on
-        the brand-new RolesTab instance finishes, so it always found an
-        empty (0-row, 0-max-scroll) table and clamped the restore to 0 --
-        which RolesTab's own restore then just reconfirmed. Reusing the
-        existing instance sidesteps that race entirely.
-
-        Returns False (caller should fall back to a full rebuild) if
-        there's no existing RolesTab to reuse -- e.g. the tab was last
-        built with no tracks and is showing its placeholder label instead.
-        """
+        """Reload the existing Track Credits RolesTab in place; return False when there is none to reuse."""
+        # A new RolesTab loads async, so a full rebuild would restore scroll against an empty table.
         tab_widget = self.tabs.widget(idx)
         roles_widget = tab_widget.findChild(RolesTab) if tab_widget else None
         if roles_widget is None:
@@ -722,48 +617,42 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         roles_widget.load(self.album.tracks or [])
         return True
 
+    def _replace_tab(self, idx: int, title: str, builder: Callable[[], QWidget]):
+        """Swap the tab at idx for a freshly built one, keeping selection and scroll position."""
+        old_tab = self.tabs.widget(idx)
+        scroll_positions = self._capture_scroll_positions(old_tab)
+        new_tab = builder()
+        was_current = self.tabs.currentIndex() == idx
+        # Block currentChanged: removeTab moves the selection, which would rebuild another stale tab.
+        self.tabs.blockSignals(True)
+        try:
+            self.tabs.removeTab(idx)
+            self.tabs.insertTab(idx, new_tab, title)
+            if was_current:
+                self.tabs.setCurrentIndex(idx)
+        finally:
+            self.tabs.blockSignals(False)
+        # removeTab does not delete the page; stop RolesTab loader threads before deleting it.
+        for roles_widget in old_tab.findChildren(RolesTab):
+            roles_widget.cleanup()
+        old_tab.deleteLater()
+        self._restore_scroll_positions(new_tab, scroll_positions)
+
     def _rebuild_current_tab(self):
         """Replace the currently visible tab with a freshly built version."""
-        try:
-            idx = self.tabs.currentIndex()
-            tab_title = self.tabs.tabText(idx)
-            if tab_title == "Track Credits" and self._refresh_track_credits_tab(idx):
-                return
-            builder = self._get_tab_rebuild_map().get(tab_title)
-            if builder:
-                old_tab = self.tabs.widget(idx)
-                scroll_positions = self._capture_scroll_positions(old_tab)
-                new_tab = builder()
-                self.tabs.removeTab(idx)
-                self.tabs.insertTab(idx, new_tab, tab_title)
-                self.tabs.setCurrentIndex(idx)
-                self._restore_scroll_positions(new_tab, scroll_positions)
-        except (SQLAlchemyError, sqlite3.Error) as e:
-            logger.error(f"Error rebuilding tab: {e}")
+        self._rebuild_tab_by_title(self.tabs.tabText(self.tabs.currentIndex()))
 
     def _rebuild_tab_by_title(self, title: str):
-        """Find a tab by its title and rebuild it (used for background refreshes)."""
+        """Find a tab by its title and rebuild it."""
         try:
-            rebuild_map = self._get_tab_rebuild_map()
-            builder = rebuild_map.get(title)
+            builder = self._tab_builders().get(title)
             if not builder:
                 return
             for idx in range(self.tabs.count()):
                 if self.tabs.tabText(idx) == title:
                     if title == "Track Credits" and self._refresh_track_credits_tab(idx):
                         return
-                    was_current = self.tabs.currentIndex() == idx
-                    old_tab = self.tabs.widget(idx)
-                    scroll_positions = self._capture_scroll_positions(old_tab)
-                    new_tab = builder()
-                    self.tabs.removeTab(idx)
-                    self.tabs.insertTab(idx, new_tab, title)
-                    # Don't change the active tab — just silently update it.
-                    # removeTab() auto-advances the selection if the removed
-                    # tab was the current one, so restore it explicitly.
-                    if was_current:
-                        self.tabs.setCurrentIndex(idx)
-                    self._restore_scroll_positions(new_tab, scroll_positions)
+                    self._replace_tab(idx, title, builder)
                     return
         except (SQLAlchemyError, sqlite3.Error) as e:
             logger.error(f"Error rebuilding tab '{title}': {e}")
@@ -773,17 +662,9 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # =========================================================================
 
     def _on_subdialog_closed(self, result=None):
-        """Called whenever a sub-dialog (aliases, etc.) closes."""
+        """Reload the album and rebuild the current tab after a sub-dialog closes."""
         try:
-            updated = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
-            if updated:
-                # Same staleness hazard as refresh_view() above -- expire so
-                # whatever the sub-dialog changed (aliases, etc.) is actually
-                # visible instead of a cached pre-edit relationship collection.
-                self.controller.get.session.expire(updated)
-                self.album = updated
-                self.helper.album = updated
-                self.tab_builder.album = updated
+            self._reload_album()
             self._rebuild_current_tab()
         except SQLAlchemyError as e:
             logger.error(f"Error refreshing after sub-dialog close: {e}")

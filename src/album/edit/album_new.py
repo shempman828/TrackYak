@@ -1,10 +1,8 @@
+"""Dialog that collects the fields for a new, blank album."""
+
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox, QSpinBox, QVBoxLayout
 
 from src.foundation.logger_config import logger
-
-# ---------------------------------------------------------------------------
-# Helper dialog: New Album
-# ---------------------------------------------------------------------------
 
 
 class NewAlbumDialog(QDialog):
@@ -18,6 +16,7 @@ class NewAlbumDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Lay out the name field, the optional fields and the Create/Cancel buttons."""
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
 
@@ -57,6 +56,7 @@ class NewAlbumDialog(QDialog):
         layout.addWidget(buttons)
 
     def _on_accept(self):
+        """Accept only when an album name is entered."""
         if not self.name_edit.text().strip():
             logger.debug("New album dialog rejected: album name is empty")
             QMessageBox.warning(self, "Required", "Album name cannot be empty.")
@@ -66,17 +66,21 @@ class NewAlbumDialog(QDialog):
     # ── Public accessors ──────────────────────────────────────────────────
     @property
     def album_name(self) -> str:
+        """Return the trimmed album name."""
         return self.name_edit.text().strip()
 
     @property
     def release_year(self):
+        """Return the release year, or None when it is Unknown."""
         v = self.year_spin.value()
         return v if v > 0 else None
 
     @property
     def artist_name(self) -> str:
+        """Return the trimmed artist name (may be empty)."""
         return self.artist_edit.text().strip()
 
     @property
     def is_compilation(self) -> int:
+        """Return 1 when the compilation box is checked, else 0."""
         return 1 if self.compilation_check.isChecked() else 0

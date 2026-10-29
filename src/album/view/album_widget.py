@@ -1,3 +1,5 @@
+"""Album thumbnail tile and the responsive, scrollable album grid built from it."""
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
@@ -37,6 +39,8 @@ class AlbumWidget(QWidget):
     clicked = Signal(object)
     doubleClicked = Signal(object)
 
+    _placeholder_cache: QPixmap | None = None
+
     def __init__(self, album, size=200, parent=None):
         super().__init__(parent)
         # Plain QWidget subclasses don't paint a QSS background/border unless
@@ -60,6 +64,7 @@ class AlbumWidget(QWidget):
         self.refresh_display()
 
     def init_ui(self):
+        """Lay out the art, title, subtitle and artist labels."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(4)
@@ -83,19 +88,15 @@ class AlbumWidget(QWidget):
         self.artist_label.setWordWrap(True)
         layout.addWidget(self.artist_label)
 
-        # Ensure the widget doesn't expand weirdly in a grid
+        # Fixed size so the tile does not stretch to fill a grid cell.
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
     def refresh_display(self):
-        """Updates all visual elements based on the current album data."""
-        # 1. Load Art
+        """Update the art, labels, tooltip and size from the current album data."""
         pixmap = self._load_art()
-        scaled_pixmap = pixmap.scaled(
-            self.art_size, self.art_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+        scaled_pixmap = pixmap.scaled(self.art_size, self.art_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.art_label.setPixmap(rounded_pixmap(scaled_pixmap))
 
-        # 2. Set Text
         album_name = censor_text(str(getattr(self.album, "album_name", None) or "Unknown Album"))
         release_year = getattr(self.album, "release_year", "")
         year_str = f" ({release_year})" if release_year else ""
@@ -103,8 +104,8 @@ class AlbumWidget(QWidget):
         mb_badge = " \U0001f517" if getattr(self.album, "MBID", None) else ""
         self.title_label.setText(f"{album_name}{year_str}{mb_badge}")
 
-        # 3. Handle Subtitle
         subtitle = getattr(self.album, "album_subtitle", None)
+        subtitle = censor_text(str(subtitle)) if subtitle else None
         if subtitle:
             self.subtitle_label.setText(f"({subtitle})")
             self.subtitle_label.show()
@@ -112,11 +113,9 @@ class AlbumWidget(QWidget):
             self.subtitle_label.clear()
             self.subtitle_label.hide()
 
-        # 4. Handle Artists
-        artist_text = getattr(self.album, "album_artist_names", "Unknown Artist")
+        artist_text = getattr(self.album, "album_artist_names", None) or "Unknown Artist"
         self.artist_label.setText(artist_text)
 
-        # 5. Tooltip & Size
         subtitle_line = f"\n({subtitle})" if subtitle else ""
         mb_line = "\nLinked to MusicBrainz" if getattr(self.album, "MBID", None) else ""
         self.setToolTip(f"{album_name}{year_str}{subtitle_line}\n{artist_text}{mb_line}")
@@ -124,17 +123,19 @@ class AlbumWidget(QWidget):
         self.setFixedSize(self.art_size + 20, self.art_size + 90 + extra_height)
 
     def _load_art(self):
+        """Return the cached front cover, or the shared placeholder when there is none."""
         is_explicit = bool(getattr(self.album, "art_is_explicit", False))
         cache = get_artwork_cache()
         pixmap = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
         if pixmap and not pixmap.isNull():
             return pixmap
-        return self._create_placeholder()
+        if AlbumWidget._placeholder_cache is None:
+            AlbumWidget._placeholder_cache = self._create_placeholder()
+        return AlbumWidget._placeholder_cache
 
     def _create_placeholder(self):
-        """Paint a rounded gradient tile with a music-note glyph -- the same
-        "no art" language as the Now Playing art card (see
-        src/nowplaying/art/nowplaying_art.py::_paint_placeholder_in_rect)."""
+        """Paint a rounded gradient tile with a music-note glyph for albums without art."""
+        # Same "no art" look as nowplaying_art.py::_paint_placeholder_in_rect.
         canvas_size = 256
         pixmap = QPixmap(canvas_size, canvas_size)
         pixmap.fill(Qt.transparent)
@@ -160,6 +161,7 @@ class AlbumWidget(QWidget):
         return pixmap
 
     def update_size(self, new_size):
+        """Resize the tile to a new art size."""
         self.art_size = new_size
         self.refresh_display()
 
@@ -169,26 +171,30 @@ class AlbumWidget(QWidget):
         self.album = album
         self.refresh_display()
 
-    # --- Mouse Events ---
     def mousePressEvent(self, event):
+        """Start the single-click timer; a double-click cancels it."""
         if event.button() == Qt.LeftButton:
-            if self.click_timer.isActive():
-                self.click_timer.stop()
-                self.doubleClicked.emit(self.album)
-            else:
-                self.click_timer.start()
+            self.click_timer.start()
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
+        """Emit doubleClicked once and suppress the pending single click."""
+        # No super() call: QWidget's default re-dispatches to mousePressEvent,
+        # which would restart the single-click timer.
         if event.button() == Qt.LeftButton:
+            self.click_timer.stop()
             self.doubleClicked.emit(self.album)
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
     def enterEvent(self, event):
+        """Show the hover style."""
         set_style_property(self, "hovered", True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        """Clear the hover style."""
         set_style_property(self, "hovered", False)
         super().leaveEvent(event)
 
@@ -207,31 +213,30 @@ class AlbumFlowWidget(QWidget):
         self.widgets = []
         self.current_columns = None
 
-        self.layout = QGridLayout(self)
-        self.layout.setContentsMargins(10, 10, 10, 10)
-        self.layout.setSpacing(15)
-        self.layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(10, 10, 10, 10)
+        self._grid.setSpacing(15)
+        self._grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self.refresh_grid()
 
     def set_albums(self, albums):
+        """Replace the album list and rebuild the grid."""
         self.albums = albums
         self.refresh_grid()
 
     def calculate_columns(self):
+        """Return the fixed column count, or how many tiles fit the current width."""
         if self.columns:
             return self.columns
         width = self.width() or 800
         return max(1, width // (self.album_size + 40))
 
     def refresh_grid(self):
-        """Full rebuild: destroys and recreates every AlbumWidget. Call only when
-        the album list itself changes, not on resize (see relayout())."""
-        # Properly remove each widget from the layout AND schedule it for deletion.
-        # Hide immediately so the deferred deleteLater() doesn't leave a stale
-        # widget visibly overlapping the newly added one at the same grid cell.
-        while self.layout.count():
-            item = self.layout.takeAt(0)
+        """Recreate every AlbumWidget; use only when the album list changes (resize uses relayout)."""
+        # Hide before deleteLater() so a stale tile never overlaps its replacement.
+        while self._grid.count():
+            item = self._grid.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.hide()
@@ -249,13 +254,11 @@ class AlbumFlowWidget(QWidget):
             w.clicked.connect(self.albumClicked.emit)
             w.doubleClicked.connect(self.albumDoubleClicked.emit)
 
-            self.layout.addWidget(w, i // cols, i % cols)
+            self._grid.addWidget(w, i // cols, i % cols)
             self.widgets.append(w)
 
     def relayout(self):
-        """Reposition existing widgets into the grid without recreating them.
-        Cheap, flicker-free response to a resize; only moves widgets when the
-        column count actually changes."""
+        """Move existing tiles into a new column count without recreating them."""
         if not self.widgets:
             return
 
@@ -265,9 +268,10 @@ class AlbumFlowWidget(QWidget):
 
         self.current_columns = cols
         for i, w in enumerate(self.widgets):
-            self.layout.addWidget(w, i // cols, i % cols)
+            self._grid.addWidget(w, i // cols, i % cols)
 
     def resizeEvent(self, event):
+        """Reflow the tiles when the width changes and no column count is fixed."""
         super().resizeEvent(event)
         if not self.columns:
             self.relayout()
@@ -289,4 +293,5 @@ class ScrollableAlbumFlow(QScrollArea):
         self.albumDoubleClicked = self.flow.albumDoubleClicked
 
     def set_albums(self, albums):
+        """Replace the album list shown in the grid."""
         self.flow.set_albums(albums)

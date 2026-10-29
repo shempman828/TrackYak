@@ -1,23 +1,31 @@
+"""Cover art preview, pick, clear and background-embed logic for AlbumEditor."""
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from src.album.edit.base_album_widget import rounded_pixmap
+from src.album.view.album_widget import rounded_pixmap
 from src.foundation.logger_config import logger
 from src.image.album_art_worker import CoverEmbedWorker
 from src.image.artwork_cache import all_album_tracks, get_artwork_cache
 
+ARTWORK_PREVIEW_SIZE = 250
+
+
+def _embedded_info_text(dims) -> str:
+    """Return the Artwork tab caption for embedded art, with pixel size when known."""
+    info_parts = ["Embedded in track file(s)"]
+    if dims:
+        info_parts.append(f"{dims[0]} × {dims[1]} px")  # noqa: RUF001
+    return "  |  ".join(info_parts)
+
 
 class AlbumCoverArtMixin:
-    """
-    Cover art loading/picking/saving/clearing for AlbumEditor.
+    """Cover art loading, picking and clearing for AlbumEditor."""
 
-    Expects the host class to provide: self.album, self.controller,
-    self._config, self._metadata_writer, self.cover_label, self.desc_widget,
-    self.field_widgets, and to be a QWidget subclass.
-    """
+    # Host must be a QWidget with album, _config, _metadata_writer and cover_label.
 
     # =========================================================================
     # Cover art — loading helpers
@@ -46,21 +54,17 @@ class AlbumCoverArtMixin:
                 continue
             px = cache.get_pixmap(self.album, cover_type, is_explicit) if cache else None
             if px and not px.isNull():
-                scaled = px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                scaled = px.scaled(ARTWORK_PREVIEW_SIZE, ARTWORK_PREVIEW_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 display.setPixmap(rounded_pixmap(scaled))
                 if path_label:
-                    dims = cache.get_dimensions(self.album, cover_type) if cache else None
-                    info_parts = ["Embedded in track file(s)"]
-                    if dims:
-                        info_parts.append(f"{dims[0]} × {dims[1]} px")  # noqa: RUF001
-                    path_label.setText("  |  ".join(info_parts))
+                    path_label.setText(_embedded_info_text(cache.get_dimensions(self.album, cover_type)))
                 continue
             display.setText(f"No {cover_type.title()} Cover")
             if path_label:
                 path_label.setText("")
 
-    def _load_image_to_label(self, source, label, size=250):
-        """Generic helper: load a file path or bytes into a QLabel."""
+    def _load_image_to_label(self, source, label, size=ARTWORK_PREVIEW_SIZE):
+        """Load a file path or image bytes into label as a rounded preview."""
         px = QPixmap()
         if isinstance(source, bytes):
             px.loadFromData(source)
@@ -84,12 +88,7 @@ class AlbumCoverArtMixin:
         except AttributeError:
             last_dir = str(Path.home())
 
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Select {cover_type.title()} Cover",
-            last_dir,
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
-        )
+        path, _ = QFileDialog.getOpenFileName(self, f"Select {cover_type.title()} Cover", last_dir, "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
         if not path:
             return
 
@@ -104,6 +103,12 @@ class AlbumCoverArtMixin:
         except OSError as e:
             logger.error(f"Error reading {cover_type} cover file {path}: {e}")
             QMessageBox.critical(self, "Error", f"Could not read image file:\n{e}")
+            return
+
+        # A corrupt or renamed file would otherwise be written into every track.
+        if QImage.fromData(image_bytes).isNull():
+            logger.warning(f"Rejected {cover_type} cover {path}: not a readable image")
+            QMessageBox.warning(self, "Invalid Image", f"The selected file is not a readable image:\n{path}")
             return
 
         self._start_cover_embed(cover_type, image_bytes)
@@ -136,20 +141,15 @@ class AlbumCoverArtMixin:
             verb = "Removing" if image_bytes is None else "Embedding"
             path_label.setText(f"{verb} artwork in track file(s)…")
 
-        worker = CoverEmbedWorker(
-            self.album, tracks, cache, self._metadata_writer, cover_type, image_bytes
-        )
-        worker.completed.connect(
-            lambda failed, dims, ct=cover_type, ib=image_bytes: self._on_cover_embed_done(
-                ct, ib, failed, dims
-            )
-        )
+        worker = CoverEmbedWorker(self.album, tracks, cache, self._metadata_writer, cover_type, image_bytes)
+        worker.completed.connect(lambda failed, dims, ct=cover_type, ib=image_bytes: self._on_cover_embed_done(ct, ib, failed, dims))
         worker.error.connect(lambda msg, ct=cover_type: self._on_cover_embed_error(ct, msg))
         worker.finished.connect(worker.deleteLater)
         self._cover_embed_worker = worker
         worker.start()
 
     def _finish_cover_embed(self):
+        """Restore the cursor and controls after an embed ends."""
         if getattr(self, "_cover_cursor_pushed", False):
             QApplication.restoreOverrideCursor()
             self._cover_cursor_pushed = False
@@ -175,14 +175,11 @@ class AlbumCoverArtMixin:
             return
 
         if display:
-            self._load_image_to_label(image_bytes, display, 250)
+            self._load_image_to_label(image_bytes, display)
         if path_label:
-            info_parts = ["Embedded in track file(s)"]
-            if dims:
-                info_parts.append(f"{dims[0]} × {dims[1]} px")  # noqa: RUF001
-            path_label.setText("  |  ".join(info_parts))
+            path_label.setText(_embedded_info_text(dims))
 
-        # IMPORTANT: always refresh the header thumbnail when front cover changes
+        # Keep the Overview header thumbnail in sync with the front cover.
         if cover_type == "front":
             self._load_album_cover()
 
@@ -204,11 +201,16 @@ class AlbumCoverArtMixin:
             button_box.setEnabled(enabled)
 
     def _cleanup_cover_embed(self):
-        """Stop an in-flight embed before the editor is destroyed so the
-        worker's signals never land on a dead dialog."""
+        """Stop an in-flight embed so its signals never reach a closed editor."""
         worker = getattr(self, "_cover_embed_worker", None)
         if worker is None:
             return
+        try:
+            # Disconnect first: if wait() times out the worker still finishes later.
+            worker.completed.disconnect()
+            worker.error.disconnect()
+        except (RuntimeError, TypeError):
+            pass
         try:
             if worker.isRunning():
                 worker.request_cancel()
@@ -227,12 +229,11 @@ class AlbumCoverArtMixin:
         preview = "\n".join(failed_paths[:10])
         if len(failed_paths) > 10:
             preview += f"\n… and {len(failed_paths) - 10} more"
-        QMessageBox.warning(
-            self,
-            "Some Files Not Updated",
-            f"The {cover_type} cover was saved, but could not be embedded into "
-            f"{len(failed_paths)} track file(s):\n\n{preview}",
-        )
+        QMessageBox.warning(self, "Some Files Not Updated", f"The {cover_type} cover was saved, but could not be embedded into {len(failed_paths)} track file(s):\n\n{preview}")
 
     def _clear_cover(self, cover_type: str):
+        """Ask for confirmation, then strip this cover type from every track file."""
+        confirm = QMessageBox.question(self, "Clear Cover", f"Remove the {cover_type} cover from every track file on this album?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if confirm != QMessageBox.Yes:
+            return
         self._start_cover_embed(cover_type, None)

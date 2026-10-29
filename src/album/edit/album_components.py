@@ -1,3 +1,5 @@
+"""Widget factory and value reader for the album editor's ALBUM_FIELDS inputs."""
+
 from PySide6.QtCore import QLocale
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QTextEdit
@@ -6,11 +8,11 @@ from src.foundation.logger_config import logger
 
 
 class AlbumUIComponents:
-    """Helper class for creating reusable UI components"""
+    """Create field widgets from a FieldSpec and read typed values back out of them."""
 
     @staticmethod
     def create_editable_field(field_config, current_value=None):
-        """Create appropriate widget for a field based on its configuration"""
+        """Return an input widget suited to field_config.type, pre-filled with current_value."""
         if field_config.type is str:
             if field_config.longtext:
                 widget = QTextEdit()
@@ -25,17 +27,10 @@ class AlbumUIComponents:
 
         elif field_config.type is int:
             widget = QSpinBox()
-            # Set range — use 0 as minimum unless field_config specifies otherwise
             min_val = field_config.min if field_config.min is not None else 0
             max_val = field_config.max if field_config.max is not None else 9999
             widget.setRange(int(min_val), int(max_val))
-            # BUG FIX: Only call setValue if we actually have a value.
-            # Without this check, QSpinBox defaults to its minimum (often
-            # showing 99 or some garbage value) when current_value is None.
-            if current_value is not None:
-                widget.setValue(int(current_value))
-            else:
-                widget.setValue(int(min_val))  # default to min, not QSpinBox internal
+            widget.setValue(int(current_value) if current_value is not None else int(min_val))
 
         elif field_config.type is float:
             widget = QLineEdit()
@@ -60,14 +55,8 @@ class AlbumUIComponents:
                 widget.setChecked(bool(current_value))
 
         else:
-            # Fallback: plain text input. NOTE: get_field_value has no
-            # parse-back path for a list-typed value here, so if a future
-            # field is both editable and list-typed, round-tripping it
-            # through this QLineEdit will silently corrupt the data.
-            logger.debug(
-                f"No dedicated widget for field type {field_config.type!r}; "
-                "falling back to plain text input"
-            )
+            # Gotcha: get_field_value cannot parse a list back, so an editable list field would corrupt.
+            logger.debug(f"No dedicated widget for field type {field_config.type!r}; falling back to plain text input")
             widget = QLineEdit()
             if current_value is not None:
                 widget.setText(str(current_value))
@@ -76,7 +65,7 @@ class AlbumUIComponents:
 
     @staticmethod
     def get_field_value(widget, field_type):
-        """Extract the current value from a widget based on its expected type"""
+        """Return the widget's current value as field_type, or None when blank or unparsable."""
         if isinstance(widget, QLineEdit):
             text = widget.text().strip()
             if not text:
