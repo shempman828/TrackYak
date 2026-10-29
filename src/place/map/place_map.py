@@ -149,6 +149,14 @@ class MapView(QWidget):
         self._pending_js = []
         for code in pending:
             self.map_widget.page().runJavaScript(code)
+        if ok:
+            self.map_widget.page().runJavaScript("typeof L === 'undefined'", 0, self._on_leaflet_check)
+
+    def _on_leaflet_check(self, leaflet_missing):
+        """Make the next refresh reload the full page when the CDN scripts did not load (offline)."""
+        if leaflet_missing:
+            logger.warning("The map library did not load; the map retries on the next refresh")
+            self._map_initialized = False
 
     def _run_js(self, code):
         """Run JS now, or queue it until the page is ready."""

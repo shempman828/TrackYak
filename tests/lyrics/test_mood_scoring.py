@@ -5,7 +5,7 @@ numbered acceptance criterion.
 Follows tests/core/test_censor_explicit_match.py's pattern: point the
 module's cached-file path at a throwaway tmp_path file so these tests
 don't depend on -- or break when someone edits -- the real, user-editable
-assets/mood_keywords.json.
+config/mood_keywords.json.
 """
 
 import json
@@ -23,7 +23,7 @@ def _isolated_keywords(tmp_path, monkeypatch):
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
 
-    # Isolate from the real, user-editable assets/mood_opposites.json too --
+    # Isolate from the real, user-editable config/mood_opposites.json too --
     # otherwise a real opposite pair (e.g. Happy/Sad) would silently affect
     # tests that don't expect opposite-pair suppression at all. Points at a
     # nonexistent path by default (no pairs); test_opposite_pair_* below

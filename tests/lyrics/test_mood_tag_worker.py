@@ -32,7 +32,7 @@ def _isolated_keywords(tmp_path, monkeypatch):
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
 
-    # Isolate from the real assets/mood_opposites.json (see the matching
+    # Isolate from the real config/mood_opposites.json (see the matching
     # comment in tests/mood/test_mood_scoring.py).
     monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
     mood_scoring._opposites_cache["mtime"] = None

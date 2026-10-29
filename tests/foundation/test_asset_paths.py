@@ -1,9 +1,8 @@
 """Coverage for src/foundation/asset_paths.py.
 
-Focus: the one-time relocate of regenerable caches (analysis_cache.json,
-images/imagecache/) into the top-level cache/ dir, plus the cache() helper
-and the IMAGECACHE_DIR home. The relocate must be best-effort — a failure
-or an already-migrated target must never raise, since the caches rebuild.
+Focus: the one-time relocate of regenerable caches into cache/ and of user
+data files from assets/ into config/, plus the cache() helper. The relocate
+is best-effort: a failure or an existing target never raises.
 """
 
 from pathlib import Path
@@ -23,6 +22,7 @@ def _wire_dirs(monkeypatch, root: Path):
     monkeypatch.setattr(asset_paths, "IMAGES_DIR", images_dir)
     monkeypatch.setattr(asset_paths, "CACHE_DIR", cache_dir)
     monkeypatch.setattr(asset_paths, "IMAGECACHE_DIR", imagecache_dir)
+    monkeypatch.setattr(asset_paths, "USER_DIR", root)
     return config_dir, images_dir, cache_dir, imagecache_dir
 
 
@@ -35,7 +35,7 @@ def test_regenerable_caches_live_under_cache_dir():
 def test_ensure_directories_exist_creates_waveform_cache(monkeypatch, tmp_path):
     wf_dir = tmp_path / "cache" / "waveforms"
     monkeypatch.setattr(asset_paths, "WAVEFORMCACHE_DIR", wf_dir)
-    monkeypatch.setattr(asset_paths, "_migrate_legacy_cache_locations", lambda: None)
+    monkeypatch.setattr(asset_paths, "_migrate_legacy_locations", lambda: None)
 
     asset_paths.ensure_directories_exist()
 
@@ -49,12 +49,48 @@ def test_relocates_legacy_analysis_cache_and_imagecache(monkeypatch, tmp_path):
     legacy_imagecache.mkdir()
     (legacy_imagecache / "artwork_cache.db").write_bytes(b"sqlite-ish")
 
-    asset_paths._migrate_legacy_cache_locations()
+    asset_paths._migrate_legacy_locations()
 
     assert not (config_dir / "analysis_cache.json").exists()
     assert (cache_dir / "analysis_cache.json").read_text() == '{"analysed_ids": [1, 2]}'
     assert not legacy_imagecache.exists()
     assert (imagecache_dir / "artwork_cache.db").read_bytes() == b"sqlite-ish"
+
+
+def test_relocates_user_data_files_from_assets_to_config(monkeypatch, tmp_path):
+    config_dir, _, _, _ = _wire_dirs(monkeypatch, tmp_path)
+    legacy_assets = tmp_path / "assets"
+    legacy_assets.mkdir()
+    for name in asset_paths.USER_DATA_FILES:
+        (legacy_assets / name).write_text(f'"{name}"')
+    (config_dir / "mood_keywords.json").write_text("NEW")  # already migrated: kept
+
+    asset_paths._migrate_legacy_locations()
+
+    for name in asset_paths.USER_DATA_FILES:
+        if name == "mood_keywords.json":
+            assert (config_dir / name).read_text() == "NEW"
+            assert (legacy_assets / name).exists()
+        else:
+            assert (config_dir / name).read_text() == f'"{name}"'
+            assert not (legacy_assets / name).exists()
+
+
+def test_user_data_files_resolve_under_config_dir():
+    from src.common import dismissed_duplicates
+    from src.foundation import censor
+    from src.lyrics.autotag import mood_scoring, mood_word_review_widget
+
+    paths = [
+        dismissed_duplicates.DEFAULT_DISMISSED_DUPLICATES_PATH,
+        mood_scoring._KEYWORDS_PATH,
+        mood_scoring._OPPOSITES_PATH,
+        mood_word_review_widget._KEYWORDS_PATH,
+        mood_word_review_widget._DISMISSED_PATH,
+        censor._USER_WORDLIST_PATH,
+    ]
+    for path in paths:
+        assert path.parent == asset_paths.CONFIG_DIR, path
 
 
 def test_relocate_keeps_new_location_when_both_exist(monkeypatch, tmp_path):
@@ -63,7 +99,7 @@ def test_relocate_keeps_new_location_when_both_exist(monkeypatch, tmp_path):
     cache_dir.mkdir(parents=True, exist_ok=True)
     (cache_dir / "analysis_cache.json").write_text("NEW")
 
-    asset_paths._migrate_legacy_cache_locations()
+    asset_paths._migrate_legacy_locations()
 
     assert (cache_dir / "analysis_cache.json").read_text() == "NEW"
     assert (config_dir / "analysis_cache.json").read_text() == "OLD"
@@ -71,7 +107,7 @@ def test_relocate_keeps_new_location_when_both_exist(monkeypatch, tmp_path):
 
 def test_relocate_is_best_effort(monkeypatch, tmp_path):
     config_dir, _, _, _ = _wire_dirs(monkeypatch, tmp_path)
-    asset_paths._migrate_legacy_cache_locations()  # nothing legacy present
+    asset_paths._migrate_legacy_locations()  # nothing legacy present
 
     (config_dir / "analysis_cache.json").write_text("{}")
 
@@ -79,7 +115,7 @@ def test_relocate_is_best_effort(monkeypatch, tmp_path):
         raise OSError("cross-device link")
 
     monkeypatch.setattr(asset_paths.shutil, "move", boom)
-    asset_paths._migrate_legacy_cache_locations()  # logged, not raised
+    asset_paths._migrate_legacy_locations()  # logged, not raised
 
 
 def test_dev_mode_user_dir_matches_base_dir():

@@ -88,30 +88,38 @@ def cache(name: str) -> str:
     return str(CACHE_DIR / name)
 
 
-def _migrate_legacy_cache_locations():
-    """Move legacy cache files from config/ and images/ into cache/."""
-    # Best-effort: the caches are regenerable, so failures are only logged.
+# User-edited data files that older versions wrote into assets/; they now live in config/.
+USER_DATA_FILES = ("dismissed_duplicates.json", "mood_keywords.json", "mood_dismissed_words.json", "mood_opposites.json")
+
+
+def _migrate_legacy_locations():
+    """Move legacy cache files into cache/ and legacy user data files from assets/ into config/."""
+    # Best-effort: failures are only logged, and an existing target is never overwritten.
     # Runs before the mkdir loop, so moving images/imagecache/ renames instead of nesting.
     from src.foundation.logger_config import logger
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
+    # USER_DIR, not ASSETS_DIR: a frozen build's ASSETS_DIR is the read-only _MEIPASS bundle.
+    legacy_assets_dir = USER_DIR / "assets"
     legacy_moves = [(CONFIG_DIR / "analysis_cache.json", CACHE_DIR / "analysis_cache.json"), (IMAGES_DIR / "imagecache", IMAGECACHE_DIR)]
+    legacy_moves += [(legacy_assets_dir / name, CONFIG_DIR / name) for name in USER_DATA_FILES]
     for old_path, new_path in legacy_moves:
         if not old_path.exists() or new_path.exists():
             continue
         try:
             shutil.move(str(old_path), str(new_path))
-            logger.info(f"Relocated legacy cache {old_path} -> {new_path}")
+            logger.info(f"Relocated legacy file {old_path} -> {new_path}")
         except OSError as e:
-            logger.warning(f"Could not relocate legacy cache {old_path}: {e}")
+            logger.warning(f"Could not relocate legacy file {old_path}: {e}")
 
 
 def ensure_directories_exist():
     """Create any missing project directories."""
     from src.foundation.logger_config import logger
 
-    _migrate_legacy_cache_locations()
+    _migrate_legacy_locations()
 
     for path in [ASSETS_DIR, IMAGES_DIR, LOGS_DIR, PLAYLISTS_DIR, CONFIG_DIR, ARTIST_IMAGES_DIR, IMAGECACHE_DIR, WAVEFORMCACHE_DIR, THEMES_DIR, CHARTS_DIR, CACHE_DIR]:
         if not path.exists():

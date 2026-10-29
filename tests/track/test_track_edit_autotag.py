@@ -148,11 +148,7 @@ def test_empty_lyrics_never_autofills(qapp, session):
 
 # AC12 --------------------------------------------------------------------------
 def test_metadata_tag_mapping_covers_is_explicit():
-    assert VORBIS_TRACK_MAPPINGS["EXPLICIT"] == {
-        "field": "is_explicit",
-        "type": int,
-        "entity": "Track",
-    }
+    assert VORBIS_TRACK_MAPPINGS["EXPLICIT"] == {"field": "is_explicit", "type": int, "entity": "Track"}
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +171,12 @@ def _isolated_wordlist_autotag(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolated_keywords(tmp_path, monkeypatch):
     keywords_path = tmp_path / "mood_keywords.json"
-    keywords_path.write_text(
-        json.dumps({"Happy": ["happy", "sunshine", "joyful"]})
-    )
+    keywords_path.write_text(json.dumps({"Happy": ["happy", "sunshine", "joyful"]}))
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
 
-    # Isolate from the real assets/mood_opposites.json (see the matching
+    # Isolate from the real config/mood_opposites.json (see the matching
     # comment in tests/mood/test_mood_scoring.py).
     monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
     mood_scoring._opposites_cache["mtime"] = None
@@ -238,12 +232,7 @@ def _make_tab_autotag(tracks, controller):
 
 def _mood_association_exists(session_autotag, track_id):
     happy = session_autotag.query(Mood).filter_by(mood_name="Happy").one()
-    return (
-        session_autotag.query(MoodTrackAssociation)
-        .filter_by(mood_id=happy.mood_id, track_id=track_id)
-        .one_or_none()
-        is not None
-    )
+    return session_autotag.query(MoodTrackAssociation).filter_by(mood_id=happy.mood_id, track_id=track_id).one_or_none() is not None
 
 
 # AC15 ------------------------------------------------------------------------
@@ -276,9 +265,7 @@ def test_lyrics_found_via_search_triggers_autotag_before_save(qapp, session_auto
 
 
 # AC17 ------------------------------------------------------------------------
-def test_existing_manual_mood_association_is_not_duplicated_or_altered(
-    qapp, session_autotag, controller
-):
+def test_existing_manual_mood_association_is_not_duplicated_or_altered(qapp, session_autotag, controller):
     track = _make_track_autotag(session_autotag)
     happy = session_autotag.query(Mood).filter_by(mood_name="Happy").one()
     session_autotag.add(MoodTrackAssociation(mood_id=happy.mood_id, track_id=track.track_id))
@@ -288,21 +275,13 @@ def test_existing_manual_mood_association_is_not_duplicated_or_altered(
     tab._edit.setPlainText("happy happy happy sunshine joyful morning vibes")
     tab.collect_changes()
 
-    count = (
-        session_autotag.query(MoodTrackAssociation)
-        .filter_by(mood_id=happy.mood_id, track_id=track.track_id)
-        .count()
-    )
+    count = session_autotag.query(MoodTrackAssociation).filter_by(mood_id=happy.mood_id, track_id=track.track_id).count()
     assert count == 1
 
 
 def test_multi_track_mode_never_autotags(qapp, session_autotag, controller):
     t1 = _make_track_autotag(session_autotag, track_name="Track 1")
-    t2 = _make_track_autotag(
-        session_autotag,
-        track_name="Track 2",
-        lyrics="happy happy happy sunshine joyful",
-    )
+    t2 = _make_track_autotag(session_autotag, track_name="Track 2", lyrics="happy happy happy sunshine joyful")
     tab = _make_tab_autotag([t1, t2], controller)
     tab.collect_changes()
 

@@ -1,8 +1,8 @@
 """Word-review table for MoodAutoTagDialog: surfaces frequent lyrics words/
-phrases and lets each be assigned to one or more moods (assets/
+phrases and lets each be assigned to one or more moods (config/
 mood_keywords.json already allows the same keyword under several moods,
 e.g. "ex-girlfriend" under both Heartbreak and Sad) or dismissed as
-"neutral" (assets/mood_dismissed_words.json)."""
+"neutral" (config/mood_dismissed_words.json)."""
 
 import json
 from pathlib import Path
@@ -15,11 +15,11 @@ from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_o
 from src.common.widgets.flow_layout import FlowLayout
 from src.common.widgets.qt_text import esc_amp
 from src.core.status_widget import show_status_message
-from src.foundation.asset_paths import asset
+from src.foundation.asset_paths import config
 from src.foundation.logger_config import logger
 
-_KEYWORDS_PATH = Path(asset("mood_keywords.json"))
-_DISMISSED_PATH = Path(asset("mood_dismissed_words.json"))
+_KEYWORDS_PATH = Path(config("mood_keywords.json"))
+_DISMISSED_PATH = Path(config("mood_dismissed_words.json"))
 WORD_SUGGESTION_LIMIT = 50
 
 

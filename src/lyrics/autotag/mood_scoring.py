@@ -1,4 +1,4 @@
-"""Score a track's lyrics against assets/mood_keywords.json and return which moods it clears."""
+"""Score a track's lyrics against config/mood_keywords.json and return which moods it clears."""
 
 from dataclasses import dataclass
 import hashlib
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-from src.foundation.asset_paths import asset
+from src.foundation.asset_paths import config
 from src.foundation.logger_config import logger
 
 # Reuses the tokenizer built for the Lyrics tab's word cloud
@@ -14,7 +14,7 @@ from src.foundation.logger_config import logger
 # counted the same way everywhere in the app.
 from src.statistics.stats.lyrics import _tokenize
 
-_KEYWORDS_PATH = Path(asset("mood_keywords.json"))
+_KEYWORDS_PATH = Path(config("mood_keywords.json"))
 
 # A mood is tagged only if it clears BOTH gates:
 #   1. distinct_hits >= MIN_DISTINCT_KEYWORDS (thematic breadth), OR
@@ -25,7 +25,7 @@ MIN_DISTINCT_KEYWORDS = 2
 MIN_RAW_HITS = 3
 MIN_DENSITY = 0.005
 
-_OPPOSITES_PATH = Path(asset("mood_opposites.json"))
+_OPPOSITES_PATH = Path(config("mood_opposites.json"))
 
 _cache = {"mtime": None, "keyword_patterns": None}
 _opposites_cache = {"mtime": None, "pairs": None}
@@ -49,7 +49,7 @@ def _compile_keyword_pattern(keyword: str) -> re.Pattern:
 
 def _get_keyword_patterns():
     """Return {mood_name: [(keyword, compiled_pattern), ...]}, reloaded
-    whenever assets/mood_keywords.json's mtime changes."""
+    whenever config/mood_keywords.json's mtime changes."""
     try:
         mtime = _KEYWORDS_PATH.stat().st_mtime
     except OSError:
@@ -81,7 +81,7 @@ def _get_keyword_patterns():
 
 def _get_opposite_pairs() -> list[tuple[str, str]]:
     """Return [(mood_a, mood_b), ...] pairs that should never both tag the same track."""
-    # Reloaded whenever assets/mood_opposites.json's mtime changes -- same
+    # Reloaded whenever config/mood_opposites.json's mtime changes -- same
     # convention as the keyword list. Missing/corrupt file reads as no
     # pairs, i.e. purely additive multi-label tagging.
     try:
@@ -105,7 +105,7 @@ def _get_opposite_pairs() -> list[tuple[str, str]]:
 
 
 def known_mood_names() -> set[str]:
-    """Every mood name that appears as a top-level key in assets/mood_keywords.json."""
+    """Every mood name that appears as a top-level key in config/mood_keywords.json."""
     # The live source of truth for what the tagger can match, independent of
     # whether a `Mood` DB row exists for it yet (see
     # mood_autotag.build_autotag_context, which uses this to self-heal drift
@@ -122,14 +122,14 @@ def mood_keyword_fingerprints() -> dict[str, str]:
 
 
 def opposite_pairs() -> list[tuple[str, str]]:
-    """Every declared opposite-mood pair from assets/mood_opposites.json."""
+    """Every declared opposite-mood pair from config/mood_opposites.json."""
     return list(_get_opposite_pairs())
 
 
 def score_moods_detailed(lyrics, moods=None) -> dict[str, MoodMatch]:
     """Return {mood_name: MoodMatch} for every mood whose keywords clear the tagging threshold."""
     # Empty/whitespace-only lyrics score no moods. Insertion order matches
-    # assets/mood_keywords.json's key order, so
+    # config/mood_keywords.json's key order, so
     # `list(score_moods_detailed(x))` is exactly `score_moods(x)`.
     # `moods` limits the result to those mood names (None = every mood).
     # Their declared opposites are still scored, so the opposite-pair

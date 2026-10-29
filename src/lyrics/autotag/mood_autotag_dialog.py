@@ -46,7 +46,7 @@ class MoodAutoTagDialog(QDialog):
         layout.addWidget(
             QLabel(
                 "Automatically tag tracks with moods and known places by "
-                "scoring their lyrics against assets/mood_keywords.json. "
+                "scoring their lyrics against config/mood_keywords.json. "
                 "Tagging tracks (below) only ever adds associations -- "
                 "existing track tags (manual or auto) are never changed or "
                 "removed."

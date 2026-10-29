@@ -10,10 +10,15 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <!-- Add QWebChannel support -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+        integrity="sha256-YU3qCpj/P06tdPBJGPax0bm6Q1wltfwjsho5TR4+TYc="
+        crossorigin=""/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+        integrity="sha256-YSWCMtmNZNwqex4CEw1nQhvFub2lmU7vcCKP+XVwwXA="
+        crossorigin=""/>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+            integrity="sha256-Hk4dIpcqOSb0hZjgyvFOP+cEmDXUKKNE/tT542ZbNQg="
+            crossorigin=""></script>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
         :root {
@@ -31,7 +36,24 @@
             height: 100vh;
             width: 100%;
             background-color: #1e1e1e;
+        }
+
+        /* Tint the basemap only, so marker colors match the legend */
+        .leaflet-tile-pane {
             filter: hue-rotate(10deg) brightness(1.1) saturate(1.2);
+        }
+
+        /* Shown in place of the map when Leaflet cannot load (offline) */
+        .map-load-error {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 0 24px;
+            box-sizing: border-box;
+            text-align: center;
+            color: var(--accent-color);
+            font-family: Arial, sans-serif;
         }
 
         /* Dark mode popup styling with accent color */
@@ -147,44 +169,36 @@
 <body>
     <div id="map"></div>
     <script>
-        // Initialize QWebChannel
-        new QWebChannel(qt.webChannelTransport, function(channel) {
-            window.pyBridge = channel.objects.pyBridge;
-        });
+        // qt is undefined outside Qt WebEngine (e.g. a plain browser)
+        if (typeof qt !== 'undefined' && typeof QWebChannel !== 'undefined') {
+            new QWebChannel(qt.webChannelTransport, function(channel) {
+                window.pyBridge = channel.objects.pyBridge;
+            });
+        }
 
-        // Function to handle association button clicks
-        window.viewAssociations = function(placeId) {
+        function sendToPy(type, placeId) {
             if (window.pyBridge) {
-                window.pyBridge.handle_js_message(JSON.stringify({
-                    type: 'viewAssociations',
-                    placeId: placeId
-                }));
+                window.pyBridge.handle_js_message(JSON.stringify({ type: type, placeId: placeId }));
             } else {
                 console.error('WebChannel not initialized');
             }
-        };
+        }
 
-        window.showInList = function(placeId) {
-            if (window.pyBridge) {
-                window.pyBridge.handle_js_message(JSON.stringify({
-                    type: 'showInList',
-                    placeId: placeId
-                }));
-            }
-        };
+        // Popup button handlers
+        window.viewAssociations = function(placeId) { sendToPy('viewAssociations', placeId); };
+        window.showInList = function(placeId) { sendToPy('showInList', placeId); };
 
-        // Initialize the map. worldCopyJump keeps markers in sync with the
-        // tile layer's repeating world copies — without it, panning far
-        // enough left/right shows a repeated copy of the map but markers
-        // (which only exist at their original longitude) disappear.
+        if (typeof L === 'undefined' || typeof L.markerClusterGroup === 'undefined') {
+            var mapDiv = document.getElementById('map');
+            mapDiv.className = 'map-load-error';
+            mapDiv.textContent = 'The map library could not load. Check the internet connection, then open the Places page again.';
+            throw new Error('Leaflet not loaded');
+        }
+
+        // worldCopyJump keeps markers visible when panning onto a repeated world copy
         var map = L.map('map', { worldCopyJump: true }).setView([{center_lat}, {center_lon}], {zoom});
 
-        // Dark basemap: Esri "Dark Gray Canvas". Served keyless from the
-        // ArcGIS Online tile CDN (no token, no registration). It comes as
-        // two raster layers -- a label-free base plus a transparent
-        // reference overlay (place names, boundaries) stacked on top.
-        // Native cartography stops at z16, so upscale beyond that rather
-        // than requesting blank tiles.
+        // Keyless Esri Dark Gray base + label overlay; upscale past native z16 instead of requesting blank tiles
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Tiles © <a href="https://www.esri.com/">Esri</a> — Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 18,
@@ -196,8 +210,7 @@
             zIndex: 2
         }).addTo(map);
 
-        // Group markers into clusters so large numbers of places render
-        // and pan/zoom smoothly instead of drawing every pin individually
+        // Cluster markers so large place counts pan and zoom smoothly
         var markerClusterGroup = L.markerClusterGroup({
             maxClusterRadius: {cluster_radius},
             disableClusteringAtZoom: {cluster_disable_zoom},

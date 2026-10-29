@@ -3,10 +3,10 @@
 import json
 from pathlib import Path
 
-from src.foundation.asset_paths import asset
+from src.foundation.asset_paths import config
 from src.foundation.logger_config import logger
 
-DEFAULT_DISMISSED_DUPLICATES_PATH = Path(asset("dismissed_duplicates.json"))
+DEFAULT_DISMISSED_DUPLICATES_PATH = Path(config("dismissed_duplicates.json"))
 
 
 def normalize_pair(id_1: int, id_2: int) -> tuple[int, int]:

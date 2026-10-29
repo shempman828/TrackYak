@@ -1,7 +1,7 @@
 """Tests for the word-review helpers in
 src/lyrics/autotag/mood_word_review_widget.py (docs/specs/lyrics_mood_tagging.md).
 Maps to AC14 -- assigning a suggested word to a mood appends it to
-assets/mood_keywords.json, verified by re-reading the file.
+config/mood_keywords.json, verified by re-reading the file.
 
 Only the pure file-read/write helper and the word-assignment filter are
 exercised here (no live QDialog/controller needed) -- those two pieces are

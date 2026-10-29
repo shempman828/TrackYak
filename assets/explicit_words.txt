@@ -1,8 +1,8 @@
 # Explicit word list used by the "Censor explicit words" display option.
 # One word or phrase per line, case-insensitive. Lines starting with # are ignored.
 # Matches are whole-word only and are masked as: first letter + asterisks.
-# Edit this list to add or remove words — changes are picked up automatically,
-# no restart required.
+# To customize, copy this file to config/explicit_words.txt and edit the copy.
+# The copy replaces this list; changes are picked up without a restart.
 
 fuck
 fucking

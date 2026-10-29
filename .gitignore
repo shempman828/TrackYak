@@ -26,5 +26,6 @@ docs/
 assets/mood_keywords.json
 assets/mood_dismissed_words.json
 assets/mood_opposites.json
+assets/dismissed_duplicates.json
 backups/
 genre_hierarchy.txt

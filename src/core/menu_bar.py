@@ -88,7 +88,7 @@ class MenuBar:
 
         self.add_action(tools_menu, "Manage Aliases…", slot=self.show_alias_management_dialog, tooltip="View and edit merge/split aliases and skipped genres")
         self.add_action(
-            tools_menu, "Recalculate Explicit Flags…", slot=self.show_explicit_recalc, tooltip="Scan every track with lyrics but no Explicit setting yet, and flag it against assets/explicit_words.txt"
+            tools_menu, "Recalculate Explicit Flags…", slot=self.show_explicit_recalc, tooltip="Scan every track with lyrics but no Explicit setting yet, and flag it against the explicit word list"
         )
         self.add_action(
             tools_menu, "Mood Tagging…", slot=self.show_mood_autotag_dialog, tooltip="Auto-tag tracks with moods and known places from their lyrics, and review lyrics words not yet assigned to a mood"

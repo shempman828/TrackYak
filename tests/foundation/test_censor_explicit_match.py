@@ -3,9 +3,8 @@ explicit_content_detection.md). Maps to AC5, AC6, and AC14 -- word-boundary
 matching, case-insensitivity, phrase support, and the hot-reload-on-file-
 change behavior this feature reuses from the existing censor.py cache.
 
-Each test points _WORDLIST_PATH at a throwaway tmp_path file instead of the
-real assets/explicit_words.txt, so these tests don't depend on -- or break
-when someone edits -- the real, user-maintained word list.
+Each test points _WORDLIST_PATH (and the config/ override) at throwaway
+tmp_path files, so these tests don't depend on the real word lists.
 """
 
 import os
@@ -21,6 +20,7 @@ def _isolated_wordlist(tmp_path, monkeypatch):
     wordlist = tmp_path / "explicit_words.txt"
     wordlist.write_text("# comment\nfuck\nshit\nass\nkiss the sky\n")
     monkeypatch.setattr(censor, "_WORDLIST_PATH", wordlist)
+    monkeypatch.setattr(censor, "_USER_WORDLIST_PATH", tmp_path / "config" / "explicit_words.txt")
     censor._cache["mtime"] = None
     censor._cache["pattern"] = None
     yield
@@ -88,3 +88,15 @@ def test_wordlist_mtime_check_is_throttled(monkeypatch):
     for _ in range(50):
         censor.text_contains_explicit_words("shit")
     assert calls == []
+
+
+def test_user_wordlist_in_config_overrides_bundled_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(censor, "_RECHECK_INTERVAL_S", 0.0)
+    assert censor.text_contains_explicit_words("newword here") is False
+
+    user_list = tmp_path / "config" / "explicit_words.txt"
+    user_list.parent.mkdir()
+    user_list.write_text("newword\n")
+
+    assert censor.text_contains_explicit_words("newword here") is True
+    assert censor.text_contains_explicit_words("shit") is False  # the default list no longer applies

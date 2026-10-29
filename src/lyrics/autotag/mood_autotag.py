@@ -48,7 +48,7 @@ def build_autotag_context(controller) -> AutotagContext:
     moods = controller.get.get_all_entities("Mood") or []
     mood_id_by_name = {m.mood_name: m.mood_id for m in moods}
 
-    # assets/mood_keywords.json is the live source of truth for what the
+    # config/mood_keywords.json is the live source of truth for what the
     # tagger can match (see mood_scoring.known_mood_names) -- a name can
     # end up there without a matching `Mood` DB row (hand-edited keyword
     # file, taxonomy drift from db_defaults.py's seed list, etc). Without

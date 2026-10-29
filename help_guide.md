@@ -498,7 +498,9 @@ map" link includes them. Use the **Type** button to
 show only certain place types, and **Stacking** if clusters are too
 aggressive or not aggressive enough for your zoom level. The "N places not
 on map" link opens the List tab filtered to the places that still need
-coordinates.
+coordinates. The map needs an internet connection. If the map cannot load,
+it shows a message instead of an empty panel. Open the Places page again to
+try again.
 
 **Working the list instead**: the list shows places in their parent/child
 hierarchy (a City under its State under its Country, for instance), or as one
@@ -1120,12 +1122,15 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   you.
 - **Recalculate Explicit Flags…** — scans lyrics for tracks that haven't had
   an Explicit flag set yet and fills it in. Never touches a flag you've set
-  by hand.
+  by hand. The default word list is `assets/explicit_words.txt`. To use your
+  own list, copy it to `config/explicit_words.txt` and edit the copy. When
+  that file exists, YakTrack uses it instead of the default, and picks up
+  changes without a restart.
 - **Mood Tagging…** — the automatic side of the Moods view: scans lyrics
   against a keyword list to tag tracks with moods (and known places), and
   surfaces common lyrics words that aren't mapped to a mood yet so you can
   assign or dismiss them. For a handful of tonally-opposed mood pairs (e.g.
-  Happy/Sad, Sleepy/Energetic — see `assets/mood_opposites.json`, which you
+  Happy/Sad, Sleepy/Energetic — see `config/mood_opposites.json`, which you
   can edit to add more), only the more strongly-matching mood of the pair
   gets tagged when both would otherwise clear the threshold; a near-even
   match still tags both rather than guessing. A place a track's lyrics

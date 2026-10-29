@@ -68,14 +68,7 @@ TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "assets" / "place_map_temp
 
 # Providers that require an API key, a token, or have started gating the
 # anonymous endpoint we used to rely on.
-FORBIDDEN_TILE_HOSTS = (
-    "basemaps.cartocdn.com",
-    "cartocdn.com",
-    "api.mapbox.com",
-    "tiles.stadiamaps.com",
-    "api.maptiler.com",
-    "tile.thunderforest.com",
-)
+FORBIDDEN_TILE_HOSTS = ("basemaps.cartocdn.com", "cartocdn.com", "api.mapbox.com", "tiles.stadiamaps.com", "api.maptiler.com", "tile.thunderforest.com")
 
 
 # The keyless provider we switched to.
@@ -105,3 +98,34 @@ def test_both_templates_upscale_past_native_zoom():
     fallback = MapView._get_fallback_template(None)
     assert "maxNativeZoom" in template
     assert "maxNativeZoom" in fallback
+
+
+def test_template_tints_only_the_basemap():
+    # A filter on #map would also shift the marker colors away from the legend.
+    template = TEMPLATE_PATH.read_text(encoding="utf-8")
+    map_rule = template.split("#map {", 1)[1].split("}", 1)[0]
+    assert "filter" not in map_rule
+    assert ".leaflet-tile-pane" in template
+
+
+def test_template_pins_every_cdn_script_and_stylesheet():
+    template = TEMPLATE_PATH.read_text(encoding="utf-8")
+    for tag in template.split("<")[1:]:
+        if "https://unpkg.com" in tag and (tag.startswith(("script", "link"))):
+            assert 'integrity="sha256-' in tag, tag
+
+
+def test_template_shows_a_message_when_leaflet_does_not_load():
+    template = TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert "typeof L === 'undefined'" in template
+    assert "map-load-error" in template
+
+
+def test_missing_leaflet_makes_the_next_refresh_reload_the_page():
+    view = SimpleNamespace(_map_initialized=True)
+    MapView._on_leaflet_check(view, True)
+    assert view._map_initialized is False
+
+    view = SimpleNamespace(_map_initialized=True)
+    MapView._on_leaflet_check(view, False)
+    assert view._map_initialized is True

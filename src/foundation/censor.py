@@ -1,4 +1,4 @@
-"""Explicit-word detection and display censorship from assets/explicit_words.txt."""
+"""Explicit-word detection and display censorship from the explicit word list."""
 
 # The word list has one entry per line ('#' comments allowed) and reloads when the file changes.
 
@@ -8,15 +8,17 @@ import time
 
 from PySide6.QtWidgets import QApplication
 
-from src.foundation.asset_paths import asset
+from src.foundation.asset_paths import asset, config
 from src.foundation.logger_config import logger
 
+# Bundled default list; a user copy in config/ wins because a frozen build's assets/ is read-only.
 _WORDLIST_PATH = Path(asset("explicit_words.txt"))
+_USER_WORDLIST_PATH = Path(config("explicit_words.txt"))
 
 # Minimum seconds between mtime checks; text_contains_explicit_words runs per track in backfills.
 _RECHECK_INTERVAL_S = 1.0
 
-_cache = {"mtime": None, "pattern": None, "checked_at": None, "path": None}
+_cache = {"mtime": None, "pattern": None, "checked_at": None, "path": None, "source": None}
 
 
 def _get_pattern():
@@ -26,18 +28,19 @@ def _get_pattern():
         return _cache["pattern"]
     _cache["checked_at"] = now
     _cache["path"] = _WORDLIST_PATH
+    source = _USER_WORDLIST_PATH if _USER_WORDLIST_PATH.is_file() else _WORDLIST_PATH
 
     try:
-        mtime = _WORDLIST_PATH.stat().st_mtime
+        mtime = source.stat().st_mtime
     except OSError:
         return _cache["pattern"]
 
-    if mtime == _cache["mtime"]:
+    if mtime == _cache["mtime"] and source == _cache["source"]:
         return _cache["pattern"]
 
     words = []
     try:
-        for line in _WORDLIST_PATH.read_text(encoding="utf-8").splitlines():
+        for line in source.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
                 words.append(line)
@@ -47,6 +50,7 @@ def _get_pattern():
 
     pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE) if words else None
     _cache["mtime"] = mtime
+    _cache["source"] = source
     _cache["pattern"] = pattern
     return pattern
 

@@ -238,7 +238,10 @@ class ConfigDialog(QDialog):
         layout.addRow("", self.blur_art_check)
 
         self.censor_words_check = QCheckBox("Censor explicit words")
-        self.censor_words_check.setToolTip("When enabled, words listed in assets/explicit_words.txt are masked with asterisks wherever text is displayed (lyrics, album titles, track titles, etc.).")
+        self.censor_words_check.setToolTip(
+            "When enabled, words in the explicit word list (config/explicit_words.txt, else assets/explicit_words.txt) "
+            "are masked with asterisks wherever text is displayed (lyrics, album titles, track titles, etc.)."
+        )
         if self.display_settings is not None:
             self.censor_words_check.toggled.connect(self.display_settings.set_censor_explicit_words)
         layout.addRow("", self.censor_words_check)
